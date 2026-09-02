@@ -28,8 +28,29 @@ builder.Services.AddControllersWithViews();
 var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
 if (!string.IsNullOrEmpty(databaseUrl))
 {
+    // DATABASE_URL from Render/Supabase is a URI like:
+    // postgresql://user:password@host:port/dbname
+    // Convert to Npgsql key=value format so special chars in password
+    // (e.g. '@') are handled correctly via Uri.UnescapeDataString.
+    string pgConnectionString;
+    try
+    {
+        var uri = new Uri(databaseUrl);
+        var userInfo = uri.UserInfo.Split(':', 2);
+        var username = Uri.UnescapeDataString(userInfo[0]);
+        var password = userInfo.Length > 1 ? Uri.UnescapeDataString(userInfo[1]) : "";
+        var host = uri.Host;
+        var port = uri.Port > 0 ? uri.Port : 5432;
+        var database = uri.AbsolutePath.TrimStart('/');
+        pgConnectionString = $"Host={host};Port={port};Database={database};Username={username};Password={password};SSL Mode=Require;Trust Server Certificate=true";
+    }
+    catch
+    {
+        // Already in key=value format, use as-is
+        pgConnectionString = databaseUrl;
+    }
     builder.Services.AddDbContext<AppDbContext>(options =>
-        options.UseNpgsql(databaseUrl));
+        options.UseNpgsql(pgConnectionString));
 }
 else
 {
