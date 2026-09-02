@@ -30,23 +30,32 @@ if (!string.IsNullOrEmpty(databaseUrl))
 {
     // DATABASE_URL from Render/Supabase is a URI like:
     // postgresql://user:password@host:port/dbname
-    // Convert to Npgsql key=value format so special chars in password
-    // (e.g. '@') are handled correctly via Uri.UnescapeDataString.
+    // Use LastIndexOf('@') so passwords containing '@' are handled correctly.
     string pgConnectionString;
     try
     {
-        var uri = new Uri(databaseUrl);
-        var userInfo = uri.UserInfo.Split(':', 2);
-        var username = Uri.UnescapeDataString(userInfo[0]);
-        var password = userInfo.Length > 1 ? Uri.UnescapeDataString(userInfo[1]) : "";
-        var host = uri.Host;
-        var port = uri.Port > 0 ? uri.Port : 5432;
-        var database = uri.AbsolutePath.TrimStart('/');
+        var withoutScheme = databaseUrl.Substring(databaseUrl.IndexOf("://") + 3);
+        var lastAt        = withoutScheme.LastIndexOf('@');
+        var userInfo      = withoutScheme.Substring(0, lastAt);
+        var hostPart      = withoutScheme.Substring(lastAt + 1);
+
+        var colonInUser = userInfo.IndexOf(':');
+        var username = Uri.UnescapeDataString(colonInUser >= 0 ? userInfo.Substring(0, colonInUser) : userInfo);
+        var password = colonInUser >= 0 ? Uri.UnescapeDataString(userInfo.Substring(colonInUser + 1)) : "";
+
+        var slashIdx = hostPart.IndexOf('/');
+        var hostPort = slashIdx >= 0 ? hostPart.Substring(0, slashIdx) : hostPart;
+        var database = slashIdx >= 0 ? hostPart.Substring(slashIdx + 1) : "postgres";
+
+        var colonInHost = hostPort.LastIndexOf(':');
+        var host = colonInHost >= 0 ? hostPort.Substring(0, colonInHost) : hostPort;
+        var port = colonInHost >= 0 && int.TryParse(hostPort.Substring(colonInHost + 1), out var p) ? p : 5432;
+
         pgConnectionString = $"Host={host};Port={port};Database={database};Username={username};Password={password};SSL Mode=Require;Trust Server Certificate=true";
+        Console.WriteLine($"✅ PostgreSQL parsed — Host={host} DB={database} User={username}");
     }
     catch
     {
-        // Already in key=value format, use as-is
         pgConnectionString = databaseUrl;
     }
     builder.Services.AddDbContext<AppDbContext>(options =>
