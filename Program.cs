@@ -169,24 +169,7 @@ app.UseForwardedHeaders(new ForwardedHeadersOptions
 
 if (!app.Environment.IsDevelopment())
 {
-    // TEMPORARY DIAGNOSTIC: show full exception in browser so we can see
-    // the real error without needing Render dashboard access.
-    // Replace this with app.UseExceptionHandler("/Home/Error") once fixed.
-    app.UseExceptionHandler(errorApp =>
-    {
-        errorApp.Run(async context =>
-        {
-            var ex = context.Features
-                .Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>()?.Error;
-            Console.WriteLine("❌ REQUEST EXCEPTION:\n" + ex);
-            context.Response.ContentType = "text/html; charset=utf-8";
-            await context.Response.WriteAsync(
-                "<!DOCTYPE html><html><body style='font-family:monospace;padding:2em'>" +
-                "<h2 style='color:red'>⚠️ Error Detail (diagnostic mode)</h2><pre>" +
-                System.Net.WebUtility.HtmlEncode(ex?.ToString() ?? "No exception captured") +
-                "</pre></body></html>");
-        });
-    });
+    app.UseExceptionHandler("/Home/Error");
     // NOTE: UseHsts and UseHttpsRedirection are intentionally omitted here.
     // Render (and most cloud hosts) terminate SSL at the load balancer and
     // forward plain HTTP to the container — the app must NOT redirect to
@@ -212,31 +195,68 @@ using (var scope = app.Services.CreateScope())
     {
         var creator = db.Database.GetService<IRelationalDatabaseCreator>();
 
-        // Step 1: Create the database itself if it doesn't exist
+        // Step 1: Ensure the database itself exists (no-op on Supabase —
+        // the 'postgres' DB always exists there).
         if (!creator.Exists())
             creator.Create();
 
-        // Step 2: Create tables if they don't exist yet.
-        // EnsureCreated() skips table creation when the DB already exists
-        // (e.g. Supabase always has an existing 'postgres' DB), so we use
-        // HasTables() + CreateTables() to force schema creation reliably.
-        if (!creator.HasTables())
+        // Step 2: Apply schema IDEMPOTENTLY using IF NOT EXISTS.
+        //
+        // WHY NOT HasTables()+CreateTables():
+        //   • Supabase always has an existing 'postgres' DB, so HasTables()
+        //     returns true even when none of OUR tables exist yet, causing
+        //     CreateTables() to be skipped entirely.
+        //   • Even if called, CreateTables() uses plain CREATE TABLE (no
+        //     IF NOT EXISTS), so the first already-existing object aborts
+        //     the whole batch and leaves the rest uncreated.
+        //
+        // SOLUTION: Generate the full EF Core DDL script and inject
+        // IF NOT EXISTS into every CREATE statement so each one is a safe
+        // no-op when the object already exists. Execute one statement at a
+        // time via raw ADO.NET (bypasses EF parameter parsing that would
+        // misinterpret '@' chars in PostgreSQL DDL).
+        Console.WriteLine("⚙️  Applying schema (idempotent IF NOT EXISTS)...");
+        var script = db.Database.GenerateCreateScript();
+
+        var conn = db.Database.GetDbConnection();
+        if (conn.State != System.Data.ConnectionState.Open)
+            conn.Open();
+
+        int ok = 0, skipped = 0;
+        foreach (var rawSql in script.Split(';').Select(s => s.Trim()).Where(s => s.Length > 0))
         {
-            Console.WriteLine("⚠️  No tables found — creating schema now...");
-            creator.CreateTables();
-            Console.WriteLine("✅ Schema created");
+            // Inject IF NOT EXISTS for each DDL object type
+            var sql = rawSql;
+            if (sql.StartsWith("CREATE TABLE ", StringComparison.OrdinalIgnoreCase))
+                sql = "CREATE TABLE IF NOT EXISTS " + sql["CREATE TABLE ".Length..];
+            else if (sql.StartsWith("CREATE UNIQUE INDEX ", StringComparison.OrdinalIgnoreCase))
+                sql = "CREATE UNIQUE INDEX IF NOT EXISTS " + sql["CREATE UNIQUE INDEX ".Length..];
+            else if (sql.StartsWith("CREATE INDEX ", StringComparison.OrdinalIgnoreCase))
+                sql = "CREATE INDEX IF NOT EXISTS " + sql["CREATE INDEX ".Length..];
+            else if (sql.StartsWith("CREATE SEQUENCE ", StringComparison.OrdinalIgnoreCase))
+                sql = "CREATE SEQUENCE IF NOT EXISTS " + sql["CREATE SEQUENCE ".Length..];
+
+            try
+            {
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = sql;
+                cmd.ExecuteNonQuery();
+                ok++;
+            }
+            catch (Exception stmtEx)
+            {
+                Console.WriteLine($"  ⚠️ Skipped (already exists): {stmtEx.Message.Split('\n')[0].Trim()}");
+                skipped++;
+            }
         }
-        else
-        {
-            Console.WriteLine("✅ Schema already present");
-        }
+        Console.WriteLine($"✅ Schema: {ok} applied, {skipped} already existed");
 
         SeedData.Run(db, app.Configuration);
         Console.WriteLine("✅ Database ready");
     }
     catch (Exception ex)
     {
-        Console.WriteLine("❌ DB INIT FAILED — this is the real error, please share this if the app still won't start:");
+        Console.WriteLine("❌ DB INIT FAILED:");
         Console.WriteLine(ex);
         if (app.Environment.IsDevelopment())
             throw;
