@@ -169,7 +169,24 @@ app.UseForwardedHeaders(new ForwardedHeadersOptions
 
 if (!app.Environment.IsDevelopment())
 {
-    app.UseExceptionHandler("/Home/Error");
+    // TEMPORARY DIAGNOSTIC: show full exception in browser so we can see
+    // the real error without needing Render dashboard access.
+    // Replace this with app.UseExceptionHandler("/Home/Error") once fixed.
+    app.UseExceptionHandler(errorApp =>
+    {
+        errorApp.Run(async context =>
+        {
+            var ex = context.Features
+                .Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>()?.Error;
+            Console.WriteLine("❌ REQUEST EXCEPTION:\n" + ex);
+            context.Response.ContentType = "text/html; charset=utf-8";
+            await context.Response.WriteAsync(
+                "<!DOCTYPE html><html><body style='font-family:monospace;padding:2em'>" +
+                "<h2 style='color:red'>⚠️ Error Detail (diagnostic mode)</h2><pre>" +
+                System.Net.WebUtility.HtmlEncode(ex?.ToString() ?? "No exception captured") +
+                "</pre></body></html>");
+        });
+    });
     // NOTE: UseHsts and UseHttpsRedirection are intentionally omitted here.
     // Render (and most cloud hosts) terminate SSL at the load balancer and
     // forward plain HTTP to the container — the app must NOT redirect to
