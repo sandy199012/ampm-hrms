@@ -4,9 +4,12 @@
     var emp = (Employee)ViewBag.Employee;
     var todayRecord = ViewBag.TodayRecord as AttendanceDaily;
     var todayPunches = ViewBag.TodayPunches as List<AttendancePunch> ?? new List<AttendancePunch>();
-    var recentAtt = ViewBag.RecentAttendance as List<AttendanceDaily> ?? new List<AttendanceDaily>();
+    var attendance   = ViewBag.Attendance as List<AttendanceDaily> ?? new List<AttendanceDaily>();
     var leaveBalances = ViewBag.LeaveBalances as List<LeaveBalance> ?? new List<LeaveBalance>();
     var pendingApps = ViewBag.PendingApplications as List<Application> ?? new List<Application>();
+
+    string fromDate = ViewBag.FromDate ?? "";
+    string toDate   = ViewBag.ToDate   ?? "";
 
     string StatusBadge(string s) => s switch {
         var x when x.StartsWith("P")   => "success",
@@ -172,17 +175,25 @@
         </div>
     </div>
 
-    @* ── Recent attendance ── *@
+    @* ── Attendance with date range filter ── *@
     <div class="col-lg-5">
         <div class="card h-100">
-            <div class="card-header d-flex align-items-center gap-2">
+            <div class="card-header d-flex align-items-center gap-2 flex-wrap">
                 <i class="bi bi-calendar-check" style="color:var(--primary);"></i>
-                <strong>Recent Attendance</strong>
+                <strong>Attendance</strong>
+                <span class="badge rounded-pill bg-primary-subtle text-primary ms-1" style="font-size:11px;">@attendance.Count records</span>
+                <form method="get" asp-action="Index" class="ms-auto d-flex align-items-center gap-1 flex-wrap" style="font-size:12px;">
+                    <input type="date" name="fromDate" value="@fromDate" class="form-control form-control-sm" style="width:130px;" />
+                    <span class="text-muted">to</span>
+                    <input type="date" name="toDate" value="@toDate" class="form-control form-control-sm" style="width:130px;" />
+                    <button type="submit" class="btn btn-sm btn-primary px-2"><i class="bi bi-funnel-fill"></i></button>
+                    <a href="@Url.Action("Index","EmployeeDashboard")" class="btn btn-sm btn-outline-secondary px-2" title="Reset to current month"><i class="bi bi-arrow-counterclockwise"></i></a>
+                </form>
             </div>
             <div class="card-body p-0" style="max-height:320px;overflow-y:auto;">
-                @if (!recentAtt.Any())
+                @if (!attendance.Any())
                 {
-                    <div class="text-center py-4 text-muted" style="font-size:13px;">No attendance records found.</div>
+                    <div class="text-center py-4 text-muted" style="font-size:13px;">No attendance records for this period.</div>
                 }
                 else
                 {
@@ -192,17 +203,25 @@
                                 <th style="font-weight:600;">Date</th>
                                 <th>In</th>
                                 <th>Out</th>
+                                <th>Worked</th>
                                 <th>Status</th>
                             </tr>
                         </thead>
                         <tbody>
-                            @foreach (var r in recentAtt)
+                            @foreach (var r in attendance)
                             {
                                 var d = DateTime.TryParse(r.Date, out var dt) ? dt.ToString("dd MMM, ddd") : r.Date;
                                 <tr>
                                     <td>@d</td>
                                     <td>@(r.InTime.HasValue ? DateTime.Today.Add(r.InTime.Value).ToString("HH:mm") : "—")</td>
                                     <td>@(r.OutTime.HasValue ? DateTime.Today.Add(r.OutTime.Value).ToString("HH:mm") : "—")</td>
+                                    <td style="font-size:12px;color:var(--text-muted);">
+                                        @if (r.WorkedMinutes.HasValue && r.WorkedMinutes > 0)
+                                        {
+                                            @($"{r.WorkedMinutes / 60}h {r.WorkedMinutes % 60}m")
+                                        }
+                                        else { <span>—</span> }
+                                    </td>
                                     <td>
                                         <span class="badge rounded-pill bg-@StatusBadge(r.EffectiveStatus)" style="font-size:11px;">
                                             @StatusLabel(r.EffectiveStatus)

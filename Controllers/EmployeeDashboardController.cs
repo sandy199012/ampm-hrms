@@ -18,7 +18,7 @@ namespace AmpmHrmsPro.Controllers
 
         int CurrentEmpId => int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
-        public IActionResult Index()
+        public IActionResult Index(string? fromDate = null, string? toDate = null)
         {
             var empId = CurrentEmpId;
             var emp = _db.Employees
@@ -34,11 +34,22 @@ namespace AmpmHrmsPro.Controllers
 
             var today      = DateTime.Today;
             var monthStart = new DateTime(today.Year, today.Month, 1);
-            var monthEnd   = monthStart.AddMonths(1).AddDays(-1);
+            var monthEnd   = new DateTime(today.Year, today.Month, 1).AddMonths(1).AddDays(-1);
 
             var monthStartStr = monthStart.ToString("yyyy-MM-dd");
             var monthEndStr   = monthEnd.ToString("yyyy-MM-dd");
             var todayStr      = today.ToString("yyyy-MM-dd");
+
+            // ── Default date range: current month 1st → today ─────────────
+            var attFrom = string.IsNullOrWhiteSpace(fromDate) ? monthStartStr : fromDate;
+            var attTo   = string.IsNullOrWhiteSpace(toDate)   ? todayStr      : toDate;
+
+            // Ensure from <= to
+            if (string.Compare(attFrom, attTo) > 0)
+                (attFrom, attTo) = (attTo, attFrom);
+
+            ViewBag.FromDate = attFrom;
+            ViewBag.ToDate   = attTo;
 
             // ── Today's punch ──────────────────────────────────────────────
             var todayRecord = _db.AttendanceDailies
@@ -66,11 +77,12 @@ namespace AmpmHrmsPro.Controllers
             ViewBag.HolidayDays  = monthRecords.Count(r => r.WasHoliday);
             ViewBag.WorkingDays  = monthRecords.Count(r => !r.WasWeekOff && !r.WasHoliday);
 
-            // ── Recent 10 attendance days ──────────────────────────────────
-            ViewBag.RecentAttendance = _db.AttendanceDailies
-                .Where(a => a.EmployeeId == empId)
+            // ── Attendance for selected date range ─────────────────────────
+            ViewBag.Attendance = _db.AttendanceDailies
+                .Where(a => a.EmployeeId == empId
+                         && string.Compare(a.Date, attFrom) >= 0
+                         && string.Compare(a.Date, attTo)   <= 0)
                 .OrderByDescending(a => a.Date)
-                .Take(10)
                 .ToList();
 
             // ── Leave balances ─────────────────────────────────────────────
@@ -97,7 +109,7 @@ namespace AmpmHrmsPro.Controllers
             }
             ViewBag.UpcomingHolidays = upcoming.OrderBy(x => x.Date).Take(5).ToList();
 
-            ViewData["Title"]    = $"My Dashboard";
+            ViewData["Title"]    = "My Dashboard";
             ViewData["Subtitle"] = $"Welcome, {emp.Name}";
             return View();
         }
