@@ -1,0 +1,123 @@
+@model List<Application>
+@{
+    ViewData["Title"] = "Applications";
+    ViewData["Subtitle"] = "Leave / Regularisation / WFH / OD / Comp-Off Credits";
+    var employees = (List<Employee>)ViewBag.EmployeeList;
+    string? status = ViewBag.Status; string? type = ViewBag.Type; int? employeeId = ViewBag.EmployeeId;
+    int pendingCount = ViewBag.PendingCount;
+}
+
+<div class="page-header">
+    <div>
+        <h1>Applications</h1>
+        <p>@Model.Count shown @(pendingCount > 0 ? $"— {pendingCount} pending approval" : "")</p>
+    </div>
+    <a href="@Url.Action("Apply")" class="btn btn-primary"><i class="bi bi-plus-lg me-1"></i> New Application</a>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <form method="get" asp-action="Index" class="row g-2 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label">Employee</label>
+                <select name="employeeId" class="form-select" onchange="this.form.submit()">
+                    <option value="">All Employees</option>
+                    @foreach (var e in employees) { <option value="@e.Id" selected="@(employeeId == e.Id)">@e.EmpCode — @e.Name</option> }
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Type</label>
+                <select name="type" class="form-select" onchange="this.form.submit()">
+                    <option value="">All Types</option>
+                    @foreach (var t in new[] { "Leave", "Regularisation", "WFH", "OD", "CompOff" }) { <option value="@t" selected="@(type == t)">@(t == "CompOff" ? "Comp-Off Credit" : t)</option> }
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Status</label>
+                <select name="status" class="form-select" onchange="this.form.submit()">
+                    <option value="">All Status</option>
+                    @foreach (var s in new[] { "Pending", "Approved", "Rejected", "Revoked", "Cancelled" }) { <option value="@s" selected="@(status == s)">@s</option> }
+                </select>
+            </div>
+            <div class="col-md-3">
+                <a href="@Url.Action("Index")" class="btn btn-light w-100">Clear Filters</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body p-0" style="overflow-x:auto;">
+        @if (!Model.Any())
+        {
+            <div class="empty-state"><i class="bi bi-inbox"></i>No applications found.</div>
+        }
+        else
+        {
+            <table class="table mb-0">
+                <thead>
+                    <tr><th>Employee</th><th>Type</th><th>From</th><th>To</th><th>Days</th><th>Reason</th><th>Approver</th><th>Applied On</th><th>Status</th><th></th></tr>
+                </thead>
+                <tbody>
+                @foreach (var a in Model)
+                {
+                    <tr>
+                        <td>@a.Employee?.EmpCode — @a.Employee?.Name</td>
+                        <td>
+                            @if (a.Type == "Leave" && a.LeaveType != null)
+                            { @($"Leave ({a.LeaveType.Alias})") }
+                            else if (a.Type == "CompOff")
+                            { <span class="badge badge-soft-info">Comp-Off Credit</span> }
+                            else
+                            { @a.Type }
+                        </td>
+                        <td>@a.FromDate</td>
+                        <td>@a.ToDate</td>
+                        <td>@a.DurationDays</td>
+                        <td style="max-width:220px;white-space:normal;">@a.Reason</td>
+                        <td>@(a.Approver?.Name ?? a.PendingAt)</td>
+                        <td>@a.AppliedOn.ToString("dd-MMM-yyyy")</td>
+                        <td>
+                            @{
+                                var badgeClass = a.Status switch
+                                {
+                                    "Approved" => "badge-soft-success",
+                                    "Pending" => "badge-soft-warning",
+                                    "Rejected" => "badge-soft-danger",
+                                    _ => "badge-soft-gray"
+                                };
+                            }
+                            <span class="badge @badgeClass">@a.Status</span>
+                        </td>
+                        <td>
+                            @if (a.Status == "Pending")
+                            {
+                                <div class="d-flex gap-1">
+                                    <form method="post" asp-action="Approve" style="display:inline;">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="id" value="@a.Id" />
+                                        <button type="submit" class="btn btn-sm btn-light text-success" title="Approve"><i class="bi bi-check-lg"></i></button>
+                                    </form>
+                                    <form method="post" asp-action="Reject" style="display:inline;">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="id" value="@a.Id" />
+                                        <button type="submit" class="btn btn-sm btn-light text-danger" title="Reject"><i class="bi bi-x-lg"></i></button>
+                                    </form>
+                                </div>
+                            }
+                            else if (a.Status == "Approved")
+                            {
+                                <form method="post" asp-action="Revoke" style="display:inline;">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="id" value="@a.Id" />
+                                    <button type="submit" class="btn btn-sm btn-light text-secondary" title="Revoke" onclick="return confirm('Revoke this approved application?')"><i class="bi bi-arrow-counterclockwise"></i></button>
+                                </form>
+                            }
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        }
+    </div>
+</div>

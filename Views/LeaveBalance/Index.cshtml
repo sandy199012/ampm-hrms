@@ -1,0 +1,178 @@
+@model List<AmpmHrmsPro.Models.LeaveBalance>
+@{
+    ViewData["Title"] = "Leave Balances";
+    string leaveType  = ViewBag.SelectedLeaveType;
+    string search     = ViewBag.Search;
+    int    year       = ViewBag.Year;
+    var    years      = (List<int>)ViewBag.Years;
+
+    var months = new[] { "Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec" };
+}
+
+<style>
+    .filter-bar { display:flex; flex-wrap:wrap; gap:.75rem; align-items:flex-end; margin-bottom:1.25rem; }
+    .tbl-leave { font-size:.78rem; }
+    .tbl-leave th { white-space:nowrap; background:var(--bs-primary); color:#fff; }
+    .tbl-leave td { white-space:nowrap; }
+    .tbl-leave tfoot td { font-weight:600; background:var(--bs-light); }
+    .badge-el { background:#0d6efd; color:#fff; }
+    .badge-cl { background:#198754; color:#fff; }
+    .badge-sl { background:#dc3545; color:#fff; }
+    .num-cell { text-align:right; }
+    .zero { color:#aaa; }
+    .summary-cards { display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:1.25rem; }
+    .summary-card { background:#fff; border:1px solid #e0e0e0; border-radius:10px; padding:.75rem 1.25rem; min-width:160px; }
+    .summary-card .val { font-size:1.5rem; font-weight:700; }
+    .summary-card .lbl { font-size:.75rem; color:#888; }
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h5 class="mb-0">Leave Balances — @year</h5>
+    <a asp-action="BulkUpload" class="btn btn-primary btn-sm">
+        <i class="bi bi-file-earmark-arrow-up"></i> Bulk Upload
+    </a>
+</div>
+
+<form method="get" class="filter-bar">
+    <input type="hidden" name="year" value="@year" />
+    <div>
+        <label class="form-label mb-1" style="font-size:.78rem;">Year</label>
+        <select name="year" class="form-select form-select-sm" style="width:100px;" onchange="this.form.submit()">
+            @foreach (var y in years)
+            {
+                <option value="@y" selected="@(y==year)">@y</option>
+            }
+        </select>
+    </div>
+    <div>
+        <label class="form-label mb-1" style="font-size:.78rem;">Leave Type</label>
+        <select name="leaveType" class="form-select form-select-sm" style="width:110px;">
+            <option value="">All</option>
+            <option value="EL" selected="@(leaveType=="EL")">EL</option>
+            <option value="CL" selected="@(leaveType=="CL")">CL</option>
+            <option value="SL" selected="@(leaveType=="SL")">SL</option>
+        </select>
+    </div>
+    <div>
+        <label class="form-label mb-1" style="font-size:.78rem;">Search</label>
+        <input name="search" class="form-control form-control-sm" placeholder="Emp code / Name" value="@search" style="width:200px;" />
+    </div>
+    <button type="submit" class="btn btn-secondary btn-sm">Filter</button>
+</form>
+
+@{
+    decimal sumCF = Model.Sum(b => b.CarryForward);
+    decimal sumEarned = Model.Sum(b => b.TotalEarned);
+    decimal sumConsumed = Model.Sum(b => b.TotalConsumed);
+    decimal sumBalance = Model.Sum(b => b.Balance);
+}
+<div class="summary-cards">
+    <div class="summary-card">
+        <div class="val text-primary">@Model.Count</div>
+        <div class="lbl">Records</div>
+    </div>
+    <div class="summary-card">
+        <div class="val text-info">@sumCF.ToString("F3")</div>
+        <div class="lbl">Total Carry Forward</div>
+    </div>
+    <div class="summary-card">
+        <div class="val text-success">@sumEarned.ToString("F3")</div>
+        <div class="lbl">Total Earned</div>
+    </div>
+    <div class="summary-card">
+        <div class="val text-danger">@sumConsumed.ToString("F3")</div>
+        <div class="lbl">Total Consumed</div>
+    </div>
+    <div class="summary-card">
+        <div class="val text-dark">@sumBalance.ToString("F3")</div>
+        <div class="lbl">Net Balance</div>
+    </div>
+</div>
+
+@if (!Model.Any())
+{
+    <div class="alert alert-info"><i class="bi bi-info-circle"></i> No records found. Use <strong>Bulk Upload</strong> to import leave balance data.</div>
+}
+else
+{
+<div class="table-responsive">
+    <table class="table table-bordered table-hover tbl-leave">
+        <thead>
+            <tr>
+                <th>Emp Code</th>
+                <th>Name</th>
+                <th>Type</th>
+                <th>CF</th>
+                @foreach (var m in months) { <th>@m ▲</th> }
+                <th>Tot Earned</th>
+                @foreach (var m in months) { <th>@m ▼</th> }
+                <th>Tot Consumed</th>
+                <th>Balance</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        @foreach (var b in Model)
+        {
+            <tr>
+                <td>
+                    <a asp-action="Employee" asp-route-id="@b.EmployeeId" asp-route-year="@year"
+                       class="text-decoration-none fw-semibold">@b.Employee!.EmpCode</a>
+                </td>
+                <td>@b.Employee.Name</td>
+                <td>
+                    <span class="badge @(b.LeaveTypeCode=="EL"?"badge-el":b.LeaveTypeCode=="CL"?"badge-cl":"badge-sl")">@b.LeaveTypeCode</span>
+                </td>
+                <td class="num-cell">@(b.CarryForward == 0 ? "<span class='zero'>—</span>" : b.CarryForward.ToString("F3"))</td>
+                @for (int i = 0; i < 12; i++)
+                {
+                    var v = b.EarnedByMonth[i];
+                    <td class="num-cell">@(v==0?"<span class='zero'>—</span>":v.ToString("F3"))</td>
+                }
+                <td class="num-cell fw-semibold text-success">@b.TotalEarned.ToString("F3")</td>
+                @for (int i = 0; i < 12; i++)
+                {
+                    var v = b.ConsumedByMonth[i];
+                    <td class="num-cell">@(v==0?"<span class='zero'>—</span>":v.ToString("F3"))</td>
+                }
+                <td class="num-cell fw-semibold text-danger">@b.TotalConsumed.ToString("F3")</td>
+                <td class="num-cell fw-bold @(b.Balance<0?"text-danger":"text-dark")">@b.Balance.ToString("F3")</td>
+                <td>
+                    <form asp-action="Delete" method="post" onsubmit="return confirm('Delete this record?')">
+                        <input type="hidden" name="id" value="@b.Id" />
+                        @Html.AntiForgeryToken()
+                        <button class="btn btn-link text-danger p-0 btn-sm" title="Delete"><i class="bi bi-trash"></i></button>
+                    </form>
+                </td>
+            </tr>
+        }
+        </tbody>
+        <tfoot>
+            <tr>
+                <td colspan="3"><strong>TOTAL</strong></td>
+                <td class="num-cell">@sumCF.ToString("F3")</td>
+                @for (int i = 0; i < 12; i++)
+                {
+                    <td class="num-cell">@Model.Sum(b=>b.EarnedByMonth[i]).ToString("F3")</td>
+                }
+                <td class="num-cell text-success">@sumEarned.ToString("F3")</td>
+                @for (int i = 0; i < 12; i++)
+                {
+                    <td class="num-cell">@Model.Sum(b=>b.ConsumedByMonth[i]).ToString("F3")</td>
+                }
+                <td class="num-cell text-danger">@sumConsumed.ToString("F3")</td>
+                <td class="num-cell fw-bold">@sumBalance.ToString("F3")</td>
+                <td></td>
+            </tr>
+        </tfoot>
+    </table>
+</div>
+}
+
+@if (TempData["UploadErrors"] != null)
+{
+    <div class="alert alert-warning mt-3">
+        <strong>Import warnings:</strong><br />
+        <pre style="font-size:.75rem;margin:0">@TempData["UploadErrors"]</pre>
+    </div>
+}

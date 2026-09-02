@@ -1,0 +1,106 @@
+@model List<AttendancePunch>
+@{
+    ViewData["Title"] = "Manual Attendance Entry";
+    ViewData["Subtitle"] = "Attendance";
+    var employees = (List<Employee>)ViewBag.EmployeeList;
+    int? selEmp = ViewBag.SelectedEmployeeId;
+    string selDate = ViewBag.SelectedDate;
+}
+
+<div class="page-header">
+    <div>
+        <h1>Manual Attendance Entry</h1>
+        <p>Add or fix punches for one employee on one day</p>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <form method="get" asp-action="ManualEntry" class="row g-2 align-items-end">
+            <div class="col-md-6">
+                <label class="form-label">Employee</label>
+                <select name="employeeId" class="form-select" required>
+                    <option value="">— Select —</option>
+                    @foreach (var e in employees)
+                    {
+                        <option value="@e.Id" selected="@(selEmp == e.Id)">@e.EmpCode — @e.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Date</label>
+                <input type="date" name="date" class="form-control" value="@selDate" required />
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-primary w-100">Load</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+@if (selEmp.HasValue)
+{
+    <div class="row g-3">
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header">Existing Punches</div>
+                <div class="card-body p-0">
+                    @if (!Model.Any())
+                    {
+                        <div class="empty-state"><i class="bi bi-fingerprint"></i>No punches recorded for this day.</div>
+                    }
+                    else
+                    {
+                        <table class="table mb-0">
+                            <thead><tr><th>Time</th><th>Direction</th><th>Source</th><th></th></tr></thead>
+                            <tbody>
+                            @foreach (var p in Model)
+                            {
+                                <tr>
+                                    <td>@p.PunchDateTime.ToString("hh:mm:ss tt")</td>
+                                    <td>@p.Direction</td>
+                                    <td>@p.Source</td>
+                                    <td>
+                                        <form method="post" asp-action="DeleteManualPunch" style="display:inline;">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="id" value="@p.Id" />
+                                            <input type="hidden" name="employeeId" value="@selEmp" />
+                                            <input type="hidden" name="date" value="@selDate" />
+                                            <button type="submit" class="btn btn-sm btn-light text-danger" onclick="return confirm('Delete this punch?')"><i class="bi bi-trash-fill"></i></button>
+                                        </form>
+                                    </td>
+                                </tr>
+                            }
+                            </tbody>
+                        </table>
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header">Add a Punch</div>
+                <div class="card-body">
+                    <form method="post" asp-action="SaveManualPunch">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="employeeId" value="@selEmp" />
+                        <input type="hidden" name="date" value="@selDate" />
+                        <div class="mb-3">
+                            <label class="form-label">Time</label>
+                            <input type="time" name="time" step="1" class="form-control" required />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Direction</label>
+                            <select name="direction" class="form-select">
+                                <option value="In">In</option>
+                                <option value="Out">Out</option>
+                                <option value="Unknown">Unknown (auto: earliest=In, latest=Out)</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-primary"><i class="bi bi-plus-lg me-1"></i> Add &amp; Recompute Day</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+}

@@ -1,0 +1,94 @@
+@{
+    ViewData["Title"] = "Bulk Attendance Import";
+    ViewData["Subtitle"] = "Attendance";
+    var profiles = (List<AttendanceImportProfile>)ViewBag.Profiles;
+}
+
+<div class="page-header">
+    <div>
+        <h1>Bulk Attendance Import</h1>
+        <p>Upload a punch export from any biometric machine — map its columns once, reuse the mapping every month</p>
+    </div>
+    <a href="@Url.Action("ApiSettings")" class="btn btn-light"><i class="bi bi-plug-fill me-1"></i> API Settings instead</a>
+</div>
+
+<div class="row g-3">
+    @if (profiles.Any())
+    {
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header"><i class="bi bi-repeat me-1"></i> Import using a saved mapping</div>
+                <div class="card-body">
+                    <p class="text-soft mb-3" style="font-size:12.5px;">Already mapped this machine's export before? Pick the profile and upload this month's file directly — no remapping needed.</p>
+                    <form method="post" asp-action="ImportWithProfile" enctype="multipart/form-data">
+                        @Html.AntiForgeryToken()
+                        <div class="mb-3">
+                            <label class="form-label">Mapping Profile</label>
+                            <select name="profileId" class="form-select" required>
+                                @foreach (var p in profiles)
+                                {
+                                    <option value="@p.Id">@p.Name (@(p.Format == "PerDayMultiPunch" ? "one row/day" : "one row/punch"))</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">File</label>
+                            <input type="file" name="file" class="form-control" accept=".xlsx,.xls,.csv" required />
+                        </div>
+                        <button type="submit" class="btn btn-primary"><i class="bi bi-upload me-1"></i> Import</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    }
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header"><i class="bi bi-file-earmark-arrow-up me-1"></i> Upload a new / different file</div>
+            <div class="card-body">
+                <p class="text-soft mb-3" style="font-size:12.5px;">First time importing from this machine, or the export layout changed? Upload the file and you'll be shown its columns to map — one row per punch, or one row per employee-per-day with several punch-time columns, either works.</p>
+                <form method="post" asp-action="UploadForMapping" enctype="multipart/form-data">
+                    @Html.AntiForgeryToken()
+                    <div class="mb-3">
+                        <label class="form-label">Excel / CSV File</label>
+                        <input type="file" name="file" class="form-control" accept=".xlsx,.xls,.csv" required />
+                    </div>
+                    <button type="submit" class="btn btn-primary"><i class="bi bi-arrow-right-circle me-1"></i> Continue to Map Columns</button>
+                    <a href="@Url.Action("DownloadAttendanceTemplate")" class="btn btn-light"><i class="bi bi-download me-1"></i> Sample Template</a>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (profiles.Any())
+{
+    <div class="card mt-3">
+        <div class="card-header">Saved Mapping Profiles</div>
+        <div class="card-body p-0">
+            <table class="table mb-0">
+                <thead><tr><th>Name</th><th>Format</th><th>Employee Code Column</th><th></th></tr></thead>
+                <tbody>
+                @foreach (var p in profiles)
+                {
+                    <tr>
+                        <td>@p.Name</td>
+                        <td>@(p.Format == "PerDayMultiPunch" ? "One row per employee/day" : "One row per punch")</td>
+                        <td>@p.EmployeeCodeColumn</td>
+                        <td><button class="btn btn-sm btn-light text-danger" onclick="deleteProfile(@p.Id)"><i class="bi bi-trash-fill"></i></button></td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@section Scripts {
+<script>
+function deleteProfile(id) {
+    if (!confirm('Delete this mapping profile?')) return;
+    fetch('@Url.Action("DeleteImportProfile")', { method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded'}, body: `id=${id}` })
+        .then(r => r.json()).then(d => { if (d.success) location.reload(); });
+}
+</script>
+}

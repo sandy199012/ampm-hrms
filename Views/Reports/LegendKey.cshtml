@@ -1,0 +1,66 @@
+@{
+    ViewData["Title"] = "Legend & Key";
+    ViewData["Subtitle"] = "Reports";
+}
+
+<div class="page-header">
+    <div>
+        <h1>Legend &amp; Key</h1>
+        <p>What every code and color means across the reports</p>
+    </div>
+</div>
+
+<div class="row g-3">
+    <div class="col-lg-6">
+        <div class="card mb-3">
+            <div class="card-header">Attendance Status Codes</div>
+            <div class="card-body p-0">
+                <table class="table mb-0">
+                    <thead><tr><th>Code</th><th>Meaning</th><th>Color</th></tr></thead>
+                    <tbody>
+                        <tr><td><strong>P</strong></td><td>Present (Full Day)</td><td><span class="badge" style="background:#E2EFDA;color:#375623;">&nbsp;&nbsp;&nbsp;</span></td></tr>
+                        <tr><td><strong>A</strong></td><td>Absent</td><td><span class="badge" style="background:#FFC7CE;color:#9C0006;">&nbsp;&nbsp;&nbsp;</span></td></tr>
+                        <tr><td><strong>A (MIS-Morning)</strong></td><td>Absent - Missed Morning (In) Punch</td><td><span class="badge" style="background:#FFF2CC;color:#9C6500;">&nbsp;&nbsp;&nbsp;</span></td></tr>
+                        <tr><td><strong>A (MIS-Evening)</strong></td><td>Absent - Missed Evening (Out) Punch</td><td><span class="badge" style="background:#FFF2CC;color:#9C6500;">&nbsp;&nbsp;&nbsp;</span></td></tr>
+                        <tr><td><strong>HD</strong></td><td>Half Day</td><td><span class="badge" style="background:#FFF2CC;color:#9C6500;">&nbsp;&nbsp;&nbsp;</span></td></tr>
+                        <tr><td><strong>L (CL)</strong></td><td>Leave - Casual</td><td><span class="badge" style="background:#E2EFDA;color:#375623;">&nbsp;&nbsp;&nbsp;</span></td></tr>
+                        <tr><td><strong>L (SL)</strong></td><td>Leave - Sick</td><td><span class="badge" style="background:#E2EFDA;color:#375623;">&nbsp;&nbsp;&nbsp;</span></td></tr>
+                        <tr><td><strong>L (EL)</strong></td><td>Leave - Earned</td><td><span class="badge" style="background:#E2EFDA;color:#375623;">&nbsp;&nbsp;&nbsp;</span></td></tr>
+                        <tr><td><strong>WO</strong></td><td>Week Off</td><td><span class="badge" style="background:#D6DCE4;color:#44546A;">&nbsp;&nbsp;&nbsp;</span></td></tr>
+                        <tr style="background:#2E4A7A;color:#fff;"><td><strong>POW</strong></td><td>Present on Week Off</td><td>&nbsp;</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="card mb-3">
+            <div class="card-header">Application Type Codes (in brackets on Attendance Register)</div>
+            <div class="card-body p-0">
+                <table class="table mb-0">
+                    <thead><tr><th>Code</th><th>Application Type</th></tr></thead>
+                    <tbody>
+                        <tr><td><strong>[L]</strong></td><td>Leave Application</td></tr>
+                        <tr><td><strong>[O]</strong></td><td>On Duty Application</td></tr>
+                        <tr><td><strong>[R]</strong></td><td>Regularisation Request</td></tr>
+                        <tr><td><strong>[W]</strong></td><td>Work From Home Request</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-header">Approval Status Colors</div>
+            <div class="card-body p-0">
+                <table class="table mb-0">
+                    <thead><tr><th>Status</th><th>Description</th></tr></thead>
+                    <tbody>
+                        <tr><td><span class="badge badge-soft-success">Approved</span></td><td>Application approved by manager</td></tr>
+                        <tr><td><span class="badge badge-soft-warning">Pending</span></td><td>Awaiting manager approval</td></tr>
+                        <tr><td><span class="badge badge-soft-danger">Rejected</span></td><td>Application rejected</td></tr>
+                        <tr><td><span class="badge badge-soft-gray">Revoked</span></td><td>Application revoked/cancelled</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>

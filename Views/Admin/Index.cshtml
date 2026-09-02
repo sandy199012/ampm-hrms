@@ -1,0 +1,190 @@
+@{
+    ViewData["Title"] = "Dashboard";
+    ViewData["Subtitle"] = "Overview of your organization";
+}
+
+<div class="page-header">
+    <div>
+        <h1>Welcome back 👋</h1>
+        <p>Here's what's happening across AMPM Fashions today.</p>
+    </div>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-md-6 col-xl-3">
+        <div class="stat-card">
+            <div class="stat-icon" style="background:var(--primary-light);color:var(--primary-dark);"><i class="bi bi-people-fill"></i></div>
+            <div>
+                <div class="stat-value">@ViewBag.TotalEmployees</div>
+                <div class="stat-label">Active Employees</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6 col-xl-3">
+        <div class="stat-card">
+            <div class="stat-icon" style="background:var(--accent-light);color:var(--accent);"><i class="bi bi-diagram-3-fill"></i></div>
+            <div>
+                <div class="stat-value">@ViewBag.Departments</div>
+                <div class="stat-label">Departments</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6 col-xl-3">
+        <div class="stat-card">
+            <div class="stat-icon" style="background:var(--info-light);color:var(--info);"><i class="bi bi-award-fill"></i></div>
+            <div>
+                <div class="stat-value">@ViewBag.Designations</div>
+                <div class="stat-label">Designations</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6 col-xl-3">
+        <div class="stat-card">
+            <div class="stat-icon" style="background:var(--warning-light);color:var(--warning);"><i class="bi bi-geo-alt-fill"></i></div>
+            <div>
+                <div class="stat-value">@ViewBag.Locations</div>
+                <div class="stat-label">Locations</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6 col-xl-3">
+        <div class="stat-card">
+            <div class="stat-icon" style="background:var(--success-light);color:var(--success);"><i class="bi bi-clock-fill"></i></div>
+            <div>
+                <div class="stat-value">@ViewBag.Shifts</div>
+                <div class="stat-label">Shifts Configured</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6 col-xl-3">
+        <div class="stat-card">
+            <div class="stat-icon" style="background:var(--danger-light);color:var(--danger);"><i class="bi bi-calendar-event-fill"></i></div>
+            <div>
+                <div class="stat-value">@ViewBag.Holidays</div>
+                <div class="stat-label">Holidays (@DateTime.Now.Year)</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6 col-xl-3">
+        <div class="stat-card">
+            <div class="stat-icon" style="background:var(--primary-light);color:var(--primary-dark);"><i class="bi bi-envelope-paper-fill"></i></div>
+            <div>
+                <div class="stat-value">@ViewBag.LeaveTypes</div>
+                <div class="stat-label">Leave Types</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 mb-4">
+    <div class="col-lg-4">
+        <div class="card h-100">
+            <div class="card-header"><i class="bi bi-balloon-fill me-1" style="color:var(--primary);"></i> Upcoming Birthdays</div>
+            <div class="card-body" style="max-height:340px;overflow-y:auto;">
+                @if (((List<UpcomingBirthdayVm>)ViewBag.UpcomingBirthdays).Count == 0)
+                {
+                    <p class="text-muted small mb-0">No birthdays in the next 30 days.</p>
+                }
+                else
+                {
+                    foreach (var b in (List<UpcomingBirthdayVm>)ViewBag.UpcomingBirthdays)
+                    {
+                        <div class="d-flex justify-content-between align-items-center py-2" style="border-bottom:1px solid var(--border);">
+                            <div>
+                                <div class="fw-semibold" style="font-size:13.5px;">@b.Name <span class="text-muted">(@b.EmpCode)</span></div>
+                                <div class="text-muted" style="font-size:12px;">@(b.DeptName ?? "—") · @b.NextBirthday.ToString("dd MMM")</div>
+                            </div>
+                            <span class="badge rounded-pill" style="background:var(--primary-light);color:var(--primary-dark);">
+                                @(b.DaysAway == 0 ? "Today" : b.DaysAway == 1 ? "Tomorrow" : $"in {b.DaysAway}d")
+                            </span>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card h-100">
+            <div class="card-header"><i class="bi bi-person-plus-fill me-1" style="color:var(--success);"></i> New Joinings (last 30 days)</div>
+            <div class="card-body" style="max-height:340px;overflow-y:auto;">
+                @if (((List<RecentJoiningVm>)ViewBag.RecentJoinings).Count == 0)
+                {
+                    <p class="text-muted small mb-0">No one has joined in the last 30 days.</p>
+                }
+                else
+                {
+                    foreach (var j in (List<RecentJoiningVm>)ViewBag.RecentJoinings)
+                    {
+                        <div class="d-flex justify-content-between align-items-center py-2" style="border-bottom:1px solid var(--border);">
+                            <div>
+                                <div class="fw-semibold" style="font-size:13.5px;">@j.Name <span class="text-muted">(@j.EmpCode)</span></div>
+                                <div class="text-muted" style="font-size:12px;">@(j.DeptName ?? "—") · Joined @j.DOJ.ToString("dd MMM yyyy")</div>
+                            </div>
+                            <span class="badge rounded-pill" style="background:var(--success-light);color:var(--success);">
+                                @(j.DaysAgo == 0 ? "Today" : j.DaysAgo == 1 ? "Yesterday" : $"{j.DaysAgo}d ago")
+                            </span>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card h-100">
+            <div class="card-header"><i class="bi bi-calendar-event-fill me-1" style="color:var(--danger);"></i> Upcoming Holidays</div>
+            <div class="card-body" style="max-height:340px;overflow-y:auto;">
+                @if (((List<UpcomingHolidayVm>)ViewBag.UpcomingHolidays).Count == 0)
+                {
+                    <p class="text-muted small mb-0">No holidays scheduled.</p>
+                }
+                else
+                {
+                    foreach (var h in (List<UpcomingHolidayVm>)ViewBag.UpcomingHolidays)
+                    {
+                        <div class="d-flex justify-content-between align-items-center py-2" style="border-bottom:1px solid var(--border);">
+                            <div>
+                                <div class="fw-semibold" style="font-size:13.5px;">@h.Name</div>
+                                <div class="text-muted" style="font-size:12px;">@h.Type · @h.Date.ToString("dd MMM yyyy, dddd")</div>
+                            </div>
+                            <span class="badge rounded-pill" style="background:var(--danger-light);color:var(--danger);">
+                                @(h.DaysAway == 0 ? "Today" : h.DaysAway == 1 ? "Tomorrow" : $"in {h.DaysAway}d")
+                            </span>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">Quick Actions</div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-3 col-6">
+                <a href="@Url.Action("AddEmployee","Admin")" class="d-block text-decoration-none p-3 rounded-3" style="border:1px solid var(--border);">
+                    <i class="bi bi-person-plus-fill" style="font-size:22px;color:var(--primary);"></i>
+                    <div class="fw-semibold mt-2" style="font-size:13.5px;color:var(--text);">Add Employee</div>
+                </a>
+            </div>
+            <div class="col-md-3 col-6">
+                <a href="@Url.Action("Masters","Admin")" class="d-block text-decoration-none p-3 rounded-3" style="border:1px solid var(--border);">
+                    <i class="bi bi-diagram-3-fill" style="font-size:22px;color:var(--accent);"></i>
+                    <div class="fw-semibold mt-2" style="font-size:13.5px;color:var(--text);">Manage Departments</div>
+                </a>
+            </div>
+            <div class="col-md-3 col-6">
+                <a href="@Url.Action("Shifts","Admin")" class="d-block text-decoration-none p-3 rounded-3" style="border:1px solid var(--border);">
+                    <i class="bi bi-clock-fill" style="font-size:22px;color:var(--info);"></i>
+                    <div class="fw-semibold mt-2" style="font-size:13.5px;color:var(--text);">Configure Shifts</div>
+                </a>
+            </div>
+            <div class="col-md-3 col-6">
+                <a href="@Url.Action("LeaveTypes","Admin")" class="d-block text-decoration-none p-3 rounded-3" style="border:1px solid var(--border);">
+                    <i class="bi bi-envelope-paper-fill" style="font-size:22px;color:var(--warning);"></i>
+                    <div class="fw-semibold mt-2" style="font-size:13.5px;color:var(--text);">Leave Types</div>
+                </a>
+            </div>
+        </div>
+    </div>
+</div>

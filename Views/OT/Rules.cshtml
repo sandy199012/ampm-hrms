@@ -1,0 +1,231 @@
+@model List<OTRule>
+@{
+    ViewData["Title"] = "OT Rules";
+    ViewData["Subtitle"] = "Overtime";
+}
+
+<div class="page-header">
+    <div>
+        <h1>OT Rules</h1>
+        <p>Define overtime rules — thresholds, rates, and triggers for Worker-category employees</p>
+    </div>
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#ruleModal" onclick="openNew()">
+        <i class="bi bi-plus-lg me-1"></i>New Rule
+    </button>
+</div>
+
+@if (TempData["Success"] != null) { <div class="alert alert-success">@TempData["Success"]</div> }
+@if (TempData["Error"]   != null) { <div class="alert alert-danger">@TempData["Error"]</div> }
+
+<div class="table-wrap">
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Rule Name</th>
+                <th>OT Type</th>
+                <th>Triggers</th>
+                <th>Min OT</th>
+                <th>Normal Rate</th>
+                <th>Holiday Rate</th>
+                <th>Status</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        @if (!Model.Any())
+        {
+            <tr><td colspan="8"><div class="empty-state"><i class="bi bi-clock-history"></i>No OT rules yet. Create one to get started.</div></td></tr>
+        }
+        @foreach (var r in Model)
+        {
+            <tr>
+                <td class="fw-semibold">@r.Name
+                    @if (!string.IsNullOrWhiteSpace(r.Description))
+                    { <div class="text-muted small">@r.Description</div> }
+                </td>
+                <td>
+                    <span class="badge @(r.OTType=="Pay"?"badge-soft-info":r.OTType=="Leave"?"badge-soft-success":"badge-soft-warning")">@r.OTType</span>
+                </td>
+                <td class="small">
+                    @if (r.CountAfterShiftHours) { <span class="badge badge-soft-primary me-1">After Shift</span> }
+                    @if (r.CountHolidays)        { <span class="badge badge-soft-orange me-1">Holidays</span> }
+                    @if (r.CountWeekOffs)        { <span class="badge badge-soft-gray me-1">Week-Off</span> }
+                    @if (r.UseSlabRounding)      { <span class="badge badge-soft-info me-1">Slabs</span> }
+                    @if (r.IsRetailRule)         { <span class="badge badge-soft-warning me-1">Retail</span> }
+                </td>
+                <td>@r.MinOTMinutesPerDay min@(r.MaxOTMinutesPerDay.HasValue ? $" (max {r.MaxOTMinutesPerDay} min)" : "")</td>
+                <td>@r.NormalOTMultiplier x</td>
+                <td>@r.HolidayOTMultiplier x</td>
+                <td>
+                    <span class="badge @(r.IsActive?"badge-soft-success":"badge-soft-danger")">@(r.IsActive?"Active":"Inactive")</span>
+                </td>
+                <td class="text-end">
+                    <button class="btn btn-sm btn-light me-1" onclick='editRule(@System.Text.Json.JsonSerializer.Serialize(r))'>Edit</button>
+                    <button class="btn btn-sm btn-light me-1" onclick="toggleRule(@r.Id)">@(r.IsActive?"Deactivate":"Activate")</button>
+                    <button class="btn btn-sm btn-light text-danger" onclick="deleteRule(@r.Id)">Delete</button>
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>
+
+<!-- Rule Modal -->
+<div class="modal fade" id="ruleModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <form method="post" asp-action="SaveRule">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="Id" id="rId" value="0" />
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="ruleModalLabel">New OT Rule</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Rule Name <span class="text-danger">*</span></label>
+                            <input type="text" name="Name" id="rName" class="form-control" required />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">OT Type <span class="text-danger">*</span></label>
+                            <select name="OTType" id="rOTType" class="form-select">
+                                <option value="Pay">Pay — extra salary multiplier</option>
+                                <option value="Leave">Leave — time-off (like Comp-Off)</option>
+                                <option value="Both">Both — pay + time-off</option>
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Description</label>
+                            <input type="text" name="Description" id="rDesc" class="form-control" />
+                        </div>
+
+                        <div class="col-12"><hr class="my-1"><strong>Triggers</strong></div>
+                        <div class="col-md-4">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="CountAfterShiftHours" id="rAfterShift" value="true">
+                                <label class="form-check-label" for="rAfterShift">After-shift hours (normal workday)</label>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="CountHolidays" id="rHolidays" value="true">
+                                <label class="form-check-label" for="rHolidays">Working on Holidays</label>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="CountWeekOffs" id="rWeekOffs" value="true">
+                                <label class="form-check-label" for="rWeekOffs">Working on Week-Offs / Sunday</label>
+                            </div>
+                        </div>
+
+                        <div class="col-12"><hr class="my-1"><strong>Rounding &amp; Type</strong></div>
+                        <div class="col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="UseSlabRounding" id="rSlabRound" value="true" checked>
+                                <label class="form-check-label" for="rSlabRound">
+                                    <strong>30-min Slab Rounding</strong>
+                                    <div class="text-muted small">≤30 min = 0 OT &nbsp;·&nbsp; 31–45 min = 30 min &nbsp;·&nbsp; 46–75 min = 60 min …</div>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="IsRetailRule" id="rRetail" value="true">
+                                <label class="form-check-label" for="rRetail">
+                                    <strong>Retail Rule</strong>
+                                    <div class="text-muted small">OT measured from In-time + 9h &nbsp;·&nbsp; Sunday = normal day (no flat 8h)</div>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="col-12"><hr class="my-1"><strong>Thresholds</strong></div>
+                        <div class="col-md-4">
+                            <label class="form-label">Min OT Minutes/Day</label>
+                            <input type="number" name="MinOTMinutesPerDay" id="rMinOT" class="form-control" value="30" min="0" />
+                            <div class="form-text">OT below this is ignored</div>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Max OT Minutes/Day (optional)</label>
+                            <input type="number" name="MaxOTMinutesPerDay" id="rMaxOT" class="form-control" min="1" placeholder="No cap" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Minutes per OT Leave Day</label>
+                            <input type="number" name="MinutesPerOTLeaveDay" id="rMinsLeave" class="form-control" value="480" min="1" />
+                            <div class="form-text">For Leave/Both types only</div>
+                        </div>
+
+                        <div class="col-12"><hr class="my-1"><strong>Pay Rate Multipliers</strong></div>
+                        <div class="col-md-6">
+                            <label class="form-label">Normal OT Rate (×)</label>
+                            <input type="number" name="NormalOTMultiplier" id="rNormalRate" class="form-control" value="1.5" step="0.05" min="1" />
+                            <div class="form-text">Applied for after-shift OT on regular workdays</div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Holiday/Week-Off OT Rate (×)</label>
+                            <input type="number" name="HolidayOTMultiplier" id="rHolidayRate" class="form-control" value="2.0" step="0.05" min="1" />
+                            <div class="form-text">Applied when worked on a Holiday or Week-Off</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Rule</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<form id="fToggle" method="post" asp-action="ToggleRule" style="display:none"><input name="id" id="tId"/></form>
+<form id="fDelete" method="post" asp-action="DeleteRule" style="display:none"><input name="id" id="dId"/></form>
+
+@section Scripts {
+<script>
+function openNew() {
+    document.getElementById('ruleModalLabel').textContent = 'New OT Rule';
+    document.getElementById('rId').value = '0';
+    ['rName','rDesc'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('rOTType').value = 'Pay';
+    document.getElementById('rAfterShift').checked = true;
+    document.getElementById('rHolidays').checked = true;
+    document.getElementById('rWeekOffs').checked = true;
+    document.getElementById('rSlabRound').checked = true;
+    document.getElementById('rRetail').checked = false;
+    document.getElementById('rMinOT').value = '31';
+    document.getElementById('rMaxOT').value = '960';
+    document.getElementById('rNormalRate').value = '1.50';
+    document.getElementById('rHolidayRate').value = '2.00';
+    document.getElementById('rMinsLeave').value = '480';
+}
+function editRule(r) {
+    document.getElementById('ruleModalLabel').textContent = 'Edit OT Rule';
+    document.getElementById('rId').value = r.id;
+    document.getElementById('rName').value = r.name;
+    document.getElementById('rDesc').value = r.description ?? '';
+    document.getElementById('rOTType').value = r.oTType ?? r.otType ?? 'Pay';
+    document.getElementById('rAfterShift').checked = r.countAfterShiftHours;
+    document.getElementById('rHolidays').checked   = r.countHolidays;
+    document.getElementById('rWeekOffs').checked   = r.countWeekOffs;
+    document.getElementById('rSlabRound').checked  = r.useSlabRounding;
+    document.getElementById('rRetail').checked     = r.isRetailRule;
+    document.getElementById('rMinOT').value        = r.minOTMinutesPerDay;
+    document.getElementById('rMaxOT').value        = r.maxOTMinutesPerDay ?? '';
+    document.getElementById('rNormalRate').value   = r.normalOTMultiplier;
+    document.getElementById('rHolidayRate').value  = r.holidayOTMultiplier;
+    document.getElementById('rMinsLeave').value    = r.minutesPerOTLeaveDay;
+    new bootstrap.Modal(document.getElementById('ruleModal')).show();
+}
+function toggleRule(id) {
+    if (!confirm('Toggle this rule\'s active status?')) return;
+    document.getElementById('tId').value = id;
+    document.getElementById('fToggle').submit();
+}
+function deleteRule(id) {
+    if (!confirm('Delete this rule? (If in use, it will be deactivated instead.)')) return;
+    document.getElementById('dId').value = id;
+    document.getElementById('fDelete').submit();
+}
+</script>
+}

@@ -1,0 +1,163 @@
+@model BiometricApiSettings
+@{
+    ViewData["Title"] = "Biometric API Settings";
+    ViewData["Subtitle"] = "Attendance";
+}
+
+<div class="page-header">
+    <div>
+        <h1>Biometric API Settings</h1>
+        <p>Vendor-agnostic — point this at ANY machine's punch API by mapping its fields below, no code change needed</p>
+    </div>
+    <a href="@Url.Action("BulkAttendanceImport")" class="btn btn-light"><i class="bi bi-file-earmark-arrow-up me-1"></i> File Import instead</a>
+</div>
+
+@if (Model.LastSyncAt.HasValue)
+{
+    <div class="alert @(Model.LastSyncStatus == "Success" ? "alert-success" : "alert-danger") mb-3">
+        <strong>Last sync:</strong> @Model.LastSyncAt.Value.ToString("dd-MMM-yyyy hh:mm tt") — @Model.LastSyncStatus — @Model.LastSyncMessage
+    </div>
+}
+
+<form method="post" asp-action="SaveApiSettings">
+    @Html.AntiForgeryToken()
+    <input type="hidden" asp-for="Id" />
+    <div class="row g-3">
+        <div class="col-lg-7">
+            <div class="card mb-3">
+                <div class="card-header">Connection</div>
+                <div class="card-body">
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" asp-for="IsEnabled" id="isEnabled" />
+                        <label class="form-check-label" for="isEnabled">Enabled (background sync runs automatically on the interval below)</label>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Base URL</label>
+                        <input type="text" asp-for="BaseUrl" class="form-control" placeholder="https://device.vendor.com/api/punches?from={from}&amp;to={to}" />
+                        <div class="form-text">{from} and {to} are replaced with yyyy-MM-dd automatically.</div>
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-4">
+                            <label class="form-label">Method</label>
+                            <select asp-for="HttpMethod" class="form-select">
+                                <option value="GET">GET</option>
+                                <option value="POST">POST</option>
+                            </select>
+                        </div>
+                        <div class="col-8">
+                            <label class="form-label">Sync Every (minutes)</label>
+                            <input type="number" asp-for="SyncIntervalMinutes" class="form-control" min="5" />
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Request Body (POST only, optional)</label>
+                        <textarea asp-for="RequestBodyTemplate" class="form-control" rows="2" placeholder='{"from":"{from}","to":"{to}"}'></textarea>
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-4">
+                            <label class="form-label">API Key</label>
+                            <input type="text" asp-for="ApiKey" class="form-control" />
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label">Auth Header Name</label>
+                            <input type="text" asp-for="AuthHeaderName" class="form-control" />
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label">Auth Scheme</label>
+                            <select asp-for="AuthScheme" class="form-select">
+                                <option value="Bearer">Bearer &lt;key&gt;</option>
+                                <option value="Raw">Raw (key as-is)</option>
+                                <option value="Basic">Basic &lt;key&gt;</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header">Response Field Mapping</div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Array Path</label>
+                        <input type="text" asp-for="ResponseArrayPath" class="form-control" placeholder="blank = response IS the array; or e.g. data / result.records" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Employee Code Field *</label>
+                        <input type="text" asp-for="EmployeeCodeField" class="form-control" required />
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-4">
+                            <label class="form-label">Combined DateTime Field</label>
+                            <input type="text" asp-for="PunchDateTimeField" class="form-control" />
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label">Date Field (if separate)</label>
+                            <input type="text" asp-for="PunchDateField" class="form-control" />
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label">Time Field (if separate)</label>
+                            <input type="text" asp-for="PunchTimeField" class="form-control" />
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">DateTime Format</label>
+                        <input type="text" asp-for="DateTimeFormat" class="form-control" placeholder="blank = auto-detect, or e.g. dd-MM-yyyy HH:mm:ss" />
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-3">
+                            <label class="form-label">Direction Field</label>
+                            <input type="text" asp-for="DirectionField" class="form-control" />
+                        </div>
+                        <div class="col-3">
+                            <label class="form-label">"In" Value</label>
+                            <input type="text" asp-for="InDirectionValue" class="form-control" />
+                        </div>
+                        <div class="col-3">
+                            <label class="form-label">"Out" Value</label>
+                            <input type="text" asp-for="OutDirectionValue" class="form-control" />
+                        </div>
+                        <div class="col-3">
+                            <label class="form-label">Device ID Field</label>
+                            <input type="text" asp-for="DeviceIdField" class="form-control" />
+                        </div>
+                    </div>
+                    <div class="form-text">Leave Direction Field blank if your machine doesn't send one — the earliest punch of each employee's day is treated as In and the latest as Out.</div>
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary"><i class="bi bi-check-circle-fill me-1"></i> Save Settings</button>
+        </div>
+
+        <div class="col-lg-5">
+            <div class="card mb-3">
+                <div class="card-header">Sync Now</div>
+                <div class="card-body">
+                    <form method="post" asp-action="SyncNow">
+                        @Html.AntiForgeryToken()
+                        <div class="row g-2 mb-3">
+                            <div class="col-6">
+                                <label class="form-label">From</label>
+                                <input type="date" name="from" class="form-control" value="@DateTime.Today.AddDays(-1).ToString("yyyy-MM-dd")" />
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label">To</label>
+                                <input type="date" name="to" class="form-control" value="@DateTime.Today.ToString("yyyy-MM-dd")" />
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100"><i class="bi bi-arrow-repeat me-1"></i> Sync Now</button>
+                    </form>
+                </div>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(Model.LastSampleResponse))
+            {
+                <div class="card">
+                    <div class="card-header">Last Sample Response</div>
+                    <div class="card-body">
+                        <pre style="font-size:11px;white-space:pre-wrap;word-break:break-all;max-height:400px;overflow-y:auto;margin:0;">@Model.LastSampleResponse</pre>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+</form>

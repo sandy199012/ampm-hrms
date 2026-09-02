@@ -1,0 +1,84 @@
+@model List<(Employee Emp, DateTime ProbEnd)>
+@{
+    ViewData["Title"] = "Reports Dashboard";
+    ViewData["Subtitle"] = "Reports";
+    int year = ViewBag.Year; int month = ViewBag.Month; string monthLabel = ViewBag.MonthLabel;
+}
+
+<div class="page-header">
+    <div>
+        <h1>Dashboard</h1>
+        <p>@monthLabel</p>
+    </div>
+    <div class="d-flex gap-2">
+        <form method="get" class="d-flex gap-2">
+            <input type="number" name="year" value="@year" class="form-control" style="width:100px;" />
+            <select name="month" class="form-select" style="width:150px;">
+                @for (int mo = 1; mo <= 12; mo++) { <option value="@mo" selected="@(mo==month)">@(new DateTime(2000,mo,1).ToString("MMMM"))</option> }
+            </select>
+            <button type="submit" class="btn btn-light">Go</button>
+        </form>
+        <a class="btn btn-primary" href="@Url.Action("ExportExcel", new { year, month })"><i class="bi bi-file-earmark-excel-fill me-1"></i> Export Full Report (Excel)</a>
+    </div>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-md-3"><div class="stat-card"><div class="stat-icon" style="background:var(--primary-light);color:var(--primary-dark);"><i class="bi bi-people-fill"></i></div><div><div class="stat-value">@ViewBag.TotalEmployees</div><div class="stat-label">Total Employees</div></div></div></div>
+    <div class="col-md-3"><div class="stat-card"><div class="stat-icon" style="background:var(--success-light);color:var(--success);"><i class="bi bi-check-circle-fill"></i></div><div><div class="stat-value">@ViewBag.Present</div><div class="stat-label">Present (month)</div></div></div></div>
+    <div class="col-md-3"><div class="stat-card"><div class="stat-icon" style="background:var(--danger-light);color:var(--danger);"><i class="bi bi-x-circle-fill"></i></div><div><div class="stat-value">@ViewBag.Absent</div><div class="stat-label">Absent (month)</div></div></div></div>
+    <div class="col-md-3"><div class="stat-card"><div class="stat-icon" style="background:var(--info-light);color:var(--info);"><i class="bi bi-calendar2-week-fill"></i></div><div><div class="stat-value">@ViewBag.Leave</div><div class="stat-label">On Leave (month)</div></div></div></div>
+</div>
+<div class="row g-3 mb-3">
+    <div class="col-md-4"><div class="stat-card"><div class="stat-icon" style="background:#eef0f5;color:var(--text-muted);"><i class="bi bi-calendar-week"></i></div><div><div class="stat-value">@ViewBag.WeekOff</div><div class="stat-label">Week Off (month)</div></div></div></div>
+    <div class="col-md-4"><div class="stat-card"><div class="stat-icon" style="background:var(--success-light);color:var(--success);"><i class="bi bi-mortarboard-fill"></i></div><div><div class="stat-value">@ViewBag.ProbationCompleteCount</div><div class="stat-label">Probation Complete</div></div></div></div>
+    <div class="col-md-4"><div class="stat-card"><div class="stat-icon" style="background:var(--warning-light);color:var(--warning);"><i class="bi bi-hourglass-split"></i></div><div><div class="stat-value">@ViewBag.ProbationPendingCount</div><div class="stat-label">Probation Pending</div></div></div></div>
+</div>
+
+<div class="card">
+    <div class="card-header">🎓 Probation Status Tracker — 6 Months from Date of Joining</div>
+    <div class="card-body p-0" style="overflow-x:auto;">
+        @if (!Model.Any())
+        {
+            <div class="empty-state"><i class="bi bi-mortarboard"></i>No employees with a Date of Joining on record.</div>
+        }
+        else
+        {
+            <table class="table mb-0">
+                <thead><tr><th>Employee</th><th>Code</th><th>Department</th><th>Designation</th><th>DOJ</th><th>Prob. End</th><th>Status</th></tr></thead>
+                <tbody>
+                @foreach (var (emp, probEnd) in Model)
+                {
+                    int daysRemaining = (probEnd - DateTime.Today).Days;
+                    bool complete = daysRemaining < 0;
+                    <tr>
+                        <td>@emp.Name</td>
+                        <td>@emp.EmpCode</td>
+                        <td>@emp.Department?.Name</td>
+                        <td>@emp.Designation?.Name</td>
+                        <td>@emp.DOJ</td>
+                        <td>@probEnd.ToString("dd-MMM-yyyy")</td>
+                        <td>
+                            @if (complete)
+                            {
+                                <span class="badge badge-soft-success">✅ Complete</span>
+                            }
+                            else if (daysRemaining <= 3)
+                            {
+                                <span class="badge badge-soft-danger">🔴 @daysRemaining days</span>
+                            }
+                            else if (daysRemaining <= 14)
+                            {
+                                <span class="badge badge-soft-warning">🟡 @daysRemaining days</span>
+                            }
+                            else
+                            {
+                                <span class="badge badge-soft-success">🟢 @daysRemaining days</span>
+                            }
+                        </td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        }
+    </div>
+</div>

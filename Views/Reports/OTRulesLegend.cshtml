@@ -1,0 +1,65 @@
+@{
+    ViewData["Title"] = "OT Rules & Legend";
+    ViewData["Subtitle"] = "Reports";
+    var rules = new (string Rule, string Cond, string Elig, string Credit, string Applies, string Notes)[]
+    {
+        ("Normal Shift (9:30–18:00)", "Within shift hours", "No OT", "0 Min", "Workers", "Regular hours"),
+        ("Extra ≤ 30 minutes after shift", "≤ 30 mins", "No OT*", "0 Min*", "Workers", "*Rounds to the nearest 30-min slab in practice"),
+        ("Extra 31–45 minutes", "31–45 mins", "✔ Yes", "30 Min", "Workers", "Rounded to 30 min"),
+        ("Extra 46–60 minutes", "46–60 mins", "✔ Yes", "60 Min", "Workers", "Rounded to 1 hour"),
+        ("Night Work till 00:45 AM or beyond", "Works past 12:45 AM (00:45+)", "✔ Yes", "8 Hours", "Workers", "Night OT benefit"),
+        ("Sunday Work", "≥ 7 Hours worked", "✔ Yes", "8 Hours", "Workers", "Sunday = full OT benefit (non-retail)"),
+        ("Holiday / Weekly-Off Work", "≥ 7 Hours", "✔ Yes", "8 Hours", "Workers", "Same as Sunday rule"),
+        ("Morning OT", "Min. 60 mins before shift start", "✔ Yes (≥60 min)", "60 Min", "Workers", "No partial OT"),
+        ("Retail (Store Opening)", "9h shift from In-time", "Same slabs apply", "Per slabs", "Retail Workers", "Sunday = normal day for retail"),
+        ("Maximum OT Cap", "Any combination", "Hard Cap", "16 Hours", "All Workers", "Compliance limit"),
+    };
+    var codes = new (string Code, string Meaning)[]
+    {
+        ("P", "Full Day Present"), ("HD", "Half Day Present"), ("A", "Absent"),
+        ("A (MIS-Morning)", "Miss Punch — In-punch missing"), ("A (MIS-Evening)", "Miss Punch — Out-punch missing"),
+        ("L (CL)", "Casual Leave"), ("L (EL)", "Earned Leave"), ("L (SL)", "Sick Leave"), ("L (WOL)", "Leave Without Pay"),
+        ("L (COMPO-OFF)", "Compensatory Off"), ("POW", "Present on Holiday / Weekly Off"), ("WO", "Weekly Off — excluded from counts"),
+    };
+}
+
+<div class="page-header">
+    <div>
+        <h1>OT Policy &amp; Attendance Legend</h1>
+        <p>AMPM Fashions Pvt. Ltd</p>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header">OT Rules</div>
+    <div class="card-body p-0" style="overflow-x:auto;">
+        <table class="table mb-0">
+            <thead><tr><th>#</th><th>Rule</th><th>Extra Time / Condition</th><th>OT Eligible?</th><th>OT Credited</th><th>Applies To</th><th>Notes</th></tr></thead>
+            <tbody>
+            @{ int n = 1; }
+            @foreach (var r in rules)
+            {
+                <tr>
+                    <td>@n</td><td>@r.Rule</td><td>@r.Cond</td><td>@r.Elig</td><td>@r.Credit</td><td>@r.Applies</td><td style="max-width:220px;white-space:normal;">@r.Notes</td>
+                </tr>
+                n++;
+            }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">Attendance Status Codes</div>
+    <div class="card-body p-0">
+        <table class="table mb-0">
+            <thead><tr><th>Code</th><th>Meaning</th></tr></thead>
+            <tbody>
+            @foreach (var c in codes)
+            {
+                <tr><td><strong>@c.Code</strong></td><td>@c.Meaning</td></tr>
+            }
+            </tbody>
+        </table>
+    </div>
+</div>

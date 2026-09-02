@@ -1,0 +1,117 @@
+@model List<AmpmHrmsPro.Models.LeaveBalance>
+@{
+    AmpmHrmsPro.Models.Employee emp = ViewBag.Employee;
+    int year = ViewBag.Year;
+    var years = (List<int>)ViewBag.Years;
+    ViewData["Title"] = "My Leave Balance";
+
+    var months = new[] { "Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec" };
+    var el = Model.FirstOrDefault(b => b.LeaveTypeCode == "EL");
+    var cl = Model.FirstOrDefault(b => b.LeaveTypeCode == "CL");
+    var sl = Model.FirstOrDefault(b => b.LeaveTypeCode == "SL");
+}
+
+<style>
+    .leave-card  { border-radius:14px; margin-bottom:1.5rem; box-shadow:0 2px 8px rgba(0,0,0,.07); }
+    .leave-card .card-header { border-radius:14px 14px 0 0; font-weight:700; font-size:1rem; padding:.85rem 1.25rem; }
+    .month-grid  { display:grid; grid-template-columns:repeat(6,1fr); gap:.6rem; margin-top:.9rem; }
+    @@media (max-width:600px) { .month-grid { grid-template-columns:repeat(3,1fr); } }
+    .month-cell  { border:1px solid #e0e0e0; border-radius:10px; padding:.6rem .4rem; text-align:center; background:#fff; }
+    .month-cell .m-name { font-size:.65rem; color:#888; text-transform:uppercase; letter-spacing:.04em; }
+    .month-cell .m-earn { font-size:.9rem; color:#198754; font-weight:700; margin-top:.15rem; }
+    .month-cell .m-cons { font-size:.9rem; color:#dc3545; margin-top:.05rem; }
+    .month-cell .m-sep  { font-size:.55rem; color:#ddd; line-height:1; }
+    .zero-val            { color:#ccc !important; font-weight:400 !important; }
+    .stat-row   { display:flex; gap:1rem; flex-wrap:wrap; }
+    .stat-item  { flex:1; min-width:110px; background:#f8f9fa; border-radius:10px; padding:.65rem 1rem; }
+    .stat-item .v { font-size:1.5rem; font-weight:800; line-height:1.1; }
+    .stat-item .l { font-size:.7rem; color:#888; margin-top:.2rem; }
+    .hero-banner { background:linear-gradient(135deg,#0d6efd 0%,#6610f2 100%);
+                   color:#fff; border-radius:14px; padding:1.25rem 1.5rem; margin-bottom:1.5rem;
+                   display:flex; align-items:center; gap:1rem; }
+    .hero-banner .hi  { font-size:1.1rem; font-weight:700; }
+    .hero-banner .sub { font-size:.8rem; opacity:.8; }
+</style>
+
+<div class="hero-banner">
+    <i class="bi bi-calendar2-heart-fill" style="font-size:2rem;opacity:.9"></i>
+    <div>
+        <div class="hi">Hello, @emp.Name</div>
+        <div class="sub">Your EL, CL &amp; SL leave balance for @year</div>
+    </div>
+    <form method="get" class="ms-auto">
+        <select name="year" class="form-select form-select-sm" style="width:90px;background:rgba(255,255,255,.15);color:#fff;border-color:rgba(255,255,255,.4)"
+                onchange="this.form.submit()">
+            @foreach (var y in years)
+            {
+                <option value="@y" selected="@(y==year)" style="color:#000">@y</option>
+            }
+        </select>
+    </form>
+</div>
+
+@if (!Model.Any())
+{
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle"></i> No leave balance data is available for @year yet.
+        Please contact HR to have your leave data uploaded.
+    </div>
+}
+
+@foreach (var b in new[] { el, cl, sl }.Where(x => x != null))
+{
+    bool isEL = b!.LeaveTypeCode == "EL";
+    bool isCL = b.LeaveTypeCode == "CL";
+    string hdrClass = isEL ? "bg-primary text-white"
+                   : isCL  ? "bg-success text-white"
+                            : "bg-danger text-white";
+    string label = isEL ? "Earned / Privilege Leave (EL)"
+                 : isCL  ? "Casual Leave (CL)"
+                          : "Sick Leave (SL)";
+    string icon  = isEL ? "award-fill" : isCL ? "briefcase-fill" : "bandaid-fill";
+
+    <div class="card leave-card">
+        <div class="card-header @hdrClass">
+            <i class="bi bi-@icon"></i> @label
+        </div>
+        <div class="card-body">
+            <div class="stat-row">
+                <div class="stat-item">
+                    <div class="v" style="color:#0dcaf0">@b.CarryForward.ToString("F2")</div>
+                    <div class="l">Carry Forward</div>
+                </div>
+                <div class="stat-item">
+                    <div class="v text-success">@b.TotalEarned.ToString("F2")</div>
+                    <div class="l">Total Earned (YTD)</div>
+                </div>
+                <div class="stat-item">
+                    <div class="v text-danger">@b.TotalConsumed.ToString("F2")</div>
+                    <div class="l">Total Consumed (YTD)</div>
+                </div>
+                <div class="stat-item" style="background:@(b.Balance<0?"#fff5f5":"#f0fff4")">
+                    <div class="v @(b.Balance<0?"text-danger":"text-dark")">@b.Balance.ToString("F2")</div>
+                    <div class="l">Current Balance</div>
+                </div>
+            </div>
+
+            <div class="month-grid mt-2">
+                @for (int i = 0; i < 12; i++)
+                {
+                    var e2 = b.EarnedByMonth[i];
+                    var c  = b.ConsumedByMonth[i];
+                    bool futureMonth = (i + 1) > DateTime.Now.Month && year == DateTime.Now.Year;
+                    <div class="month-cell @(futureMonth?"opacity-50":"")">
+                        <div class="m-name">@months[i]</div>
+                        <div class="m-earn @(e2==0?"zero-val":"")">@(e2==0?"—":e2.ToString("F2"))</div>
+                        <div class="m-sep">•</div>
+                        <div class="m-cons @(c==0?"zero-val":"")">@(c==0?"—":c.ToString("F2"))</div>
+                    </div>
+                }
+            </div>
+            <div style="font-size:.65rem;color:#aaa;margin-top:.5rem;">
+                Top = Earned &nbsp;·&nbsp; Bottom = Consumed &nbsp;·&nbsp;
+                Updated: @b.UpdatedAt.ToString("dd MMM yyyy")
+            </div>
+        </div>
+    </div>
+}

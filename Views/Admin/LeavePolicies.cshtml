@@ -1,0 +1,228 @@
+@model List<LeavePolicy>
+@{
+    ViewData["Title"] = "Leave Policies";
+    ViewData["Subtitle"] = "Organization Masters";
+    var leaveTypes = (List<LeaveType>)ViewBag.LeaveTypeList;
+    var months = new[] { "January","February","March","April","May","June","July","August","September","October","November","December" };
+}
+
+<div class="page-header">
+    <div>
+        <h1>Leave Policies</h1>
+        <p>@Model.Count polic(ies) — define accrual, carry-forward &amp; encashment rules per leave type</p>
+    </div>
+    @if (leaveTypes.Any())
+    {
+        <button class="btn btn-primary" onclick="openModal(null,'','',[])"><i class="bi bi-plus-lg me-1"></i>Add Policy</button>
+    }
+    else
+    {
+        <a class="btn btn-primary" asp-action="LeaveTypes"><i class="bi bi-plus-lg me-1"></i>Add a Leave Type first</a>
+    }
+</div>
+
+<div class="row g-3">
+@if (!Model.Any())
+{
+    <div class="col-12"><div class="empty-state"><i class="bi bi-calendar2-check"></i>No leave policies yet.</div></div>
+}
+@foreach (var p in Model)
+{
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                    <div>
+                        <div class="fw-bold" style="font-size:15px;color:var(--text);">@p.Name</div>
+                        @if (!string.IsNullOrWhiteSpace(p.Description))
+                        {
+                            <div class="text-soft" style="font-size:12px;">@p.Description</div>
+                        }
+                    </div>
+                    @(p.IsActive ? Html.Raw("<span class='badge badge-soft-success'>Active</span>") : Html.Raw("<span class='badge badge-soft-gray'>Inactive</span>"))
+                </div>
+                <div class="mb-3">
+                    @foreach (var r in p.Rules)
+                    {
+                        <div class="border rounded-3 p-2 mb-2" style="border-color:var(--border)!important;font-size:12.5px;">
+                            <div class="fw-semibold mb-1">@(r.LeaveType?.Alias ?? "?") — @(r.LeaveType?.Name)</div>
+                            <div class="text-soft">
+                                @(r.AccrualMethod == "Monthly" ? $"{r.MonthlyAccrualDays:0.##}/month · {r.AnnualEntitlementDays:0.##}/year" : $"{r.AnnualEntitlementDays:0.##}/year ({r.AccrualMethod})")
+                                &middot; cycle starts @months[r.CycleStartMonth - 1]
+                                @(r.CarryForwardLimit.HasValue ? $"· carry fwd up to {r.CarryForwardLimit:0.##}" : "· carry forward all")
+                                @(r.CarryForwardLimit.HasValue ? (r.ExcessHandling == "Encashment" ? $"· excess: encashment ({(r.EncashmentTrigger == "AutoYearEnd" ? "auto year-end" : "manual only")})" : r.ExcessHandling == "Lapse" ? "· excess: lapses" : "") : "")
+                            </div>
+                        </div>
+                    }
+                </div>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-light" onclick='openModal(@p.Id, @Html.Raw(Json.Serialize(p.Name)), @Html.Raw(Json.Serialize(p.Description ?? "")), @Html.Raw(Json.Serialize(p.Rules.Select(r => new { leaveTypeId = r.LeaveTypeId, accrualMethod = r.AccrualMethod, monthlyAccrualDays = r.MonthlyAccrualDays, annualEntitlementDays = r.AnnualEntitlementDays, cycleStartMonth = r.CycleStartMonth, carryForwardLimit = r.CarryForwardLimit, excessHandling = r.ExcessHandling, encashmentTrigger = r.EncashmentTrigger })))'><i class="bi bi-pencil-fill"></i></button>
+                    <button class="btn btn-sm btn-light" onclick="toggleIt(@p.Id)"><i class="bi bi-toggle2-on"></i></button>
+                    <button class="btn btn-sm btn-light text-danger" onclick="deleteIt(@p.Id)"><i class="bi bi-trash-fill"></i></button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+</div>
+
+<!-- ADD/EDIT MODAL -->
+<div class="modal fade" id="itemModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <form method="post" asp-action="SaveLeavePolicy" id="itemForm">
+                @Html.AntiForgeryToken()
+                <div class="modal-header">
+                    <h5 class="modal-title" id="modalTitle">Add Policy</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" name="id" id="fId" value="0" />
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Policy Name *</label>
+                            <input type="text" name="name" id="fName" class="form-control" required placeholder="e.g. Corporate Staff Leave Policy" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Description</label>
+                            <input type="text" name="description" id="fDescription" class="form-control" placeholder="Optional note" />
+                        </div>
+                    </div>
+
+                    <label class="form-label">Rules — one per Leave Type</label>
+                    <div id="rulesList" class="mb-2"></div>
+                    <button type="button" class="btn btn-sm btn-light" onclick="addRuleRow()"><i class="bi bi-plus-lg me-1"></i>Add Rule</button>
+                    <div class="form-text mt-2">
+                        Example — EL: Monthly accrual, 1.41/month, 17/year, cycle starts January, carry-forward limit 45, excess: Encashment, trigger: Manual.
+                    </div>
+                    <input type="hidden" name="rulesJson" id="fRulesJson" />
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Policy</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+const itemModal = new bootstrap.Modal(document.getElementById('itemModal'));
+const LEAVE_TYPES = @Html.Raw(Json.Serialize(leaveTypes.Select(t => new { id = t.Id, label = $"{t.Alias} — {t.Name}" })));
+const MONTHS = @Html.Raw(Json.Serialize(months));
+
+function ruleRowHtml(d) {
+    d = d || {};
+    const method = d.accrualMethod || 'Monthly';
+    const excess = d.excessHandling || 'Encashment';
+    const typeOpts = LEAVE_TYPES.map(t => `<option value="${t.id}" ${t.id===d.leaveTypeId?'selected':''}>${t.label}</option>`).join('');
+    const monthOpts = MONTHS.map((m,i) => `<option value="${i+1}" ${ (i+1)===(d.cycleStartMonth||1) ?'selected':''}>${m}</option>`).join('');
+    return `<div class="rule-row border rounded-3 p-3 mb-2" style="border-color:var(--border)!important;">
+        <div class="row g-2 align-items-end">
+            <div class="col-md-4">
+                <label class="form-label small mb-1">Leave Type</label>
+                <select class="form-select form-select-sm rule-leavetype">${typeOpts}</select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small mb-1">Accrual Method</label>
+                <select class="form-select form-select-sm rule-method">
+                    <option value="Monthly" ${method==='Monthly'?'selected':''}>Monthly (accrual basis)</option>
+                    <option value="Yearly" ${method==='Yearly'?'selected':''}>Yearly (credited at once)</option>
+                    <option value="OneTime" ${method==='OneTime'?'selected':''}>One-Time</option>
+                </select>
+            </div>
+            <div class="col-md-2 rule-monthly-wrap" style="display:${method==='Monthly'?'block':'none'};">
+                <label class="form-label small mb-1">Days / Month</label>
+                <input type="number" step="0.01" min="0" class="form-control form-control-sm rule-monthly" value="${d.monthlyAccrualDays ?? ''}" placeholder="1.41" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label small mb-1">Days / Year</label>
+                <input type="number" step="0.01" min="0" class="form-control form-control-sm rule-annual" value="${d.annualEntitlementDays ?? ''}" placeholder="17" required />
+            </div>
+            <div class="col-md-1 text-end">
+                <button type="button" class="btn btn-sm btn-light text-danger" onclick="this.closest('.rule-row').remove()"><i class="bi bi-x-lg"></i></button>
+            </div>
+        </div>
+        <div class="row g-2 align-items-end mt-1">
+            <div class="col-md-3">
+                <label class="form-label small mb-1">Leave Cycle Starts</label>
+                <select class="form-select form-select-sm rule-cyclestart">${monthOpts}</select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small mb-1">Carry-Forward Limit</label>
+                <input type="number" step="0.01" min="0" class="form-control form-control-sm rule-cflimit" value="${d.carryForwardLimit ?? ''}" placeholder="Blank = carry forward all" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small mb-1">Balance Above Limit</label>
+                <select class="form-select form-select-sm rule-excess">
+                    <option value="Encashment" ${excess==='Encashment'?'selected':''}>Eligible for Encashment</option>
+                    <option value="Lapse" ${excess==='Lapse'?'selected':''}>Lapses</option>
+                    <option value="CarryForwardAll" ${excess==='CarryForwardAll'?'selected':''}>Carry Forward Anyway</option>
+                </select>
+            </div>
+            <div class="col-md-3 rule-trigger-wrap" style="display:${excess==='Encashment'?'block':'none'};">
+                <label class="form-label small mb-1">Encashment Happens</label>
+                <select class="form-select form-select-sm rule-trigger">
+                    <option value="Manual" ${(d.encashmentTrigger||'Manual')==='Manual'?'selected':''}>Only when Admin/HR processes it</option>
+                    <option value="AutoYearEnd" ${d.encashmentTrigger==='AutoYearEnd'?'selected':''}>Automatically at year-end</option>
+                </select>
+            </div>
+        </div>
+    </div>`;
+}
+
+function addRuleRow(d) {
+    const wrap = document.createElement('div');
+    wrap.innerHTML = ruleRowHtml(d);
+    const row = wrap.firstElementChild;
+    document.getElementById('rulesList').appendChild(row);
+    row.querySelector('.rule-method').addEventListener('change', e => {
+        row.querySelector('.rule-monthly-wrap').style.display = e.target.value === 'Monthly' ? 'block' : 'none';
+    });
+    row.querySelector('.rule-excess').addEventListener('change', e => {
+        row.querySelector('.rule-trigger-wrap').style.display = e.target.value === 'Encashment' ? 'block' : 'none';
+    });
+}
+
+function openModal(id, name, description, rules) {
+    document.getElementById('modalTitle').innerText = id ? 'Edit Policy' : 'Add Policy';
+    document.getElementById('fId').value = id || 0;
+    document.getElementById('fName').value = name || '';
+    document.getElementById('fDescription').value = description || '';
+    document.getElementById('rulesList').innerHTML = '';
+    if (rules && rules.length) {
+        rules.forEach(r => addRuleRow(r));
+    } else {
+        addRuleRow();
+    }
+    itemModal.show();
+}
+
+document.getElementById('itemForm').addEventListener('submit', function (e) {
+    const rows = Array.from(document.querySelectorAll('.rule-row'));
+    const rules = rows.map(row => ({
+        leaveTypeId: parseInt(row.querySelector('.rule-leavetype').value),
+        accrualMethod: row.querySelector('.rule-method').value,
+        monthlyAccrualDays: row.querySelector('.rule-monthly').value ? parseFloat(row.querySelector('.rule-monthly').value) : null,
+        annualEntitlementDays: parseFloat(row.querySelector('.rule-annual').value || '0'),
+        cycleStartMonth: parseInt(row.querySelector('.rule-cyclestart').value),
+        carryForwardLimit: row.querySelector('.rule-cflimit').value ? parseFloat(row.querySelector('.rule-cflimit').value) : null,
+        excessHandling: row.querySelector('.rule-excess').value,
+        encashmentTrigger: row.querySelector('.rule-trigger').value
+    }));
+    if (!rules.length) { e.preventDefault(); alert('Add at least one rule.'); return; }
+    document.getElementById('fRulesJson').value = JSON.stringify(rules);
+});
+
+function toggleIt(id) {
+    fetch('@Url.Action("ToggleLeavePolicy")', { method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded'}, body: `id=${id}` })
+        .then(r => r.json()).then(d => { if (d.success) location.reload(); });
+}
+function deleteIt(id) {
+    if (!confirm('Delete this policy? If in use, it will be deactivated instead.')) return;
+    fetch('@Url.Action("DeleteLeavePolicy")', { method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded'}, body: `id=${id}` })
+        .then(r => r.json()).then(d => { alert(d.message || 'Done.'); if (d.success) location.reload(); });
+}
+</script>
+}

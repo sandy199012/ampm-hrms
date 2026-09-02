@@ -1,0 +1,104 @@
+@model Application
+@{
+    ViewData["Title"] = "New Application";
+    ViewData["Subtitle"] = "Leave / Regularisation / WFH / OD";
+    var employees = (List<Employee>)ViewBag.EmployeeList;
+    var leaveTypes = (List<LeaveType>)ViewBag.LeaveTypeList;
+}
+
+<div class="page-header">
+    <div>
+        <h1>New Application</h1>
+        <p>Log a Leave, Regularisation, Work From Home, or On Duty request</p>
+    </div>
+    <a href="@Url.Action("Index")" class="btn btn-light"><i class="bi bi-arrow-left me-1"></i> Back to List</a>
+</div>
+
+<div class="card" style="max-width:720px;">
+    <div class="card-body">
+        <form method="post" asp-action="Apply">
+            @Html.AntiForgeryToken()
+            <div class="row g-3 mb-3">
+                <div class="col-md-6">
+                    <label class="form-label">Employee *</label>
+                    <select name="EmployeeId" class="form-select" required>
+                        <option value="">— Select —</option>
+                        @foreach (var e in employees) { <option value="@e.Id">@e.EmpCode — @e.Name</option> }
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Type *</label>
+                    <select name="Type" id="appType" class="form-select" required onchange="toggleType()">
+                        <option value="Leave">Leave</option>
+                        <option value="Regularisation">Regularisation</option>
+                        <option value="WFH">Work From Home</option>
+                        <option value="OD">On Duty</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="row g-3 mb-3" id="leaveTypeWrap">
+                <div class="col-md-6">
+                    <label class="form-label">Leave Type *</label>
+                    <select name="LeaveTypeId" class="form-select">
+                        <option value="">— Select —</option>
+                        @foreach (var lt in leaveTypes) { <option value="@lt.Id">@lt.Alias — @lt.Name</option> }
+                    </select>
+                </div>
+            </div>
+
+            <div class="row g-3 mb-3">
+                <div class="col-md-4">
+                    <label class="form-label">From Date *</label>
+                    <input type="date" name="FromDate" class="form-control" value="@Model.FromDate" required />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">To Date *</label>
+                    <input type="date" name="ToDate" class="form-control" value="@Model.ToDate" required />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Day Part</label>
+                    <select name="DayPart" class="form-select">
+                        <option value="Single">Full Day(s)</option>
+                        <option value="FirstHalf">First Half</option>
+                        <option value="SecondHalf">Second Half</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Duration (Days)</label>
+                <input type="number" step="0.5" min="0.5" name="DurationDays" class="form-control" value="1" style="max-width:150px;" />
+            </div>
+
+            <div class="row g-3 mb-3" id="regularisationWrap" style="display:none;">
+                <div class="col-md-6">
+                    <label class="form-label">Corrected In-Time</label>
+                    <input type="time" name="RequestedInTime" class="form-control" />
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">Corrected Out-Time</label>
+                    <input type="time" name="RequestedOutTime" class="form-control" />
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">Reason</label>
+                <textarea name="Reason" class="form-control" rows="2"></textarea>
+            </div>
+
+            <button type="submit" class="btn btn-primary"><i class="bi bi-send-fill me-1"></i> Submit</button>
+        </form>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+function toggleType() {
+    var t = document.getElementById('appType').value;
+    document.getElementById('leaveTypeWrap').style.display = t === 'Leave' ? 'flex' : 'none';
+    document.getElementById('regularisationWrap').style.display = t === 'Regularisation' ? 'flex' : 'none';
+}
+toggleType();
+</script>
+}

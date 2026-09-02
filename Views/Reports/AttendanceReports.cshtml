@@ -1,0 +1,167 @@
+@model List<AttendanceReportRow>
+@{
+    ViewData["Title"] = "Attendance Reports";
+    ViewData["Subtitle"] = "Reports";
+    string period = ViewBag.Period;
+    string dateVal = ViewBag.Date;
+    int year = ViewBag.Year; int month = ViewBag.Month;
+    string groupBy = ViewBag.GroupBy;
+    string periodLabel = ViewBag.PeriodLabel;
+    int? departmentId = ViewBag.DepartmentId; int? locationId = ViewBag.LocationId;
+    int? shiftId = ViewBag.ShiftId; int? employeeId = ViewBag.EmployeeId;
+    var departments = (List<Department>)ViewBag.DepartmentList;
+    var locations = (List<Location>)ViewBag.LocationList;
+    var shifts = (List<Shift>)ViewBag.ShiftList;
+    var empList = (List<Employee>)ViewBag.EmployeeList;
+    bool grouped = groupBy != "Employee";
+}
+
+<div class="page-header">
+    <div>
+        <h1>Attendance Reports</h1>
+        <p>@periodLabel — @(grouped ? $"grouped by {groupBy}" : "employee-wise") @(Model.Count) row(s)</p>
+    </div>
+    <a class="btn btn-primary" href="@Url.Action("ExportExcel", new { year, month })"><i class="bi bi-file-earmark-excel-fill me-1"></i> Export Full Excel Report</a>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-auto">
+                <label class="form-label mb-1">Period</label>
+                <select name="period" id="fPeriod" class="form-select form-select-sm" onchange="togglePeriod()">
+                    <option value="Monthly" selected="@(period == "Monthly")">Monthly</option>
+                    <option value="Daily" selected="@(period == "Daily")">Daily</option>
+                </select>
+            </div>
+            <div class="col-auto" id="dailyField" style="display:@(period == "Daily" ? "block" : "none");">
+                <label class="form-label mb-1">Date</label>
+                <input type="date" name="date" value="@dateVal" class="form-control form-control-sm" />
+            </div>
+            <div class="col-auto" id="monthlyField1" style="display:@(period == "Monthly" ? "block" : "none");">
+                <label class="form-label mb-1">Year</label>
+                <input type="number" name="year" value="@year" class="form-control form-control-sm" style="width:90px;" />
+            </div>
+            <div class="col-auto" id="monthlyField2" style="display:@(period == "Monthly" ? "block" : "none");">
+                <label class="form-label mb-1">Month</label>
+                <select name="month" class="form-select form-select-sm" style="width:140px;">
+                    @for (int mo = 1; mo <= 12; mo++) { <option value="@mo" selected="@(mo == month)">@(new DateTime(2000, mo, 1).ToString("MMMM"))</option> }
+                </select>
+            </div>
+
+            <div class="col-auto">
+                <label class="form-label mb-1">Group By</label>
+                <select name="groupBy" class="form-select form-select-sm">
+                    <option value="Employee" selected="@(groupBy == "Employee")">Employee</option>
+                    <option value="Department" selected="@(groupBy == "Department")">Department</option>
+                    <option value="Location" selected="@(groupBy == "Location")">Location</option>
+                    <option value="Shift" selected="@(groupBy == "Shift")">Shift</option>
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-1">Department</label>
+                <select name="departmentId" class="form-select form-select-sm">
+                    <option value="">All</option>
+                    @foreach (var d in departments) { <option value="@d.Id" selected="@(departmentId == d.Id)">@d.Name</option> }
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-1">Location</label>
+                <select name="locationId" class="form-select form-select-sm">
+                    <option value="">All</option>
+                    @foreach (var l in locations) { <option value="@l.Id" selected="@(locationId == l.Id)">@l.Name</option> }
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-1">Shift</label>
+                <select name="shiftId" class="form-select form-select-sm">
+                    <option value="">All</option>
+                    @foreach (var s in shifts) { <option value="@s.Id" selected="@(shiftId == s.Id)">@s.Name</option> }
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-1">Employee</label>
+                <select name="employeeId" class="form-select form-select-sm">
+                    <option value="">All</option>
+                    @foreach (var e in empList) { <option value="@e.Id" selected="@(employeeId == e.Id)">@e.EmpCode — @e.Name</option> }
+                </select>
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-funnel-fill me-1"></i> Apply</button>
+                <a href="@Url.Action("AttendanceReports")" class="btn btn-sm btn-light">Reset</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body p-0" style="overflow-x:auto;">
+        <table class="table table-sm mb-0" style="font-size:12.5px;">
+            <thead>
+                <tr>
+                    <th>@(grouped ? groupBy : "Employee")</th>
+                    @if (grouped) { <th class="text-center">Employees</th> }
+                    <th class="text-center">Working Days</th>
+                    <th class="text-center">Present</th>
+                    <th class="text-center">Absent</th>
+                    <th class="text-center">Half Day</th>
+                    <th class="text-center">Leave</th>
+                    <th class="text-center">Missing Punch</th>
+                    <th class="text-center">Late</th>
+                    <th class="text-center">Early</th>
+                    <th class="text-center">Worked Hrs</th>
+                    <th class="text-center">Avg Hrs/Day</th>
+                    <th class="text-center">OT Hrs</th>
+                    <th class="text-center">LOP</th>
+                </tr>
+            </thead>
+            <tbody>
+            @if (!Model.Any())
+            {
+                <tr><td colspan="@(grouped ? 14 : 13)"><div class="empty-state"><i class="bi bi-calendar-x"></i>No attendance data for this selection.</div></td></tr>
+            }
+            @foreach (var r in Model)
+            {
+                <tr>
+                    <td>
+                        @r.GroupName
+                        @if (r.SubLabel != null) { <div class="text-soft" style="font-size:11px;">@r.SubLabel</div> }
+                    </td>
+                    @if (grouped) { <td class="text-center">@r.EmployeeCount</td> }
+                    <td class="text-center">@r.WorkingDays</td>
+                    <td class="text-center">@r.Present</td>
+                    <td class="text-center">@r.Absent</td>
+                    <td class="text-center">@r.HalfDay</td>
+                    <td class="text-center">@r.Leave</td>
+                    <td class="text-center">@r.MissingPunch</td>
+                    <td class="text-center">@r.Late</td>
+                    <td class="text-center">@r.Early</td>
+                    <td class="text-center">@r.WorkedHours</td>
+                    <td class="text-center">@r.AvgHrsPerDay</td>
+                    <td class="text-center">@r.OTHours</td>
+                    <td class="text-center">@r.LOPDays</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card mt-3">
+    <div class="card-body" style="font-size:12px;">
+        <strong>Late</strong> = punched in after Shift Start + Grace Minutes &nbsp;|&nbsp;
+        <strong>Early</strong> = punched out before Shift End − Grace Minutes &nbsp;|&nbsp;
+        <strong>LOP</strong> = Absent + unresolved Missing Punch + days under an Unpaid leave type (Admin &gt; Leave Types)
+    </div>
+</div>
+
+@section Scripts {
+<script>
+function togglePeriod() {
+    var isDaily = document.getElementById('fPeriod').value === 'Daily';
+    document.getElementById('dailyField').style.display = isDaily ? 'block' : 'none';
+    document.getElementById('monthlyField1').style.display = isDaily ? 'none' : 'block';
+    document.getElementById('monthlyField2').style.display = isDaily ? 'none' : 'block';
+}
+</script>
+}

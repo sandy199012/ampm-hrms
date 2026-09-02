@@ -1,0 +1,103 @@
+@model FaceMatchApiSettings
+@{
+    ViewData["Title"] = "Face Match Settings";
+    ViewData["Subtitle"] = "Attendance";
+}
+
+<div class="page-header">
+    <div>
+        <h1>Face Match Settings</h1>
+        <p>Vendor-agnostic — point this at ANY face-comparison API to power the mobile app's Face Attendance, no code change needed</p>
+    </div>
+    <a href="@Url.Action("ApiSettings")" class="btn btn-light"><i class="bi bi-fingerprint me-1"></i> Biometric API Settings instead</a>
+</div>
+
+@if (!Model.IsEnabled)
+{
+    <div class="alert alert-warning mb-3">
+        <strong>Not enabled.</strong> Until this is turned on and pointed at a real vendor, mobile punches are accepted without face verification — they are never blocked because of a missing match.
+    </div>
+}
+
+@if (Model.LastTestAt.HasValue)
+{
+    <div class="alert @(Model.LastTestStatus == "Success" ? "alert-success" : "alert-danger") mb-3">
+        <strong>Last call:</strong> @Model.LastTestAt.Value.ToString("dd-MMM-yyyy hh:mm tt") — @Model.LastTestStatus — @Model.LastTestMessage
+    </div>
+}
+
+<form method="post" asp-action="SaveFaceMatchSettings">
+    @Html.AntiForgeryToken()
+    <input type="hidden" asp-for="Id" />
+    <div class="row g-3">
+        <div class="col-lg-7">
+            <div class="card mb-3">
+                <div class="card-header">Connection</div>
+                <div class="card-body">
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" asp-for="IsEnabled" id="isEnabled" />
+                        <label class="form-check-label" for="isEnabled">Enabled (mobile punches are face-verified against this API)</label>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Verify URL</label>
+                        <input type="text" asp-for="VerifyUrl" class="form-control" placeholder="https://vendor.com/api/face/verify" />
+                        <div class="form-text">Called with POST JSON <code>{ "image1": "&lt;base64 enrolled photo&gt;", "image2": "&lt;base64 live photo&gt;" }</code>. A vendor with a different protocol (e.g. detect-then-verify-by-faceId) needs a small adapter endpoint in front of it that speaks this contract.</div>
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-4">
+                            <label class="form-label">API Key</label>
+                            <input type="text" asp-for="ApiKey" class="form-control" />
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label">Auth Header Name</label>
+                            <input type="text" asp-for="AuthHeaderName" class="form-control" />
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label">Auth Scheme</label>
+                            <select asp-for="AuthScheme" class="form-select">
+                                <option value="Raw">Raw (key as-is)</option>
+                                <option value="Bearer">Bearer &lt;key&gt;</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header">Response Field Mapping</div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Confidence Field</label>
+                        <input type="text" asp-for="ConfidenceField" class="form-control" placeholder="confidence" />
+                        <div class="form-text">Dot-path into the JSON response, e.g. <code>result.confidence</code>.</div>
+                    </div>
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" asp-for="ConfidenceIsFraction" id="confIsFraction" />
+                        <label class="form-check-label" for="confIsFraction">Vendor returns a 0.0–1.0 fraction (unchecked = vendor already returns 0–100)</label>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">"Is Identical" Field (optional)</label>
+                        <input type="text" asp-for="IsIdenticalField" class="form-control" placeholder="blank if the vendor only returns a confidence score" />
+                        <div class="form-text">Some vendors return a bool alongside/instead of a score — if set, this decides the match instead of the confidence threshold below.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Minimum Confidence % to count as a match</label>
+                        <input type="number" asp-for="MinConfidencePercent" class="form-control" min="1" max="100" step="0.1" />
+                    </div>
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary"><i class="bi bi-check-circle-fill me-1"></i> Save Settings</button>
+        </div>
+
+        <div class="col-lg-5">
+            <div class="card">
+                <div class="card-header">How this is used</div>
+                <div class="card-body">
+                    <p class="mb-2">Employees enroll a reference photo once from the mobile app's Profile screen (Face Attendance). Every Punch In/Out photo is then compared against it here, and the match result (matched, confidence %) is stored on that punch — visible on the Attendance Register and this employee's attendance history.</p>
+                    <p class="mb-0 text-muted">There's no "Test" button here yet since a live test needs two real photos — the first real mobile punch after enabling this will populate the "Last call" status above.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</form>

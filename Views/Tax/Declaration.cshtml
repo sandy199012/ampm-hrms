@@ -1,0 +1,209 @@
+@using AmpmHrmsPro.Services
+@model TaxDeclarationHeader
+@{
+    ViewData["Title"] = "Investment Declaration";
+    ViewData["Subtitle"] = "Income Tax";
+    bool isAdmin = ViewBag.IsAdminView;
+    Employee employee = ViewBag.Employee;
+    string fy = ViewBag.FinancialYear;
+    List<TaxSectionMaster> sections = ViewBag.Sections;
+    TaxComputationResult result = ViewBag.TaxResult;
+}
+
+<div class="page-header">
+    <div>
+        <h1>@(isAdmin ? "Investment Declaration — " + employee.Name : "My Investment Declaration")</h1>
+        <p>@employee.EmpCode @(employee.Department != null ? $"· {employee.Department.Name}" : "") · FY @fy
+            @(Model.Status == "Submitted" ? Html.Raw("<span class='badge badge-soft-primary ms-2'>Submitted</span>") : Html.Raw("<span class='badge badge-soft-gray ms-2'>Draft</span>"))
+        </p>
+    </div>
+    @if (isAdmin)
+    {
+        <a class="btn btn-light" asp-action="Declarations" asp-route-financialYear="@fy"><i class="bi bi-arrow-left me-1"></i>Back to All Declarations</a>
+    }
+</div>
+
+@foreach (var note in result.Notes)
+{
+    <div class="alert alert-warning d-flex align-items-center gap-2 mb-2"><i class="bi bi-exclamation-triangle-fill"></i> @note</div>
+}
+
+@if (!result.HasSalaryStructure)
+{
+    <div class="alert alert-danger d-flex align-items-center gap-2 mb-3">
+        <i class="bi bi-exclamation-circle-fill"></i>
+        <span>
+            No salary structure is assigned yet — tax can't be computed until one is.
+            @if (isAdmin)
+            {
+                <a asp-controller="Salary" asp-action="AssignStructure" asp-route-employeeId="@employee.Id">Assign one now.</a>
+            }
+            else
+            {
+                <text>Ask HR to assign one.</text>
+            }
+        </span>
+    </div>
+}
+else
+{
+    <div class="card mb-3">
+        <div class="card-header">Tax Summary — Old vs New Regime</div>
+        <div class="card-body">
+            <div class="table-wrap mb-0">
+                <table class="table table-sm mb-0">
+                    <thead><tr><th></th><th class="text-end">Old Regime</th><th class="text-end">New Regime</th></tr></thead>
+                    <tbody>
+                        <tr><td>Gross Taxable Salary</td><td class="text-end">₹@result.OldRegime!.GrossTaxableSalary.ToString("N0")</td><td class="text-end">₹@result.NewRegime!.GrossTaxableSalary.ToString("N0")</td></tr>
+                        <tr><td>Standard Deduction</td><td class="text-end">₹@result.OldRegime.StandardDeduction.ToString("N0")</td><td class="text-end">₹@result.NewRegime.StandardDeduction.ToString("N0")</td></tr>
+                        <tr><td>HRA Exemption</td><td class="text-end">₹@result.OldRegime.HRAExemption.ToString("N0")</td><td class="text-end">—</td></tr>
+                        <tr><td>Approved Investment Deductions</td><td class="text-end">₹@result.OldRegime.OtherDeductionsApproved.ToString("N0")</td><td class="text-end">₹@result.NewRegime.OtherDeductionsApproved.ToString("N0")</td></tr>
+                        <tr class="fw-semibold"><td>Taxable Income</td><td class="text-end">₹@result.OldRegime.TaxableIncome.ToString("N0")</td><td class="text-end">₹@result.NewRegime.TaxableIncome.ToString("N0")</td></tr>
+                        <tr><td>Tax (before rebate)</td><td class="text-end">₹@result.OldRegime.TaxBeforeRebate.ToString("N0")</td><td class="text-end">₹@result.NewRegime.TaxBeforeRebate.ToString("N0")</td></tr>
+                        <tr><td>§87A Rebate</td><td class="text-end">− ₹@result.OldRegime.Rebate87A.ToString("N0")</td><td class="text-end">− ₹@result.NewRegime.Rebate87A.ToString("N0")</td></tr>
+                        <tr><td>Surcharge</td><td class="text-end">₹@result.OldRegime.Surcharge.ToString("N0")</td><td class="text-end">₹@result.NewRegime.Surcharge.ToString("N0")</td></tr>
+                        <tr><td>Cess</td><td class="text-end">₹@result.OldRegime.Cess.ToString("N0")</td><td class="text-end">₹@result.NewRegime.Cess.ToString("N0")</td></tr>
+                        <tr class="fw-bold" style="color:var(--primary-dark);"><td>Final Annual Tax</td><td class="text-end">₹@result.OldRegime.FinalAnnualTax.ToString("N0") @(result.RecommendedRegime == "Old" ? Html.Raw("<span class='badge badge-soft-success ms-1'>Lower</span>") : null)</td><td class="text-end">₹@result.NewRegime.FinalAnnualTax.ToString("N0") @(result.RecommendedRegime == "New" ? Html.Raw("<span class='badge badge-soft-success ms-1'>Lower</span>") : null)</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="mt-3 p-3 rounded-3" style="background:var(--primary-light);">
+                Using <strong>@result.RegimeUsed Regime</strong> (choice: @result.RegimeChoice) — Final Annual Tax <strong>₹@result.FinalAnnualTax.ToString("N0")</strong>, suggested monthly TDS <strong>₹@result.SuggestedMonthlyTDS.ToString("N0")</strong>.
+            </div>
+        </div>
+    </div>
+}
+
+<div class="row g-3">
+    <div class="col-lg-5">
+        <div class="card mb-3">
+            <div class="card-header">Regime Choice &amp; HRA</div>
+            <div class="card-body">
+                <form method="post" asp-action="SaveHeader">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="headerId" value="@Model.Id" />
+                    <input type="hidden" name="employeeId" value="@employee.Id" />
+                    <input type="hidden" name="financialYear" value="@fy" />
+                    <div class="mb-3">
+                        <label class="form-label">Regime Choice</label>
+                        <select name="regimeChoice" class="form-select">
+                            <option value="Auto" selected="@(Model.RegimeChoice == "Auto")">Auto (whichever gives lower tax)</option>
+                            <option value="Old" selected="@(Model.RegimeChoice == "Old")">Old Regime</option>
+                            <option value="New" selected="@(Model.RegimeChoice == "New")">New Regime</option>
+                        </select>
+                    </div>
+                    <div class="mb-3"><label class="form-label">Annual Rent Paid (₹)</label><input type="number" step="0.01" name="annualRentPaid" class="form-control" value="@Model.AnnualRentPaid" /></div>
+                    <div class="form-check mb-3"><input class="form-check-input" type="checkbox" name="isMetroCity" id="fMetro" value="true" checked="@Model.IsMetroCity" /><input type="hidden" name="isMetroCity" value="false" /><label class="form-check-label" for="fMetro">Residing in a metro city (Delhi, Mumbai, Kolkata, Chennai — 50% HRA exemption cap instead of 40%)</label></div>
+                    <button type="submit" class="btn btn-primary btn-sm">Save</button>
+                </form>
+            </div>
+        </div>
+
+        @if (!isAdmin)
+        {
+            <form method="post" asp-action="Submit">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="headerId" value="@Model.Id" />
+                <input type="hidden" name="financialYear" value="@fy" />
+                <button type="submit" class="btn btn-outline-primary w-100"><i class="bi bi-send-check-fill me-1"></i>Submit Declaration for HR Review</button>
+            </form>
+        }
+    </div>
+
+    <div class="col-lg-7">
+        <div class="card mb-3">
+            <div class="card-header">Declare an Investment</div>
+            <div class="card-body">
+                <form method="post" asp-action="SaveItem" class="row g-2">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="headerId" value="@Model.Id" />
+                    <input type="hidden" name="employeeId" value="@employee.Id" />
+                    <input type="hidden" name="financialYear" value="@fy" />
+                    <div class="col-md-5">
+                        <select name="sectionId" class="form-select" required>
+                            <option value="">Choose section...</option>
+                            @foreach (var s in sections) { <option value="@s.Id">@s.Code — @s.Name @(s.MaxLimit.HasValue ? $"(cap ₹{s.MaxLimit:N0})" : "")</option> }
+                        </select>
+                    </div>
+                    <div class="col-md-4"><input type="text" name="description" class="form-control" placeholder="Description (e.g. LIC policy no.)" /></div>
+                    <div class="col-md-2"><input type="number" step="0.01" name="declaredAmount" class="form-control" placeholder="₹ Amount" required /></div>
+                    <div class="col-md-1"><button type="submit" class="btn btn-primary w-100"><i class="bi bi-plus-lg"></i></button></div>
+                </form>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">Declared Items</div>
+            <div class="card-body p-0">
+                <div class="table-wrap mb-0">
+                    <table class="table mb-0">
+                        <thead><tr><th>Section</th><th>Description</th><th class="text-end">Declared</th><th class="text-end">Approved</th><th>Status</th><th>Document</th><th></th></tr></thead>
+                        <tbody>
+                        @if (!Model.Items.Any())
+                        {
+                            <tr><td colspan="7"><div class="empty-state"><i class="bi bi-file-earmark-text"></i>No investments declared yet.</div></td></tr>
+                        }
+                        @foreach (var item in Model.Items.OrderBy(i => i.Section != null ? i.Section.DisplayOrder : 0))
+                        {
+                            <tr>
+                                <td><span class="badge badge-soft-primary">@item.Section?.Code</span></td>
+                                <td>@(item.Description ?? "—")</td>
+                                <td class="text-end">₹@item.DeclaredAmount.ToString("N0")</td>
+                                <td class="text-end">@(item.ApprovedAmount.HasValue ? $"₹{item.ApprovedAmount:N0}" : "—")</td>
+                                <td>
+                                    @if (item.Status == "Approved") { <span class="badge badge-soft-success">Approved</span> }
+                                    else if (item.Status == "Rejected") { <span class="badge badge-soft-danger">Rejected</span> @if (!string.IsNullOrWhiteSpace(item.AdminRemarks)) { <div class="text-muted" style="font-size:11px;">@item.AdminRemarks</div> } }
+                                    else { <span class="badge badge-soft-warning">Pending</span> }
+                                </td>
+                                <td>
+                                    @if (!string.IsNullOrWhiteSpace(item.DocumentUrl))
+                                    {
+                                        <a href="@item.DocumentUrl" target="_blank" class="btn btn-sm btn-light"><i class="bi bi-file-earmark-check-fill"></i></a>
+                                    }
+                                    @if (item.Status != "Approved")
+                                    {
+                                        <form method="post" asp-action="UploadDocument" enctype="multipart/form-data" class="d-inline">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="itemId" value="@item.Id" />
+                                            <input type="hidden" name="headerId" value="@Model.Id" />
+                                            <input type="hidden" name="employeeId" value="@employee.Id" />
+                                            <input type="hidden" name="financialYear" value="@fy" />
+                                            <input type="file" name="file" id="file_@item.Id" style="display:none" onchange="this.form.submit()" />
+                                            <button type="button" class="btn btn-sm btn-light" onclick="document.getElementById('file_@item.Id').click()"><i class="bi bi-upload"></i></button>
+                                        </form>
+                                    }
+                                </td>
+                                <td class="text-end">
+                                    @if (isAdmin && item.Status == "Pending")
+                                    {
+                                        <form method="post" asp-action="ReviewItem" class="d-inline-flex gap-1">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="itemId" value="@item.Id" />
+                                            <input type="hidden" name="employeeId" value="@employee.Id" />
+                                            <input type="hidden" name="financialYear" value="@fy" />
+                                            <input type="number" step="0.01" name="approvedAmount" value="@item.DeclaredAmount" class="form-control form-control-sm" style="width:100px;" title="Approved amount" />
+                                            <button type="submit" name="decision" value="Approved" class="btn btn-sm btn-outline-success"><i class="bi bi-check-lg"></i></button>
+                                            <button type="submit" name="decision" value="Rejected" class="btn btn-sm btn-outline-danger"><i class="bi bi-x-lg"></i></button>
+                                        </form>
+                                    }
+                                    @if (item.Status != "Approved")
+                                    {
+                                        <form method="post" asp-action="DeleteItem" class="d-inline" onsubmit="return confirm('Remove this declared item?');">
+                                            @Html.AntiForgeryToken()
+                                            <input type="hidden" name="itemId" value="@item.Id" />
+                                            <input type="hidden" name="headerId" value="@Model.Id" />
+                                            <input type="hidden" name="employeeId" value="@employee.Id" />
+                                            <input type="hidden" name="financialYear" value="@fy" />
+                                            <button type="submit" class="btn btn-sm btn-light text-danger"><i class="bi bi-trash-fill"></i></button>
+                                        </form>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

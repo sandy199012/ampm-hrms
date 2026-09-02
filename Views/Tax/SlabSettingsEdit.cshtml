@@ -1,0 +1,99 @@
+@model TaxSlabSettings
+@{
+    ViewData["Title"] = Model.Id > 0 ? "Edit Tax Slab Settings" : "Add Tax Slab Settings";
+    ViewData["Subtitle"] = "Income Tax";
+}
+
+<div class="page-header">
+    <div>
+        <h1>@(Model.Id > 0 ? "Edit" : "Add") Tax Slab Settings</h1>
+        <p>Every rate here is read live by the tax engine — nothing about tax law is hardcoded in code</p>
+    </div>
+    <a class="btn btn-light" asp-action="SlabSettings"><i class="bi bi-arrow-left me-1"></i>Back</a>
+</div>
+
+<form method="post" asp-action="SaveSlabSettings" id="slabForm">
+    @Html.AntiForgeryToken()
+    <input type="hidden" name="id" value="@Model.Id" />
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-3"><label class="form-label">Financial Year *</label><input type="text" name="financialYear" class="form-control" required maxlength="10" value="@Model.FinancialYear" placeholder="2026-27" /></div>
+                <div class="col-md-3">
+                    <label class="form-label">Regime *</label>
+                    <select name="regime" class="form-select">
+                        <option value="New" selected="@(Model.Regime == "New")">New Regime</option>
+                        <option value="Old" selected="@(Model.Regime == "Old")">Old Regime</option>
+                    </select>
+                </div>
+                <div class="col-md-2"><label class="form-label">Standard Deduction (₹)</label><input type="number" step="0.01" name="standardDeduction" class="form-control" value="@Model.StandardDeduction" /></div>
+                <div class="col-md-2"><label class="form-label">Cess (%)</label><input type="number" step="0.01" name="cessPercent" class="form-control" value="@(Model.CessPercent == 0 ? 4 : Model.CessPercent)" /></div>
+                <div class="col-md-3"><label class="form-label">§87A Rebate — Income Limit (₹)</label><input type="number" step="0.01" name="rebate87AIncomeLimit" class="form-control" value="@Model.Rebate87AIncomeLimit" /></div>
+                <div class="col-md-3"><label class="form-label">§87A Rebate — Max Amount (₹)</label><input type="number" step="0.01" name="rebate87AMaxAmount" class="form-control" value="@Model.Rebate87AMaxAmount" /></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3">
+        <div class="col-lg-6">
+            <div class="card mb-3">
+                <div class="card-header">Tax Slabs</div>
+                <div class="card-body">
+                    <div id="slabsList"></div>
+                    <button type="button" class="btn btn-sm btn-light mt-2" onclick="addSlabRow('slabsList')"><i class="bi bi-plus-lg me-1"></i>Add Slab</button>
+                    <input type="hidden" name="slabsJson" id="fSlabsJson" />
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card mb-3">
+                <div class="card-header">Surcharge Slabs <span class="text-soft" style="font-size:12px;">(% of tax, above ₹50L income)</span></div>
+                <div class="card-body">
+                    <div id="surchargeList"></div>
+                    <button type="button" class="btn btn-sm btn-light mt-2" onclick="addSlabRow('surchargeList')"><i class="bi bi-plus-lg me-1"></i>Add Tier</button>
+                    <input type="hidden" name="surchargeJson" id="fSurchargeJson" />
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary"><i class="bi bi-check-circle-fill me-1"></i>Save Settings</button>
+</form>
+
+@section Scripts {
+<script>
+const EXISTING_SLABS = @Html.Raw(Json.Serialize(Model.Slabs.OrderBy(s => s.FromAmount).Select(s => new { from = s.FromAmount, to = s.ToAmount, rate = s.RatePercent })));
+const EXISTING_SURCHARGE = @Html.Raw(Json.Serialize(Model.SurchargeSlabs.OrderBy(s => s.FromAmount).Select(s => new { from = s.FromAmount, to = s.ToAmount, rate = s.RatePercent })));
+
+function slabRowHtml(from, to, rate) {
+    return `<div class="slab-row d-flex gap-2 align-items-center mb-2">
+        <input type="number" step="0.01" class="form-control form-control-sm slab-from" placeholder="From ₹" value="${from ?? 0}" style="max-width:130px;" />
+        <input type="number" step="0.01" class="form-control form-control-sm slab-to" placeholder="To ₹ (blank = no limit)" value="${to ?? ''}" style="max-width:170px;" />
+        <input type="number" step="0.01" class="form-control form-control-sm slab-rate" placeholder="Rate %" value="${rate ?? 0}" style="max-width:100px;" />
+        <button type="button" class="btn btn-sm btn-light text-danger" onclick="this.closest('.slab-row').remove()"><i class="bi bi-x-lg"></i></button>
+    </div>`;
+}
+function addSlabRow(listId, from, to, rate) {
+    const wrap = document.createElement('div');
+    wrap.innerHTML = slabRowHtml(from, to, rate);
+    document.getElementById(listId).appendChild(wrap.firstElementChild);
+}
+if (EXISTING_SLABS.length) EXISTING_SLABS.forEach(s => addSlabRow('slabsList', s.from, s.to, s.rate));
+else addSlabRow('slabsList', 0, null, 0);
+if (EXISTING_SURCHARGE.length) EXISTING_SURCHARGE.forEach(s => addSlabRow('surchargeList', s.from, s.to, s.rate));
+
+function collectSlabs(listId) {
+    return Array.from(document.querySelectorAll(`#${listId} .slab-row`)).map(row => ({
+        From: parseFloat(row.querySelector('.slab-from').value) || 0,
+        To: row.querySelector('.slab-to').value === '' ? null : parseFloat(row.querySelector('.slab-to').value),
+        Rate: parseFloat(row.querySelector('.slab-rate').value) || 0
+    }));
+}
+document.getElementById('slabForm').addEventListener('submit', function (e) {
+    const slabs = collectSlabs('slabsList');
+    if (!slabs.length) { e.preventDefault(); alert('Add at least one tax slab.'); return; }
+    document.getElementById('fSlabsJson').value = JSON.stringify(slabs);
+    document.getElementById('fSurchargeJson').value = JSON.stringify(collectSlabs('surchargeList'));
+});
+</script>
+}

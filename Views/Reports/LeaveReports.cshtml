@@ -1,0 +1,188 @@
+@model LeaveReportsViewModel
+@{
+    ViewData["Title"] = "Leave Reports";
+    ViewData["Subtitle"] = "Reports";
+    string view = Model.View;
+    int year = ViewBag.Year;
+    string? status = ViewBag.Status;
+    string groupBy = ViewBag.GroupBy;
+    int? departmentId = ViewBag.DepartmentId; int? leaveTypeId = ViewBag.LeaveTypeId; int? employeeId = ViewBag.EmployeeId;
+    var departments = (List<Department>)ViewBag.DepartmentList;
+    var leaveTypes = (List<LeaveType>)ViewBag.LeaveTypeList;
+    var empList = (List<Employee>)ViewBag.EmployeeList;
+    var statuses = new[] { "Approved", "Pending", "Rejected", "Revoked", "Cancelled" };
+}
+
+<div class="page-header">
+    <div>
+        <h1>Leave Reports</h1>
+        <p>Leave year @year&ndash;@(year + 1) &mdash; Balance, Taken/Pending/Rejected/History, and Leave Type/Department breakdowns in one screen</p>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-auto">
+                <label class="form-label mb-1">View</label>
+                <select name="view" id="fView" class="form-select form-select-sm" onchange="toggleView()">
+                    <option value="Balance" selected="@(view == "Balance")">Leave Balance</option>
+                    <option value="Applications" selected="@(view == "Applications")">Applications (Taken / Pending / Rejected / History)</option>
+                    <option value="Summary" selected="@(view == "Summary")">Summary (Leave Type-wise / Department-wise)</option>
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-1">Leave Year</label>
+                <input type="number" name="year" value="@year" class="form-control form-control-sm" style="width:100px;" />
+            </div>
+            <div class="col-auto" id="statusField" style="display:@(view == "Applications" ? "block" : "none");">
+                <label class="form-label mb-1">Status</label>
+                <select name="status" class="form-select form-select-sm">
+                    <option value="">All (History)</option>
+                    @foreach (var s in statuses) { <option value="@s" selected="@(status == s)">@s</option> }
+                </select>
+            </div>
+            <div class="col-auto" id="groupByField" style="display:@(view == "Summary" ? "block" : "none");">
+                <label class="form-label mb-1">Group By</label>
+                <select name="groupBy" class="form-select form-select-sm">
+                    <option value="LeaveType" selected="@(groupBy == "LeaveType")">Leave Type</option>
+                    <option value="Department" selected="@(groupBy == "Department")">Department</option>
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-1">Department</label>
+                <select name="departmentId" class="form-select form-select-sm">
+                    <option value="">All</option>
+                    @foreach (var d in departments) { <option value="@d.Id" selected="@(departmentId == d.Id)">@d.Name</option> }
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-1">Leave Type</label>
+                <select name="leaveTypeId" class="form-select form-select-sm">
+                    <option value="">All</option>
+                    @foreach (var t in leaveTypes) { <option value="@t.Id" selected="@(leaveTypeId == t.Id)">@t.Name (@t.Alias)</option> }
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-1">Employee</label>
+                <select name="employeeId" class="form-select form-select-sm">
+                    <option value="">All</option>
+                    @foreach (var e in empList) { <option value="@e.Id" selected="@(employeeId == e.Id)">@e.EmpCode — @e.Name</option> }
+                </select>
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-funnel-fill me-1"></i> Apply</button>
+                <a href="@Url.Action("LeaveReports")" class="btn btn-sm btn-light">Reset</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+@if (view == "Balance")
+{
+    <div class="card mb-3">
+        <div class="card-body" style="font-size:12px;">
+            Balance is computed fresh for this leave cycle only (cycle = each policy's Cycle Start Month, @year&ndash;@(year + 1)) — a prior cycle's carried-forward balance is not reflected since no year-to-year balance ledger is kept yet. Only employees with a Leave Policy assigned appear here.
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-body p-0" style="overflow-x:auto;">
+            <table class="table table-sm mb-0" style="font-size:12.5px;">
+                <thead><tr><th>Employee</th><th>Leave Type</th><th class="text-center">Entitlement</th><th class="text-center">Accrued So Far</th><th class="text-center">Taken</th><th class="text-center">Pending</th><th class="text-center">Balance</th></tr></thead>
+                <tbody>
+                @if (!Model.BalanceRows.Any())
+                {
+                    <tr><td colspan="7"><div class="empty-state"><i class="bi bi-wallet2"></i>No leave-policy-linked employees match this selection.</div></td></tr>
+                }
+                @foreach (var r in Model.BalanceRows)
+                {
+                    <tr>
+                        <td>@r.Employee.EmpCode — @r.Employee.Name</td>
+                        <td>@r.LeaveTypeName <span class="badge badge-soft-primary">@r.LeaveTypeAlias</span></td>
+                        <td class="text-center">@r.Entitlement</td>
+                        <td class="text-center">@r.AccruedSoFar</td>
+                        <td class="text-center">@r.Taken</td>
+                        <td class="text-center">@r.Pending</td>
+                        <td class="text-center fw-bold @(r.Balance < 0 ? "text-danger" : "")">@r.Balance</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+else if (view == "Applications")
+{
+    <div class="card">
+        <div class="card-body p-0" style="overflow-x:auto;">
+            @if (!Model.ApplicationRows.Any())
+            {
+                <div class="empty-state"><i class="bi bi-inbox"></i>No leave applications match this selection.</div>
+            }
+            else
+            {
+                <table class="table table-sm mb-0" style="font-size:12.5px;">
+                    <thead><tr><th>Employee</th><th>Leave Type</th><th>From</th><th>To</th><th>Duration</th><th>Reason</th><th>Approver</th><th>Applied On</th><th>Status</th><th>Remarks</th></tr></thead>
+                    <tbody>
+                    @foreach (var a in Model.ApplicationRows)
+                    {
+                        <tr>
+                            <td>@a.Employee?.EmpCode — @a.Employee?.Name</td>
+                            <td>@a.LeaveType?.Name <span class="badge badge-soft-primary">@a.LeaveType?.Alias</span></td>
+                            <td>@a.FromDate</td>
+                            <td>@a.ToDate</td>
+                            <td>@a.DurationDays day(s)</td>
+                            <td style="max-width:200px;white-space:normal;">@a.Reason</td>
+                            <td>@a.Approver?.Name</td>
+                            <td>@a.AppliedOn.ToString("dd-MMM-yyyy")</td>
+                            <td>
+                                @{ var badgeClass = a.Status switch { "Approved" => "badge-soft-success", "Pending" => "badge-soft-warning", "Rejected" => "badge-soft-danger", _ => "badge-soft-gray" }; }
+                                <span class="badge @badgeClass">@a.Status</span>
+                            </td>
+                            <td>@a.Remarks</td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </div>
+}
+else
+{
+    <div class="card">
+        <div class="card-body p-0" style="overflow-x:auto;">
+            <table class="table table-sm mb-0" style="font-size:12.5px;">
+                <thead><tr><th>@(groupBy == "Department" ? "Department" : "Leave Type")</th><th class="text-center">Applications</th><th class="text-center">Total Days</th><th class="text-center">Approved</th><th class="text-center">Pending</th><th class="text-center">Rejected</th><th class="text-center">Other</th></tr></thead>
+                <tbody>
+                @if (!Model.SummaryRows.Any())
+                {
+                    <tr><td colspan="7"><div class="empty-state"><i class="bi bi-bar-chart"></i>No leave applications match this selection.</div></td></tr>
+                }
+                @foreach (var g in Model.SummaryRows)
+                {
+                    <tr>
+                        <td>@g.GroupName</td>
+                        <td class="text-center">@g.Applications</td>
+                        <td class="text-center">@g.TotalDays</td>
+                        <td class="text-center">@g.Approved</td>
+                        <td class="text-center">@g.Pending</td>
+                        <td class="text-center">@g.Rejected</td>
+                        <td class="text-center">@g.Other</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@section Scripts {
+<script>
+function toggleView() {
+    var v = document.getElementById('fView').value;
+    document.getElementById('statusField').style.display = v === 'Applications' ? 'block' : 'none';
+    document.getElementById('groupByField').style.display = v === 'Summary' ? 'block' : 'none';
+}
+</script>
+}

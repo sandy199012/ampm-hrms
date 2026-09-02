@@ -1,0 +1,43 @@
+@{
+    ViewData["Title"] = "Bulk Upload";
+    ViewData["Subtitle"] = "Employee Master";
+}
+
+<div class="page-header">
+    <div>
+        <h1>Bulk Upload Employees</h1>
+        <p>Import or update many employees at once from an Excel file</p>
+    </div>
+    <a href="@Url.Action("Employees")" class="btn btn-light"><i class="bi bi-arrow-left me-1"></i> Back to List</a>
+</div>
+
+<div class="row g-3">
+    <div class="col-lg-7">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-file-earmark-arrow-up me-1"></i> Upload File</div>
+            <div class="card-body">
+                <form method="post" asp-action="BulkUpload" enctype="multipart/form-data">
+                    @Html.AntiForgeryToken()
+                    <div class="mb-3">
+                        <label class="form-label">Excel File (.xlsx)</label>
+                        <input type="file" name="file" class="form-control" accept=".xlsx" required />
+                        <div class="form-text">Uses your existing HR export format — same column headers, any order.</div>
+                    </div>
+                    <button type="submit" class="btn btn-primary"><i class="bi bi-upload me-1"></i> Upload &amp; Import</button>
+                    <a href="@Url.Action("DownloadTemplate")" class="btn btn-light"><i class="bi bi-download me-1"></i> Download Template</a>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-5">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-info-circle-fill me-1"></i> How it works</div>
+            <div class="card-body" style="font-size:13.3px;color:var(--text-muted);line-height:1.7;">
+                <p class="mb-2"><strong style="color:var(--text);">Matched by Employee Code.</strong> A row with an existing code updates that employee; a new code creates one.</p>
+                <p class="mb-2"><strong style="color:var(--text);">Department / Designation / Grade / Shift / Work Station</strong> are matched by name and <strong>auto-created</strong> if not found yet — review them afterwards from the Masters screens.</p>
+                <p class="mb-2"><strong style="color:var(--text);">Manager Name</strong> is matched to another employee's name after the whole file is imported, so it works even if the manager's own row appears later in the file.</p>
+                <p class="mb-0"><strong style="color:var(--text);">New employees</strong> get the default password <code>Welcome@123</code> and system role <code>Employee</code> — change these individually afterwards if needed.</p>
+            </div>
+        </div>
+    </div>
+</div>

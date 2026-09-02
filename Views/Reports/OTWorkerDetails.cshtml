@@ -1,0 +1,48 @@
+@model List<OTWorkerDetailRow>
+@{
+    ViewData["Title"] = "OT - Worker OT Details";
+    ViewData["Subtitle"] = "Reports";
+    int year = ViewBag.Year; int month = ViewBag.Month; string monthLabel = ViewBag.MonthLabel;
+}
+
+<div class="page-header">
+    <div>
+        <h1>OT - Worker OT Details</h1>
+        <p>@monthLabel — Worker/Retail Worker employees with OT &gt; 0, sorted by Total OT</p>
+    </div>
+    <div class="d-flex gap-2">
+        <form method="get" class="d-flex gap-2">
+            <input type="number" name="year" value="@year" class="form-control" style="width:100px;" />
+            <select name="month" class="form-select" style="width:150px;">
+                @for (int mo = 1; mo <= 12; mo++) { <option value="@mo" selected="@(mo==month)">@(new DateTime(2000,mo,1).ToString("MMMM"))</option> }
+            </select>
+            <button type="submit" class="btn btn-light">Go</button>
+        </form>
+        <a class="btn btn-primary" href="@Url.Action("ExportExcel", new { year, month })"><i class="bi bi-file-earmark-excel-fill me-1"></i> Export Excel</a>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body p-0" style="overflow-x:auto;">
+        @if (!Model.Any())
+        {
+            <div class="empty-state"><i class="bi bi-clock-history"></i>No OT recorded this month.</div>
+        }
+        else
+        {
+            <table class="table mb-0">
+                <thead><tr><th>Department</th><th>Employee</th><th>Code</th><th>Designation</th><th>Category</th><th class="text-center">OT Days</th><th class="text-center">Total OT Hrs</th><th class="text-center">Avg OT/Day</th></tr></thead>
+                <tbody>
+                @foreach (var r in Model)
+                {
+                    <tr>
+                        <td>@r.Employee.Department?.Name</td><td>@r.Employee.Name</td><td>@r.Employee.EmpCode</td>
+                        <td>@r.Employee.Designation?.Name</td><td>@r.Employee.Category</td>
+                        <td class="text-center">@r.OtDays</td><td class="text-center">@r.TotalOT</td><td class="text-center">@r.AvgOTPerDay</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        }
+    </div>
+</div>

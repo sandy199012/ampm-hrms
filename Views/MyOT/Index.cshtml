@@ -1,0 +1,61 @@
+@model List<OTLedger>
+@using AmpmHrmsPro.Services
+@{
+    ViewData["Title"] = "My Overtime";
+    ViewData["Subtitle"] = "My OT";
+    int pending  = (int)ViewBag.TotalPending;
+    int approved = (int)ViewBag.TotalApproved;
+    int paid     = (int)ViewBag.TotalPaid;
+}
+
+<div class="page-header">
+    <h1>My Overtime</h1>
+</div>
+
+<div class="row mb-3 g-2">
+    <div class="col-auto">
+        <div class="stat-card">
+            <div class="stat-label">Pending Approval</div>
+            <div class="stat-value text-warning">@OTLedgerEngine.FormatOTMinutes(pending)</div>
+        </div>
+    </div>
+    <div class="col-auto">
+        <div class="stat-card">
+            <div class="stat-label">Approved</div>
+            <div class="stat-value text-success">@OTLedgerEngine.FormatOTMinutes(approved)</div>
+        </div>
+    </div>
+    <div class="col-auto">
+        <div class="stat-card">
+            <div class="stat-label">Paid</div>
+            <div class="stat-value text-primary">@OTLedgerEngine.FormatOTMinutes(paid)</div>
+        </div>
+    </div>
+</div>
+
+<div class="table-wrap">
+    <table class="table">
+        <thead>
+            <tr><th>Date</th><th>OT</th><th>Kind</th><th>Type</th><th>Status</th><th>Remarks</th></tr>
+        </thead>
+        <tbody>
+        @if (!Model.Any())
+        {
+            <tr><td colspan="6"><div class="empty-state"><i class="bi bi-clock-history"></i>No overtime records yet.</div></td></tr>
+        }
+        @foreach (var l in Model)
+        {
+            <tr>
+                <td>@l.Date</td>
+                <td class="fw-semibold">@OTLedgerEngine.FormatOTMinutes(l.OTMinutes)</td>
+                <td><span class="badge badge-soft-primary">@l.OTKind</span></td>
+                <td><span class="badge @(l.OTType=="Pay"?"badge-soft-info":l.OTType=="Leave"?"badge-soft-success":"badge-soft-warning")">@l.OTType</span></td>
+                <td>
+                    <span class="badge @(l.Status=="Pending"?"badge-soft-warning":l.Status=="Approved"?"badge-soft-success":l.Status=="Paid"?"badge-soft-primary":"badge-soft-danger")">@l.Status</span>
+                </td>
+                <td class="small text-muted">@l.Remarks</td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>

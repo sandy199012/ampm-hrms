@@ -1,0 +1,72 @@
+@model BulkImportResult
+@{
+    ViewData["Title"] = "Bulk Upload Result";
+    ViewData["Subtitle"] = "Employee Master";
+}
+
+<div class="page-header">
+    <div>
+        <h1>Bulk Upload Result</h1>
+        <p>@(Model.Success ? "Import finished" : "Import failed")</p>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="@Url.Action("BulkUpload")" class="btn btn-light"><i class="bi bi-arrow-repeat me-1"></i> Upload Another File</a>
+        <a href="@Url.Action("Employees")" class="btn btn-primary"><i class="bi bi-people-fill me-1"></i> View Employees</a>
+    </div>
+</div>
+
+@if (!Model.Success)
+{
+    <div class="alert alert-danger d-flex align-items-center gap-2 mb-3"><i class="bi bi-exclamation-circle-fill"></i> Import failed: @Model.Error</div>
+}
+else
+{
+    <div class="row g-3 mb-3">
+        <div class="col-md-4">
+            <div class="stat-card">
+                <div class="stat-icon" style="background:var(--success-light);color:var(--success);"><i class="bi bi-person-plus-fill"></i></div>
+                <div><div class="stat-value">@Model.Created</div><div class="stat-label">New Employees Created</div></div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="stat-card">
+                <div class="stat-icon" style="background:var(--info-light);color:var(--info);"><i class="bi bi-arrow-repeat"></i></div>
+                <div><div class="stat-value">@Model.Updated</div><div class="stat-label">Existing Employees Updated</div></div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="stat-card">
+                <div class="stat-icon" style="background:var(--warning-light);color:var(--warning);"><i class="bi bi-diagram-3-fill"></i></div>
+                <div><div class="stat-value">@Model.MastersCreated.Count</div><div class="stat-label">Master Values Auto-Created</div></div>
+            </div>
+        </div>
+    </div>
+
+    @if (Model.MastersCreated.Any())
+    {
+        <div class="card mb-3">
+            <div class="card-header">New Master Values Created</div>
+            <div class="card-body">
+                <p class="text-soft mb-2" style="font-size:12.5px;">These didn't exist yet, so they were added automatically. Review / rename / merge them from the Masters screens if needed.</p>
+                @foreach (var m in Model.MastersCreated.Distinct())
+                {
+                    <span class="badge badge-soft-primary me-1 mb-1">@m</span>
+                }
+            </div>
+        </div>
+    }
+
+    @if (Model.ManagerNotFound.Any())
+    {
+        <div class="card mb-3">
+            <div class="card-header">Manager Names Not Matched</div>
+            <div class="card-body">
+                <p class="text-soft mb-2" style="font-size:12.5px;">These employees' Reporting Manager was left blank because the manager name in the file didn't match any employee name exactly. Set it manually from Edit Employee if needed.</p>
+                @foreach (var m in Model.ManagerNotFound)
+                {
+                    <div class="mb-1" style="font-size:13px;">@m</div>
+                }
+            </div>
+        </div>
+    }
+}

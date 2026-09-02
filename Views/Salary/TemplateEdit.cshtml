@@ -1,0 +1,85 @@
+@model SalaryStructureTemplate
+@{
+    ViewData["Title"] = Model.Id > 0 ? "Edit Template" : "Add Template";
+    ViewData["Subtitle"] = "Salary Structure";
+    var grades = (List<Grade>)ViewBag.Grades;
+    var components = (List<SalaryComponent>)ViewBag.Components;
+}
+
+<div class="page-header">
+    <div>
+        <h1>@(Model.Id > 0 ? "Edit" : "Add") Salary Structure Template</h1>
+        <p>Build the set of components this template applies, then assign it to employees from Salary &gt; Employee Structure</p>
+    </div>
+    <a class="btn btn-light" asp-action="Templates"><i class="bi bi-arrow-left me-1"></i>Back</a>
+</div>
+
+<form method="post" asp-action="SaveTemplate" id="templateForm">
+    @Html.AntiForgeryToken()
+    <input type="hidden" name="id" value="@Model.Id" />
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-6"><label class="form-label">Template Name *</label><input type="text" name="name" class="form-control" required value="@Model.Name" placeholder="e.g. Grade 3 — Executive" /></div>
+                <div class="col-md-3">
+                    <label class="form-label">Grade (optional)</label>
+                    <select name="gradeId" class="form-select">
+                        <option value="">— None —</option>
+                        @foreach (var g in grades) { <option value="@g.Id" selected="@(Model.GradeId == g.Id)">@g.Name</option> }
+                    </select>
+                </div>
+                <div class="col-md-3"><label class="form-label">Description</label><input type="text" name="description" class="form-control" value="@Model.Description" /></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header">Components</div>
+        <div class="card-body">
+            <div id="itemsList"></div>
+            <button type="button" class="btn btn-sm btn-light mt-2" onclick="addItemRow()"><i class="bi bi-plus-lg me-1"></i>Add Component</button>
+            <input type="hidden" name="itemsJson" id="fItemsJson" />
+        </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary"><i class="bi bi-check-circle-fill me-1"></i>Save Template</button>
+</form>
+
+@section Scripts {
+<script>
+const COMPONENTS = @Html.Raw(Json.Serialize(components.Select(c => new { id = c.Id, name = c.Name, type = c.ComponentType })));
+const CALC_LABELS = { Fixed: 'Fixed ₹/month', PercentOfBasic: '% of Basic', PercentOfCTC: '% of CTC', PercentOfGross: '% of Gross-so-far' };
+const EXISTING_ITEMS = @Html.Raw(Json.Serialize(Model.Items.OrderBy(i => i.DisplayOrder).Select(i => new { componentId = i.SalaryComponentId, calcType = i.CalculationType, value = i.Value })));
+
+function itemRowHtml(componentId, calcType, value) {
+    const compOpts = COMPONENTS.map(c => `<option value="${c.id}" ${c.id==componentId?'selected':''}>${c.name} (${c.type})</option>`).join('');
+    const calcOpts = Object.keys(CALC_LABELS).map(k => `<option value="${k}" ${k===calcType?'selected':''}>${CALC_LABELS[k]}</option>`).join('');
+    return `<div class="item-row d-flex gap-2 align-items-center mb-2">
+        <select class="form-select form-select-sm item-comp" style="max-width:260px;">${compOpts}</select>
+        <select class="form-select form-select-sm item-calc" style="max-width:180px;">${calcOpts}</select>
+        <input type="number" step="0.01" class="form-control form-control-sm item-value" style="max-width:120px;" value="${value ?? 0}" placeholder="Value" />
+        <button type="button" class="btn btn-sm btn-light text-danger" onclick="this.closest('.item-row').remove()"><i class="bi bi-x-lg"></i></button>
+    </div>`;
+}
+function addItemRow(componentId, calcType, value) {
+    const wrap = document.createElement('div');
+    wrap.innerHTML = itemRowHtml(componentId || (COMPONENTS[0] && COMPONENTS[0].id), calcType || 'Fixed', value || 0);
+    document.getElementById('itemsList').appendChild(wrap.firstElementChild);
+}
+if (EXISTING_ITEMS.length) {
+    EXISTING_ITEMS.forEach(i => addItemRow(i.componentId, i.calcType, i.value));
+} else {
+    addItemRow();
+}
+
+document.getElementById('templateForm').addEventListener('submit', function (e) {
+    const items = Array.from(document.querySelectorAll('.item-row')).map(row => ({
+        ComponentId: parseInt(row.querySelector('.item-comp').value),
+        CalcType: row.querySelector('.item-calc').value,
+        Value: parseFloat(row.querySelector('.item-value').value) || 0
+    }));
+    if (!items.length) { e.preventDefault(); alert('Add at least one component.'); return; }
+    document.getElementById('fItemsJson').value = JSON.stringify(items);
+});
+</script>
+}

@@ -1,0 +1,59 @@
+@using AmpmHrmsPro.Services
+@{
+    ViewData["Title"] = "My Salary";
+    ViewData["Subtitle"] = "Payroll & Tax";
+    var employee = (Employee)ViewBag.Employee;
+    SalaryBreakdown? bd = ViewBag.Breakdown;
+}
+
+<div class="page-header">
+    <div>
+        <h1>My Salary</h1>
+        <p>@employee.Name (@employee.EmpCode) @(employee.Department != null ? $"· {employee.Department.Name}" : "")</p>
+    </div>
+    <a class="btn btn-light" asp-controller="MyTax" asp-action="Declaration"><i class="bi bi-file-earmark-text me-1"></i>My Tax Declaration</a>
+</div>
+
+@if (bd == null)
+{
+    <div class="alert alert-warning d-flex align-items-center gap-2"><i class="bi bi-exclamation-triangle-fill"></i> No salary structure has been assigned to you yet — please check with HR.</div>
+}
+else
+{
+    <div class="row g-3">
+        <div class="col-lg-7">
+            <div class="card">
+                <div class="card-header">Monthly Breakdown</div>
+                <div class="card-body p-0">
+                    <div class="table-wrap mb-0">
+                        <table class="table mb-0">
+                            <thead><tr><th>Component</th><th>Type</th><th class="text-end">Monthly ₹</th><th class="text-end">Annual ₹</th></tr></thead>
+                            <tbody>
+                            @foreach (var line in bd.Lines)
+                            {
+                                <tr>
+                                    <td>@line.Name</td>
+                                    <td>@(line.Type == "Earning" ? Html.Raw("<span class='badge badge-soft-success'>Earning</span>") : Html.Raw("<span class='badge badge-soft-warning'>Deduction</span>"))</td>
+                                    <td class="text-end">@line.Monthly.ToString("N0")</td>
+                                    <td class="text-end">@line.Annual.ToString("N0")</td>
+                                </tr>
+                            }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-5">
+            <div class="card">
+                <div class="card-header">Summary</div>
+                <div class="card-body">
+                    <div class="d-flex justify-content-between py-2" style="border-bottom:1px solid var(--border);"><span>Annual CTC</span><strong>₹@bd.AnnualCTC.ToString("N0")</strong></div>
+                    <div class="d-flex justify-content-between py-2" style="border-bottom:1px solid var(--border);"><span>Gross Earnings / month</span><strong>₹@bd.MonthlyGrossEarnings.ToString("N0")</strong></div>
+                    <div class="d-flex justify-content-between py-2" style="border-bottom:1px solid var(--border);"><span>Deductions / month</span><strong>₹@bd.MonthlyDeductions.ToString("N0")</strong></div>
+                    <div class="d-flex justify-content-between py-2" style="color:var(--primary-dark);"><span class="fw-semibold">Net Pay / month</span><strong>₹@bd.MonthlyNet.ToString("N0")</strong></div>
+                </div>
+            </div>
+        </div>
+    </div>
+}

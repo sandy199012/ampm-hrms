@@ -1,0 +1,231 @@
+@model List<WeekOffPolicy>
+@{
+    ViewData["Title"] = "Week-Off Policies";
+    ViewData["Subtitle"] = "Organization Masters";
+    var dayOptions = new[] { "Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday" };
+}
+
+<div class="page-header">
+    <div>
+        <h1>Week-Off Policies</h1>
+        <p>@Model.Count polic(ies) — build any combination of weekly and occurrence-based rules</p>
+    </div>
+    <button class="btn btn-primary" onclick="openModal(null,'','',[])"><i class="bi bi-plus-lg me-1"></i>Add Policy</button>
+</div>
+
+<div class="row g-3">
+@if (!Model.Any())
+{
+    <div class="col-12"><div class="empty-state"><i class="bi bi-calendar-week"></i>No week-off policies yet.</div></div>
+}
+@foreach (var w in Model)
+{
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                    <div>
+                        <div class="fw-bold" style="font-size:15px;color:var(--text);">@w.Name</div>
+                        @if (!string.IsNullOrWhiteSpace(w.Description))
+                        {
+                            <div class="text-soft" style="font-size:12px;">@w.Description</div>
+                        }
+                    </div>
+                    @(w.IsActive ? Html.Raw("<span class='badge badge-soft-success'>Active</span>") : Html.Raw("<span class='badge badge-soft-gray'>Inactive</span>"))
+                </div>
+                <div class="mb-3">
+                    @foreach (var r in w.Rules)
+                    {
+                        <span class="badge badge-soft-primary me-1 mb-1">@FormatRule(r)</span>
+                    }
+                </div>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-light" onclick='previewPolicy(@w.Id, @Html.Raw(Json.Serialize(w.Name)))'><i class="bi bi-calendar3 me-1"></i>Preview</button>
+                    <button class="btn btn-sm btn-light" onclick='openModal(@w.Id, @Html.Raw(Json.Serialize(w.Name)), @Html.Raw(Json.Serialize(w.Description ?? "")), @Html.Raw(Json.Serialize(w.Rules.Select(r => new { day = r.DayOfWeek, type = r.RuleType, occurrences = r.Occurrences }))))'><i class="bi bi-pencil-fill"></i></button>
+                    <button class="btn btn-sm btn-light" onclick="toggleIt(@w.Id)"><i class="bi bi-toggle2-on"></i></button>
+                    <button class="btn btn-sm btn-light text-danger" onclick="deleteIt(@w.Id)"><i class="bi bi-trash-fill"></i></button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+</div>
+
+<!-- ADD/EDIT MODAL -->
+<div class="modal fade" id="itemModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <form method="post" asp-action="SaveWeekOffPolicy" id="itemForm">
+                @Html.AntiForgeryToken()
+                <div class="modal-header">
+                    <h5 class="modal-title" id="modalTitle">Add Policy</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" name="id" id="fId" value="0" />
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Policy Name *</label>
+                            <input type="text" name="name" id="fName" class="form-control" required placeholder="e.g. Corporate Staff" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Description</label>
+                            <input type="text" name="description" id="fDescription" class="form-control" placeholder="Optional note" />
+                        </div>
+                    </div>
+
+                    <label class="form-label">Rules</label>
+                    <div id="rulesList" class="mb-2"></div>
+                    <button type="button" class="btn btn-sm btn-light" onclick="addRuleRow()"><i class="bi bi-plus-lg me-1"></i>Add Rule</button>
+                    <div class="form-text mt-2">
+                        Example — "1st & 3rd Saturday + all Sunday": add a rule for <strong>Saturday → Specific weeks → 1st, 3rd</strong>, then another rule for <strong>Sunday → Every week</strong>.
+                    </div>
+                    <input type="hidden" name="rulesJson" id="fRulesJson" />
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Policy</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- PREVIEW MODAL -->
+<div class="modal fade" id="previewModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="previewTitle">Preview</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <button type="button" class="btn btn-sm btn-light" onclick="shiftPreviewMonth(-1)"><i class="bi bi-chevron-left"></i></button>
+                    <div class="fw-semibold" id="previewMonthLabel"></div>
+                    <button type="button" class="btn btn-sm btn-light" onclick="shiftPreviewMonth(1)"><i class="bi bi-chevron-right"></i></button>
+                </div>
+                <div id="previewDates"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@functions {
+    string FormatRule(WeekOffRule r)
+    {
+        if (r.RuleType == "Weekly") return $"Every {r.DayOfWeek}";
+        var map = new Dictionary<string, string> { {"1","1st"}, {"2","2nd"}, {"3","3rd"}, {"4","4th"}, {"5","5th"}, {"L","Last"} };
+        var parts = (r.Occurrences ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(t => map.TryGetValue(t.Trim().ToUpper(), out var v) ? v : t.Trim());
+        return $"{string.Join(" & ", parts)} {r.DayOfWeek}";
+    }
+}
+
+@section Scripts {
+<script>
+const itemModal = new bootstrap.Modal(document.getElementById('itemModal'));
+const previewModal = new bootstrap.Modal(document.getElementById('previewModal'));
+const DAYS = @Html.Raw(Json.Serialize(dayOptions));
+
+function ruleRowHtml(day, type, occurrences) {
+    day = day || 'Sunday'; type = type || 'Weekly'; occurrences = occurrences || '';
+    const checks = ['1','2','3','4','5','L'].map(v => {
+        const label = v === 'L' ? 'Last' : (v + (v==='1'?'st':v==='2'?'nd':v==='3'?'rd':'th'));
+        const checked = occurrences.split(',').map(s=>s.trim().toUpperCase()).includes(v) ? 'checked' : '';
+        return `<div class="form-check form-check-inline">
+                    <input class="form-check-input occ-check" type="checkbox" value="${v}" ${checked}>
+                    <label class="form-check-label" style="font-size:12.5px;">${label}</label>
+                </div>`;
+    }).join('');
+    const dayOpts = DAYS.map(d => `<option value="${d}" ${d===day?'selected':''}>${d}</option>`).join('');
+    return `<div class="rule-row border rounded-3 p-2 mb-2" style="border-color:var(--border)!important;">
+        <div class="d-flex gap-2 align-items-center mb-2">
+            <select class="form-select form-select-sm rule-day" style="max-width:150px;">${dayOpts}</select>
+            <select class="form-select form-select-sm rule-type" style="max-width:170px;">
+                <option value="Weekly" ${type==='Weekly'?'selected':''}>Every week</option>
+                <option value="NthOccurrence" ${type==='NthOccurrence'?'selected':''}>Specific week(s) of month</option>
+            </select>
+            <button type="button" class="btn btn-sm btn-light text-danger ms-auto" onclick="this.closest('.rule-row').remove()"><i class="bi bi-x-lg"></i></button>
+        </div>
+        <div class="occ-wrap" style="display:${type==='NthOccurrence'?'flex':'none'};flex-wrap:wrap;">${checks}</div>
+    </div>`;
+}
+
+function addRuleRow(day, type, occurrences) {
+    const wrap = document.createElement('div');
+    wrap.innerHTML = ruleRowHtml(day, type, occurrences);
+    const row = wrap.firstElementChild;
+    document.getElementById('rulesList').appendChild(row);
+    row.querySelector('.rule-type').addEventListener('change', e => {
+        row.querySelector('.occ-wrap').style.display = e.target.value === 'NthOccurrence' ? 'flex' : 'none';
+    });
+}
+
+function openModal(id, name, description, rules) {
+    document.getElementById('modalTitle').innerText = id ? 'Edit Policy' : 'Add Policy';
+    document.getElementById('fId').value = id || 0;
+    document.getElementById('fName').value = name || '';
+    document.getElementById('fDescription').value = description || '';
+    document.getElementById('rulesList').innerHTML = '';
+    if (rules && rules.length) {
+        rules.forEach(r => addRuleRow(r.day, r.type, r.occurrences));
+    } else {
+        addRuleRow('Sunday', 'Weekly', '');
+    }
+    itemModal.show();
+}
+
+document.getElementById('itemForm').addEventListener('submit', function (e) {
+    const rules = Array.from(document.querySelectorAll('.rule-row')).map(row => {
+        const type = row.querySelector('.rule-type').value;
+        const occ = type === 'NthOccurrence'
+            ? Array.from(row.querySelectorAll('.occ-check:checked')).map(c => c.value).join(',')
+            : null;
+        return { day: row.querySelector('.rule-day').value, type: type, occurrences: occ };
+    }).filter(r => r.type !== 'NthOccurrence' || r.occurrences);
+    if (!rules.length) { e.preventDefault(); alert('Add at least one rule.'); return; }
+    document.getElementById('fRulesJson').value = JSON.stringify(rules);
+});
+
+function toggleIt(id) {
+    fetch('@Url.Action("ToggleWeekOffPolicy")', { method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded'}, body: `id=${id}` })
+        .then(r => r.json()).then(d => { if (d.success) location.reload(); });
+}
+function deleteIt(id) {
+    if (!confirm('Delete this policy? If in use, it will be deactivated instead.')) return;
+    fetch('@Url.Action("DeleteWeekOffPolicy")', { method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded'}, body: `id=${id}` })
+        .then(r => r.json()).then(d => { alert(d.message || 'Done.'); if (d.success) location.reload(); });
+}
+
+let previewPolicyId = null, previewYear, previewMonth;
+function previewPolicy(id, name) {
+    previewPolicyId = id;
+    const now = new Date();
+    previewYear = now.getFullYear(); previewMonth = now.getMonth() + 1;
+    document.getElementById('previewTitle').innerText = 'Preview — ' + name;
+    loadPreview();
+    previewModal.show();
+}
+function shiftPreviewMonth(delta) {
+    previewMonth += delta;
+    if (previewMonth < 1) { previewMonth = 12; previewYear--; }
+    if (previewMonth > 12) { previewMonth = 1; previewYear++; }
+    loadPreview();
+}
+function loadPreview() {
+    const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    document.getElementById('previewMonthLabel').innerText = monthNames[previewMonth-1] + ' ' + previewYear;
+    document.getElementById('previewDates').innerHTML = '<div class="text-soft">Loading...</div>';
+    fetch(`@Url.Action("PreviewWeekOff")?id=${previewPolicyId}&year=${previewYear}&month=${previewMonth}`)
+        .then(r => r.json()).then(d => {
+            if (!d.success || !d.dates.length) { document.getElementById('previewDates').innerHTML = '<div class="text-soft">No week-off dates this month.</div>'; return; }
+            document.getElementById('previewDates').innerHTML = d.dates.map(x =>
+                `<div class="d-flex justify-content-between border-bottom py-2" style="font-size:13.5px;border-color:var(--border)!important;">
+                    <span>${x.date}</span><span class="badge badge-soft-primary">${x.day}</span>
+                 </div>`
+            ).join('');
+        });
+}
+</script>
+}

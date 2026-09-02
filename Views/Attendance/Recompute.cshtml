@@ -1,0 +1,68 @@
+@{
+    ViewData["Title"] = "Recompute Attendance";
+    ViewData["Subtitle"] = "Attendance";
+}
+
+<div class="page-header">
+    <div>
+        <h1>Recompute Attendance</h1>
+        <p>Re-run the attendance engine for a date range — recomputes status, OT, and comp-off auto-credits from raw punch data and approved applications.</p>
+    </div>
+</div>
+
+<div class="alert alert-primary d-flex align-items-center gap-2 mb-4" style="background:var(--primary-light);color:var(--primary-dark);">
+    <i class="bi bi-info-circle-fill"></i>
+    <div>
+        Use this after approving old regularisations, correcting punch data, or changing shift / week-off policy — so <strong>comp-off credits, OT, and effective status</strong> are recalculated correctly for the affected dates.
+    </div>
+</div>
+
+<div class="card" style="max-width:540px;">
+    <div class="card-body p-4">
+        <form method="post" asp-action="Recompute">
+            @Html.AntiForgeryToken()
+
+            <div class="row g-3">
+                <div class="col-6">
+                    <label class="form-label fw-semibold">From Date <span class="text-danger">*</span></label>
+                    <input type="date" name="fromDate" class="form-control"
+                           value="@DateTime.Today.ToString("yyyy-MM-dd")" required />
+                </div>
+                <div class="col-6">
+                    <label class="form-label fw-semibold">To Date <span class="text-danger">*</span></label>
+                    <input type="date" name="toDate" class="form-control"
+                           value="@DateTime.Today.ToString("yyyy-MM-dd")" required />
+                </div>
+                <div class="col-12">
+                    <label class="form-label fw-semibold">Employee</label>
+                    <select name="employeeId" class="form-select">
+                        <option value="">— All Active Employees —</option>
+                        @foreach (var e in (List<AmpmHrmsPro.Models.Employee>)ViewBag.EmployeeList)
+                        {
+                            <option value="@e.Id">@e.Name (@e.EmpCode)</option>
+                        }
+                    </select>
+                    <div class="form-text">Leave blank to recompute every active employee.</div>
+                </div>
+            </div>
+
+            <div class="mt-4 d-flex gap-2 align-items-center">
+                <button type="submit" class="btn btn-primary" id="recomputeBtn">
+                    <i class="bi bi-arrow-repeat me-1"></i>Run Recompute
+                </button>
+                <span class="text-muted small" id="runningMsg" style="display:none;">
+                    <span class="spinner-border spinner-border-sm me-1"></span>Running… this may take a minute for large ranges.
+                </span>
+            </div>
+        </form>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+document.querySelector('form').addEventListener('submit', function () {
+    document.getElementById('recomputeBtn').disabled = true;
+    document.getElementById('runningMsg').style.display = 'inline-flex';
+});
+</script>
+}

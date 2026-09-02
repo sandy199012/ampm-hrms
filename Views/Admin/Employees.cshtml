@@ -1,0 +1,95 @@
+@model List<Employee>
+@{
+    ViewData["Title"] = "Employees";
+    ViewData["Subtitle"] = "Employee Master";
+}
+
+<div class="page-header">
+    <div>
+        <h1>All Employees</h1>
+        <p>@Model.Count employee(s) found</p>
+    </div>
+    <div class="d-flex gap-2">
+        <form method="get" class="d-flex gap-2">
+            <input type="text" name="q" value="@ViewBag.Query" class="form-control" placeholder="Search name, code, email..." style="width:260px;" />
+            <button class="btn btn-light"><i class="bi bi-search"></i></button>
+        </form>
+        <a href="@Url.Action("BulkUpload")" class="btn btn-light"><i class="bi bi-file-earmark-arrow-up me-1"></i> Bulk Upload</a>
+        <a href="@Url.Action("AddEmployee")" class="btn btn-primary"><i class="bi bi-person-plus-fill me-1"></i> Add Employee</a>
+    </div>
+</div>
+
+<div class="table-wrap">
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Employee</th>
+                <th>Code</th>
+                <th>Department</th>
+                <th>Designation</th>
+                <th>Location</th>
+                <th>Reporting Manager</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+        @if (!Model.Any())
+        {
+            <tr><td colspan="9"><div class="empty-state"><i class="bi bi-people"></i>No employees found.</div></td></tr>
+        }
+        @foreach (var e in Model)
+        {
+            var initials = string.Join("", e.Name.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(w => w[0])).ToUpper();
+            <tr>
+                <td>
+                    <div class="d-flex align-items-center gap-2">
+                        <div class="avatar-sm">@initials</div>
+                        <div>
+                            <div class="fw-semibold" style="color:var(--text);">@e.Name</div>
+                            <div class="text-soft" style="font-size:11.5px;">@e.Email</div>
+                        </div>
+                    </div>
+                </td>
+                <td>@e.EmpCode</td>
+                <td>@(e.Department?.Name ?? "—")</td>
+                <td>@(e.Designation?.Name ?? "—")</td>
+                <td>@(e.Location?.Name ?? "—")</td>
+                <td>@(e.ReportingManager?.Name ?? "—")</td>
+                <td><span class="badge badge-soft-primary text-capitalize">@e.Role</span></td>
+                <td>
+                    @if (e.Status == "Active")
+                    {
+                        <span class="badge badge-soft-success">Active</span>
+                    }
+                    else
+                    {
+                        <span class="badge badge-soft-gray">@e.Status</span>
+                    }
+                </td>
+                <td class="text-end">
+                    <a href="@Url.Action("EditEmployee", new { id = e.Id })" class="btn btn-sm btn-light"><i class="bi bi-pencil-fill"></i> Edit</a>
+                    <button type="button" class="btn btn-sm btn-light" onclick="resetPwd(@e.Id, '@e.Name')"><i class="bi bi-key-fill"></i></button>
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>
+
+@section Scripts {
+<script>
+function resetPwd(id, name) {
+    if (!confirm(`Reset password for ${name}? A new default password will be generated.`)) return;
+    fetch('@Url.Action("ResetPassword")', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'id=' + id
+    }).then(r => r.json()).then(d => {
+        if (d.success) alert(`Password reset. New password: ${d.password}`);
+        else alert('Failed to reset password.');
+    });
+}
+</script>
+}

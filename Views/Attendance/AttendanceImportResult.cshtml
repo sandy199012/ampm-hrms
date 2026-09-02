@@ -1,0 +1,56 @@
+@model BulkImportResult
+@{
+    ViewData["Title"] = "Attendance Import Result";
+    ViewData["Subtitle"] = "Attendance";
+}
+
+<div class="page-header">
+    <div>
+        <h1>Attendance Import Result</h1>
+        <p>@(Model.Success ? "Import finished" : "Import failed")</p>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="@Url.Action("BulkAttendanceImport")" class="btn btn-light"><i class="bi bi-arrow-repeat me-1"></i> Import Another File</a>
+    </div>
+</div>
+
+@if (!Model.Success)
+{
+    <div class="alert alert-danger d-flex align-items-center gap-2 mb-3"><i class="bi bi-exclamation-circle-fill"></i> Import failed: @Model.Error</div>
+}
+else
+{
+    <div class="row g-3 mb-3">
+        <div class="col-md-6">
+            <div class="stat-card">
+                <div class="stat-icon" style="background:var(--success-light);color:var(--success);"><i class="bi bi-fingerprint"></i></div>
+                <div><div class="stat-value">@Model.Created</div><div class="stat-label">Punches Imported</div></div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="stat-card">
+                <div class="stat-icon" style="background:var(--info-light);color:var(--info);"><i class="bi bi-arrow-repeat"></i></div>
+                <div><div class="stat-value">@Model.Updated</div><div class="stat-label">Duplicates Skipped</div></div>
+            </div>
+        </div>
+    </div>
+
+    @if (Model.MastersCreated.Any())
+    {
+        <div class="card mb-3">
+            <div class="card-body">
+                @foreach (var m in Model.MastersCreated) { <div style="font-size:13px;">@m</div> }
+            </div>
+        </div>
+    }
+
+    @if (Model.ManagerNotFound.Any())
+    {
+        <div class="card mb-3">
+            <div class="card-header">Warnings</div>
+            <div class="card-body">
+                @foreach (var m in Model.ManagerNotFound) { <div class="mb-1" style="font-size:13px;">@m</div> }
+            </div>
+        </div>
+    }
+}

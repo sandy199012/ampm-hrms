@@ -1,0 +1,25 @@
+## .NET
+bin/
+obj/
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+## Local settings
+appsettings.Development.json
+appsettings.Local.json
+
+## SQLite local DB (do not commit)
+*.db
+*.db-shm
+*.db-wal
+
+## Logs
+logs/
+*.log
+
+## OS
+.DS_Store
+Thumbs.db

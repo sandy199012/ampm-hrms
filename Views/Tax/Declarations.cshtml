@@ -1,0 +1,75 @@
+@model List<TaxDeclarationHeader>
+@{
+    ViewData["Title"] = "Investment Declarations";
+    ViewData["Subtitle"] = "Income Tax";
+    var departments = (List<Department>)ViewBag.Departments;
+    var employees = (List<Employee>)ViewBag.Employees;
+    string fy = ViewBag.FinancialYear;
+    string? status = ViewBag.Status;
+    int? deptId = ViewBag.DepartmentId;
+}
+
+<div class="page-header">
+    <div>
+        <h1>Investment Declarations</h1>
+        <p>Review every employee's declared investments — approve/reject items, or fill one in on an employee's behalf</p>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-md-2"><label class="form-label">Financial Year</label><input type="text" name="financialYear" class="form-control" value="@fy" /></div>
+            <div class="col-md-3">
+                <label class="form-label">Department</label>
+                <select name="departmentId" class="form-select">
+                    <option value="">All Departments</option>
+                    @foreach (var d in departments) { <option value="@d.Id" selected="@(deptId == d.Id)">@d.Name</option> }
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">Status</label>
+                <select name="status" class="form-select">
+                    <option value="">All</option>
+                    <option value="Draft" selected="@(status == "Draft")">Draft</option>
+                    <option value="Submitted" selected="@(status == "Submitted")">Submitted</option>
+                    <option value="PendingItems" selected="@(status == "PendingItems")">Has Pending Items</option>
+                </select>
+            </div>
+            <div class="col-md-2"><button type="submit" class="btn btn-primary w-100">Filter</button></div>
+            <div class="col-md-2">
+                <select id="empPicker" class="form-select" onchange="if(this.value) window.location='@Url.Action("Declaration")?employeeId=' + this.value + '&financialYear=@fy';">
+                    <option value="">Fill for employee...</option>
+                    @foreach (var e in employees) { <option value="@e.Id">@e.Name (@e.EmpCode)</option> }
+                </select>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="table-wrap">
+    <table class="table">
+        <thead><tr><th>Employee</th><th>Department</th><th>Regime Choice</th><th>Rent (Annual)</th><th>Items</th><th>Pending</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+        @if (!Model.Any())
+        {
+            <tr><td colspan="8"><div class="empty-state"><i class="bi bi-inbox"></i>No declarations found for these filters.</div></td></tr>
+        }
+        @foreach (var h in Model)
+        {
+            var pending = h.Items.Count(i => i.Status == "Pending");
+            var approved = h.Items.Count(i => i.Status == "Approved");
+            <tr>
+                <td class="fw-semibold" style="color:var(--text);">@h.Employee?.Name <span class="text-muted">(@h.Employee?.EmpCode)</span></td>
+                <td>@(h.Employee?.Department?.Name ?? "—")</td>
+                <td>@h.RegimeChoice</td>
+                <td>₹@h.AnnualRentPaid.ToString("N0")</td>
+                <td>@h.Items.Count total, @approved approved</td>
+                <td>@(pending > 0 ? Html.Raw($"<span class='badge badge-soft-warning'>{pending} pending</span>") : Html.Raw("<span class='badge badge-soft-success'>None</span>"))</td>
+                <td>@(h.Status == "Submitted" ? Html.Raw("<span class='badge badge-soft-primary'>Submitted</span>") : Html.Raw("<span class='badge badge-soft-gray'>Draft</span>"))</td>
+                <td class="text-end"><a class="btn btn-sm btn-light" asp-action="Declaration" asp-route-employeeId="@h.EmployeeId" asp-route-financialYear="@h.FinancialYear"><i class="bi bi-eye-fill me-1"></i>Review</a></td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>

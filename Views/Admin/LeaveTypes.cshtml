@@ -1,0 +1,150 @@
+@model List<LeaveType>
+@{
+    ViewData["Title"] = "Leave Types";
+    ViewData["Subtitle"] = "Organization Masters";
+    var frequencies = new[] { "Monthly","Yearly","On Request" };
+}
+
+<div class="page-header">
+    <div>
+        <h1>Leave Type Master</h1>
+        <p>Full control over what leave options your employees see</p>
+    </div>
+    <button class="btn btn-primary" onclick='openModal(null,"","","All","Yearly",0,false,false,false,true)'><i class="bi bi-plus-lg me-1"></i>Add Leave Type</button>
+</div>
+
+<div class="alert alert-primary d-flex align-items-center gap-2 mb-3" style="background:var(--primary-light);color:var(--primary-dark);">
+    <i class="bi bi-info-circle-fill"></i> Balance/quota enforcement applies only to leave types you mark as tracked in future balance rules — this screen defines what employees can request.
+</div>
+
+<div class="table-wrap">
+    <table class="table">
+        <thead><tr><th>Name</th><th>Alias</th><th>Gender</th><th>Frequency</th><th>Annual Days</th><th>Carry Fwd</th><th>Encashable</th><th>Comp-Off</th><th>Paid</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+        @if (!Model.Any())
+        {
+            <tr><td colspan="11"><div class="empty-state"><i class="bi bi-envelope-paper"></i>No leave types yet.</div></td></tr>
+        }
+        @foreach (var t in Model)
+        {
+            <tr>
+                <td class="fw-semibold" style="color:var(--text);">@t.Name</td>
+                <td><span class="badge badge-soft-primary">@t.Alias</span></td>
+                <td>@t.Gender</td>
+                <td>@t.Frequency</td>
+                <td>@t.DefaultAnnualDays</td>
+                <td>@(t.CarryForward ? "✔️" : "—")</td>
+                <td>@(t.Encashable ? "✔️" : "—")</td>
+                <td>@(t.IsCompOff ? "✔️" : "—")</td>
+                <td>@(t.IsPaid ? Html.Raw("<span class='badge badge-soft-success'>Paid</span>") : Html.Raw("<span class='badge badge-soft-warning'>Unpaid (LOP)</span>"))</td>
+                <td>@(t.IsActive ? Html.Raw("<span class='badge badge-soft-success'>Active</span>") : Html.Raw("<span class='badge badge-soft-gray'>Inactive</span>"))</td>
+                <td class="text-end">
+                    <button class="btn btn-sm btn-light" onclick='openModal(@t.Id, @Html.Raw(Json.Serialize(t.Name)), @Html.Raw(Json.Serialize(t.Alias)), @Html.Raw(Json.Serialize(t.Gender)), @Html.Raw(Json.Serialize(t.Frequency)), @t.DefaultAnnualDays, @Json.Serialize(t.CarryForward), @Json.Serialize(t.Encashable), @Json.Serialize(t.IsCompOff), @Json.Serialize(t.IsPaid))'><i class="bi bi-pencil-fill"></i></button>
+                    <button class="btn btn-sm btn-light" onclick="toggleIt(@t.Id)"><i class="bi bi-toggle2-on"></i></button>
+                    <button class="btn btn-sm btn-light text-danger" onclick="deleteIt(@t.Id)"><i class="bi bi-trash-fill"></i></button>
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>
+
+<div class="modal fade" id="itemModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="post" asp-action="SaveLeaveType" id="itemForm">
+                @Html.AntiForgeryToken()
+                <div class="modal-header">
+                    <h5 class="modal-title" id="modalTitle">Add Leave Type</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" name="Id" id="fId" value="0" />
+                    <div class="row g-3">
+                        <div class="col-8">
+                            <label class="form-label">Leave Name *</label>
+                            <input type="text" name="Name" id="fName" class="form-control" required placeholder="e.g. Earned Leave" />
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label">Alias *</label>
+                            <input type="text" name="Alias" id="fAlias" class="form-control" required maxlength="10" placeholder="EL" />
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label">Applicable To</label>
+                            <select name="Gender" id="fGender" class="form-select">
+                                <option value="All">All</option>
+                                <option value="Male">Male Only</option>
+                                <option value="Female">Female Only</option>
+                            </select>
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label">Frequency</label>
+                            <select name="Frequency" id="fFreq" class="form-select">
+                                @foreach (var f in frequencies) { <option value="@f">@f</option> }
+                            </select>
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label">Default Annual Days</label>
+                            <input type="number" step="0.5" name="DefaultAnnualDays" id="fDays" class="form-control" />
+                        </div>
+                        <div class="col-12">
+                            <div class="d-flex gap-4 mt-2">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="CarryForward" id="fCarry" value="true" />
+                                    <label class="form-check-label" for="fCarry">Carry Forward</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="Encashable" id="fEncash" value="true" />
+                                    <label class="form-check-label" for="fEncash">Encashable</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="IsCompOff" id="fComp" value="true" />
+                                    <label class="form-check-label" for="fComp">Is Comp-Off</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="IsPaid" id="fPaid" value="true" />
+                                    <input type="hidden" name="IsPaid" value="false" />
+                                    <label class="form-check-label" for="fPaid">Paid Leave</label>
+                                </div>
+                            </div>
+                            <div class="form-text mt-1">Uncheck for a leave type like "Leave Without Pay" — days taken under it will count toward LOP in Attendance Reports.</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+const itemModal = new bootstrap.Modal(document.getElementById('itemModal'));
+function openModal(id, name, alias, gender, freq, days, carry, encash, comp, paid) {
+    document.getElementById('modalTitle').innerText = id ? 'Edit Leave Type' : 'Add Leave Type';
+    document.getElementById('fId').value = id || 0;
+    document.getElementById('fName').value = name || '';
+    document.getElementById('fAlias').value = alias || '';
+    document.getElementById('fGender').value = gender || 'All';
+    document.getElementById('fFreq').value = freq || 'Yearly';
+    document.getElementById('fDays').value = days || 0;
+    document.getElementById('fCarry').checked = !!carry;
+    document.getElementById('fEncash').checked = !!encash;
+    document.getElementById('fComp').checked = !!comp;
+    document.getElementById('fPaid').checked = paid !== false; // default to Paid for a brand-new leave type
+    itemModal.show();
+}
+function toggleIt(id) {
+    fetch('@Url.Action("ToggleLeaveType")', { method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded'}, body: `id=${id}` })
+        .then(r => r.json()).then(d => { if (d.success) location.reload(); });
+}
+function deleteIt(id) {
+    if (!confirm('Delete this leave type?')) return;
+    fetch('@Url.Action("DeleteLeaveType")', { method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded'}, body: `id=${id}` })
+        .then(r => r.json()).then(d => { if (d.success) location.reload(); });
+}
+</script>
+}

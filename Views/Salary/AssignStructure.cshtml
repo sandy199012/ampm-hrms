@@ -1,0 +1,115 @@
+@{
+    ViewData["Title"] = "Assign Salary Structure";
+    ViewData["Subtitle"] = "Salary Structure";
+    var employee = (Employee)ViewBag.Employee;
+    var templates = (List<SalaryStructureTemplate>)ViewBag.Templates;
+    var components = (List<SalaryComponent>)ViewBag.Components;
+    decimal currentCtc = ViewBag.CurrentAnnualCTC;
+    int? prefillTemplateId = ViewBag.PrefillSourceTemplateId;
+}
+
+<div class="page-header">
+    <div>
+        <h1>Assign Salary Structure — @employee.Name</h1>
+        <p>@employee.EmpCode @(employee.Department != null ? $"· {employee.Department.Name}" : "")</p>
+    </div>
+    <a class="btn btn-light" asp-action="EmployeeStructure" asp-route-employeeId="@employee.Id"><i class="bi bi-arrow-left me-1"></i>Back</a>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <label class="form-label">Load from Template (optional — prefills the components below, still editable)</label>
+        <select class="form-select" style="max-width:420px;" onchange="if(this.value) window.location = '@Url.Action("AssignStructure")?employeeId=@employee.Id&copyFromTemplateId=' + this.value;">
+            <option value="">— Start blank / keep current —</option>
+            @foreach (var t in templates)
+            {
+                <option value="@t.Id" selected="@(prefillTemplateId == t.Id)">@t.Name</option>
+            }
+        </select>
+    </div>
+</div>
+
+<form method="post" asp-action="SaveEmployeeStructure" id="structureForm">
+    @Html.AntiForgeryToken()
+    <input type="hidden" name="employeeId" value="@employee.Id" />
+    <input type="hidden" name="sourceTemplateId" value="@prefillTemplateId" />
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-4"><label class="form-label">Effective From *</label><input type="date" name="effectiveFrom" class="form-control" required value="@DateTime.Now.ToString("yyyy-MM-dd")" /></div>
+                <div class="col-md-4"><label class="form-label">Annual CTC (₹) *</label><input type="number" step="0.01" name="annualCTC" id="fCtc" class="form-control" required value="@(currentCtc > 0 ? currentCtc : "")" /></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header">Components</div>
+        <div class="card-body">
+            <div id="itemsList"></div>
+            <button type="button" class="btn btn-sm btn-light mt-2" onclick="addItemRow()"><i class="bi bi-plus-lg me-1"></i>Add Component</button>
+            <div class="mt-3 p-2 rounded-3" style="background:var(--primary-light);">
+                <span class="fw-semibold">Live Monthly Total (Earnings):</span> ₹<span id="liveTotal">0</span>
+                <span class="text-soft ms-2" style="font-size:12px;">(Fixed + % of CTC amounts only — % of Basic / % of Gross are resolved on save)</span>
+            </div>
+            <input type="hidden" name="itemsJson" id="fItemsJson" />
+        </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary"><i class="bi bi-check-circle-fill me-1"></i>Save Structure</button>
+</form>
+
+@section Scripts {
+<script>
+const COMPONENTS = @Html.Raw(Json.Serialize(components.Select(c => new { id = c.Id, name = c.Name, type = c.ComponentType, isBasic = c.IsBasic })));
+const CALC_LABELS = { Fixed: 'Fixed ₹/month', PercentOfBasic: '% of Basic', PercentOfCTC: '% of CTC', PercentOfGross: '% of Gross-so-far' };
+const PREFILL = @Html.Raw(Json.Serialize(ViewBag.PrefillItems));
+
+function itemRowHtml(componentId, calcType, value) {
+    const compOpts = COMPONENTS.map(c => `<option value="${c.id}" ${c.id==componentId?'selected':''}>${c.name}${c.isBasic ? ' (Basic)' : ''}</option>`).join('');
+    const calcOpts = Object.keys(CALC_LABELS).map(k => `<option value="${k}" ${k===calcType?'selected':''}>${CALC_LABELS[k]}</option>`).join('');
+    return `<div class="item-row d-flex gap-2 align-items-center mb-2">
+        <select class="form-select form-select-sm item-comp" style="max-width:240px;">${compOpts}</select>
+        <select class="form-select form-select-sm item-calc" style="max-width:170px;">${calcOpts}</select>
+        <input type="number" step="0.01" class="form-control form-control-sm item-value" style="max-width:110px;" value="${value ?? 0}" placeholder="Value" />
+        <button type="button" class="btn btn-sm btn-light text-danger" onclick="this.closest('.item-row').remove(); recalcTotal();"><i class="bi bi-x-lg"></i></button>
+    </div>`;
+}
+function addItemRow(componentId, calcType, value) {
+    const wrap = document.createElement('div');
+    wrap.innerHTML = itemRowHtml(componentId || (COMPONENTS[0] && COMPONENTS[0].id), calcType || 'Fixed', value || 0);
+    const row = wrap.firstElementChild;
+    document.getElementById('itemsList').appendChild(row);
+    row.querySelectorAll('select, input').forEach(el => el.addEventListener('input', recalcTotal));
+    recalcTotal();
+}
+function recalcTotal() {
+    const ctc = parseFloat(document.getElementById('fCtc').value) || 0;
+    let total = 0;
+    document.querySelectorAll('.item-row').forEach(row => {
+        const calc = row.querySelector('.item-calc').value;
+        const val = parseFloat(row.querySelector('.item-value').value) || 0;
+        if (calc === 'Fixed') total += val;
+        else if (calc === 'PercentOfCTC') total += (ctc / 12) * (val / 100);
+    });
+    document.getElementById('liveTotal').innerText = total.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+}
+document.getElementById('fCtc').addEventListener('input', recalcTotal);
+
+if (PREFILL && PREFILL.length) {
+    PREFILL.forEach(i => addItemRow(i.componentId, i.calcType, i.value));
+} else {
+    const basic = COMPONENTS.find(c => c.isBasic);
+    addItemRow(basic ? basic.id : undefined, 'PercentOfCTC', 40);
+}
+
+document.getElementById('structureForm').addEventListener('submit', function (e) {
+    const items = Array.from(document.querySelectorAll('.item-row')).map(row => ({
+        ComponentId: parseInt(row.querySelector('.item-comp').value),
+        CalcType: row.querySelector('.item-calc').value,
+        Value: parseFloat(row.querySelector('.item-value').value) || 0
+    }));
+    if (!items.length) { e.preventDefault(); alert('Add at least one component.'); return; }
+    document.getElementById('fItemsJson').value = JSON.stringify(items);
+});
+</script>
+}

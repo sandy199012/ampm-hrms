@@ -1,0 +1,204 @@
+@{
+    ViewData["Title"] = "Department / Designation";
+    ViewData["Subtitle"] = "Organization Masters";
+    var departments = (List<Department>)ViewBag.Departments;
+    var designations = (List<Designation>)ViewBag.Designations;
+    var grades = (List<Grade>)ViewBag.Grades;
+    var empTypes = (List<EmploymentType>)ViewBag.EmploymentTypes;
+    var employees = (List<Employee>)ViewBag.EmployeeList;
+}
+
+<div class="page-header">
+    <div>
+        <h1>Organization Masters</h1>
+        <p>Fully customizable — add, rename, deactivate, or remove any master value</p>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body p-0">
+        <ul class="nav nav-tabs-pro px-3 pt-2" id="masterTabs">
+            <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-dept">Departments (@departments.Count)</button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-desig">Designations (@designations.Count)</button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-grade">Grades (@grades.Count)</button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-etype">Employment Types (@empTypes.Count)</button></li>
+        </ul>
+
+        <div class="tab-content p-3">
+            <!-- DEPARTMENTS -->
+            <div class="tab-pane fade show active" id="tab-dept">
+                <div class="d-flex justify-content-end mb-3">
+                    <button class="btn btn-primary btn-sm" onclick="openMasterModal('Department', null, '', '')"><i class="bi bi-plus-lg me-1"></i>Add Department</button>
+                </div>
+                <div class="table-wrap">
+                    <table class="table">
+                        <thead><tr><th>Name</th><th>Code</th><th>Department Head</th><th>Status</th><th></th></tr></thead>
+                        <tbody>
+                        @foreach (var d in departments)
+                        {
+                            <tr>
+                                <td class="fw-semibold" style="color:var(--text);">@d.Name</td>
+                                <td>@(d.Code ?? "—")</td>
+                                <td>
+                                    <form method="post" asp-action="SetDepartmentHead" class="d-flex gap-1">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="departmentId" value="@d.Id" />
+                                        <select name="headEmployeeId" class="form-select form-select-sm" style="min-width:180px;" onchange="this.form.submit()">
+                                            <option value="">— None —</option>
+                                            @foreach (var e in employees)
+                                            {
+                                                <option value="@e.Id" selected="@(d.HeadEmployeeId==e.Id)">@e.Name</option>
+                                            }
+                                        </select>
+                                    </form>
+                                </td>
+                                <td>@(d.IsActive ? Html.Raw("<span class='badge badge-soft-success'>Active</span>") : Html.Raw("<span class='badge badge-soft-gray'>Inactive</span>"))</td>
+                                <td class="text-end">
+                                    <button class="btn btn-sm btn-light" onclick='openMasterModal("Department", @d.Id, @Html.Raw(Json.Serialize(d.Name)), @Html.Raw(Json.Serialize(d.Code ?? "")))'><i class="bi bi-pencil-fill"></i></button>
+                                    <button class="btn btn-sm btn-light" onclick="toggleMaster('Department', @d.Id)"><i class="bi bi-toggle2-on"></i></button>
+                                    <button class="btn btn-sm btn-light text-danger" onclick="deleteMaster('Department', @d.Id)"><i class="bi bi-trash-fill"></i></button>
+                                </td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- DESIGNATIONS -->
+            <div class="tab-pane fade" id="tab-desig">
+                <div class="d-flex justify-content-end mb-3">
+                    <button class="btn btn-primary btn-sm" onclick="openMasterModal('Designation', null, '', '')"><i class="bi bi-plus-lg me-1"></i>Add Designation</button>
+                </div>
+                <div class="table-wrap">
+                    <table class="table">
+                        <thead><tr><th>Name</th><th>Code</th><th>Status</th><th></th></tr></thead>
+                        <tbody>
+                        @foreach (var d in designations)
+                        {
+                            <tr>
+                                <td class="fw-semibold" style="color:var(--text);">@d.Name</td>
+                                <td>@(d.Code ?? "—")</td>
+                                <td>@(d.IsActive ? Html.Raw("<span class='badge badge-soft-success'>Active</span>") : Html.Raw("<span class='badge badge-soft-gray'>Inactive</span>"))</td>
+                                <td class="text-end">
+                                    <button class="btn btn-sm btn-light" onclick='openMasterModal("Designation", @d.Id, @Html.Raw(Json.Serialize(d.Name)), @Html.Raw(Json.Serialize(d.Code ?? "")))'><i class="bi bi-pencil-fill"></i></button>
+                                    <button class="btn btn-sm btn-light" onclick="toggleMaster('Designation', @d.Id)"><i class="bi bi-toggle2-on"></i></button>
+                                    <button class="btn btn-sm btn-light text-danger" onclick="deleteMaster('Designation', @d.Id)"><i class="bi bi-trash-fill"></i></button>
+                                </td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- GRADES -->
+            <div class="tab-pane fade" id="tab-grade">
+                <div class="d-flex justify-content-end mb-3">
+                    <button class="btn btn-primary btn-sm" onclick="openMasterModal('Grade', null, '', '')"><i class="bi bi-plus-lg me-1"></i>Add Grade</button>
+                </div>
+                <div class="table-wrap">
+                    <table class="table">
+                        <thead><tr><th>Name</th><th>Code</th><th>Status</th><th></th></tr></thead>
+                        <tbody>
+                        @foreach (var g in grades)
+                        {
+                            <tr>
+                                <td class="fw-semibold" style="color:var(--text);">@g.Name</td>
+                                <td>@(g.Code ?? "—")</td>
+                                <td>@(g.IsActive ? Html.Raw("<span class='badge badge-soft-success'>Active</span>") : Html.Raw("<span class='badge badge-soft-gray'>Inactive</span>"))</td>
+                                <td class="text-end">
+                                    <button class="btn btn-sm btn-light" onclick='openMasterModal("Grade", @g.Id, @Html.Raw(Json.Serialize(g.Name)), @Html.Raw(Json.Serialize(g.Code ?? "")))'><i class="bi bi-pencil-fill"></i></button>
+                                    <button class="btn btn-sm btn-light" onclick="toggleMaster('Grade', @g.Id)"><i class="bi bi-toggle2-on"></i></button>
+                                    <button class="btn btn-sm btn-light text-danger" onclick="deleteMaster('Grade', @g.Id)"><i class="bi bi-trash-fill"></i></button>
+                                </td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- EMPLOYMENT TYPES -->
+            <div class="tab-pane fade" id="tab-etype">
+                <div class="d-flex justify-content-end mb-3">
+                    <button class="btn btn-primary btn-sm" onclick="openMasterModal('EmploymentType', null, '', '')"><i class="bi bi-plus-lg me-1"></i>Add Employment Type</button>
+                </div>
+                <div class="table-wrap">
+                    <table class="table">
+                        <thead><tr><th>Name</th><th>Status</th><th></th></tr></thead>
+                        <tbody>
+                        @foreach (var t in empTypes)
+                        {
+                            <tr>
+                                <td class="fw-semibold" style="color:var(--text);">@t.Name</td>
+                                <td>@(t.IsActive ? Html.Raw("<span class='badge badge-soft-success'>Active</span>") : Html.Raw("<span class='badge badge-soft-gray'>Inactive</span>"))</td>
+                                <td class="text-end">
+                                    <button class="btn btn-sm btn-light" onclick='openMasterModal("EmploymentType", @t.Id, @Html.Raw(Json.Serialize(t.Name)), "")'><i class="bi bi-pencil-fill"></i></button>
+                                    <button class="btn btn-sm btn-light" onclick="toggleMaster('EmploymentType', @t.Id)"><i class="bi bi-toggle2-on"></i></button>
+                                    <button class="btn btn-sm btn-light text-danger" onclick="deleteMaster('EmploymentType', @t.Id)"><i class="bi bi-trash-fill"></i></button>
+                                </td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add/Edit Modal -->
+<div class="modal fade" id="masterModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="post" asp-action="SaveMaster" id="masterForm">
+                @Html.AntiForgeryToken()
+                <div class="modal-header">
+                    <h5 class="modal-title" id="masterModalTitle">Add</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" name="masterType" id="mMasterType" />
+                    <input type="hidden" name="id" id="mId" value="0" />
+                    <div class="mb-3">
+                        <label class="form-label">Name *</label>
+                        <input type="text" name="name" id="mName" class="form-control" required />
+                    </div>
+                    <div class="mb-1" id="mCodeWrap">
+                        <label class="form-label">Code</label>
+                        <input type="text" name="code" id="mCode" class="form-control" />
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+const masterModal = new bootstrap.Modal(document.getElementById('masterModal'));
+function openMasterModal(type, id, name, code) {
+    document.getElementById('masterModalTitle').innerText = (id ? 'Edit ' : 'Add ') + type.replace(/([A-Z])/g, ' $1').trim();
+    document.getElementById('mMasterType').value = type;
+    document.getElementById('mId').value = id || 0;
+    document.getElementById('mName').value = name || '';
+    document.getElementById('mCode').value = code || '';
+    document.getElementById('mCodeWrap').style.display = (type === 'EmploymentType') ? 'none' : 'block';
+    masterModal.show();
+}
+function toggleMaster(type, id) {
+    fetch('@Url.Action("ToggleMaster")', { method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded'}, body: `masterType=${type}&id=${id}` })
+        .then(r => r.json()).then(d => { if (d.success) location.reload(); else alert(d.message || 'Failed.'); });
+}
+function deleteMaster(type, id) {
+    if (!confirm('Delete this record? If it is in use, it will be deactivated instead.')) return;
+    fetch('@Url.Action("DeleteMaster")', { method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded'}, body: `masterType=${type}&id=${id}` })
+        .then(r => r.json()).then(d => { alert(d.message || 'Done.'); if (d.success) location.reload(); });
+}
+</script>
+}

@@ -1,0 +1,169 @@
+@model EmailSettings
+@{
+    ViewData["Title"] = "Email Notifications";
+    ViewData["Subtitle"] = "Attendance";
+}
+
+<div class="page-header">
+    <div>
+        <h1>Email Notifications</h1>
+        <p>SMTP connection plus three scheduled HR emails — Daily Attendance Alert, Birthday wishes, and the Weekly Attendance Report.</p>
+    </div>
+</div>
+
+@if (Model.LastActivityAt.HasValue)
+{
+    <div class="alert alert-info mb-3">
+        <strong>Last activity:</strong> @Model.LastActivityAt.Value.ToString("dd-MMM-yyyy hh:mm tt") — @Model.LastActivityMessage
+    </div>
+}
+
+<div class="row g-3">
+    <div class="col-lg-7">
+        <form method="post" asp-action="SaveEmailSettings">
+            @Html.AntiForgeryToken()
+            <input type="hidden" asp-for="Id" />
+
+            <div class="card mb-3">
+                <div class="card-header">SMTP Connection</div>
+                <div class="card-body">
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" asp-for="IsEnabled" id="isEnabled" />
+                        <label class="form-check-label" for="isEnabled">Enabled (master switch — every job below is off while this is off, even if individually enabled)</label>
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-8">
+                            <label class="form-label">SMTP Host</label>
+                            <input type="text" asp-for="SmtpHost" class="form-control" placeholder="smtp.gmail.com / smtp.office365.com / your mail server" />
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label">Port</label>
+                            <input type="number" asp-for="SmtpPort" class="form-control" />
+                        </div>
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <label class="form-label">Username</label>
+                            <input type="text" asp-for="SmtpUsername" class="form-control" autocomplete="off" />
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">Password</label>
+                            <input type="password" name="SmtpPassword" class="form-control" placeholder="Leave blank to keep the current password" autocomplete="new-password" />
+                        </div>
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <label class="form-label">From Email</label>
+                            <input type="email" asp-for="FromEmail" class="form-control" placeholder="hrms@ampmfashions.com" />
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">From Name</label>
+                            <input type="text" asp-for="FromName" class="form-control" />
+                        </div>
+                    </div>
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" asp-for="SmtpUseSsl" id="useSsl" />
+                        <label class="form-check-label" for="useSsl">Use SSL/TLS (leave on for Gmail/Office365/most providers, port 587)</label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header">Daily Attendance Alert — Late Coming + Early Going + Miss Punch</div>
+                <div class="card-body">
+                    <p class="text-muted small">Sent department-wise to each department's Head (set from Masters > Department), covering the PREVIOUS day — early-going and miss-punch both need the full day's punches, so this can't run same-day.</p>
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" asp-for="DailyAttendanceAlertEnabled" id="dailyEnabled" />
+                        <label class="form-check-label" for="dailyEnabled">Enabled</label>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">Send Time</label>
+                        <input type="time" asp-for="DailyAttendanceAlertTime" class="form-control" style="max-width:160px" />
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header">Birthday Wishes</div>
+                <div class="card-body">
+                    <p class="text-muted small">Sent to every active employee, the morning of the birthday itself (based on Date of Birth in Employee Master).</p>
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" asp-for="BirthdayEnabled" id="bdayEnabled" />
+                        <label class="form-check-label" for="bdayEnabled">Enabled</label>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label">Send Time</label>
+                        <input type="time" asp-for="BirthdayTime" class="form-control" style="max-width:160px" />
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header">Weekly Attendance Report</div>
+                <div class="card-body">
+                    <p class="text-muted small">Sent department-wise to each department's Head, covering the just-completed Monday-to-Sunday week.</p>
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" asp-for="WeeklyReportEnabled" id="weeklyEnabled" />
+                        <label class="form-check-label" for="weeklyEnabled">Enabled</label>
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <label class="form-label">Send Day</label>
+                            <select asp-for="WeeklyReportDay" class="form-select">
+                                <option value="0">Sunday</option>
+                                <option value="1">Monday</option>
+                                <option value="2">Tuesday</option>
+                                <option value="3">Wednesday</option>
+                                <option value="4">Thursday</option>
+                                <option value="5">Friday</option>
+                                <option value="6">Saturday</option>
+                            </select>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">Send Time</label>
+                            <input type="time" asp-for="WeeklyReportTime" class="form-control" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary"><i class="bi bi-check-circle-fill me-1"></i> Save Settings</button>
+        </form>
+    </div>
+
+    <div class="col-lg-5">
+        <div class="card mb-3">
+            <div class="card-header">Send Test Email</div>
+            <div class="card-body">
+                <form method="post" asp-action="SendTestEmail">
+                    @Html.AntiForgeryToken()
+                    <div class="mb-3">
+                        <label class="form-label">Send a test to</label>
+                        <input type="email" name="to" class="form-control" placeholder="you@ampmfashions.com" required />
+                    </div>
+                    <button type="submit" class="btn btn-outline-primary w-100"><i class="bi bi-send-fill me-1"></i> Send Test Email</button>
+                </form>
+                <div class="form-text mt-2">Confirms the SMTP connection works, before relying on the scheduled jobs below.</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">Run Now (preview / testing)</div>
+            <div class="card-body d-grid gap-2">
+                <p class="text-muted small">Sends each report right now with today's real data, without waiting for its scheduled time. Doesn't affect the normal scheduled run for today.</p>
+                <form method="post" asp-action="RunDailyAlertNow">
+                    @Html.AntiForgeryToken()
+                    <button type="submit" class="btn btn-light w-100 text-start"><i class="bi bi-exclamation-triangle-fill me-1"></i> Run Daily Attendance Alert Now (yesterday's data)</button>
+                </form>
+                <form method="post" asp-action="RunBirthdayNow">
+                    @Html.AntiForgeryToken()
+                    <button type="submit" class="btn btn-light w-100 text-start"><i class="bi bi-balloon-fill me-1"></i> Run Birthday Wishes Now (today)</button>
+                </form>
+                <form method="post" asp-action="RunWeeklyReportNow">
+                    @Html.AntiForgeryToken()
+                    <button type="submit" class="btn btn-light w-100 text-start"><i class="bi bi-calendar-week-fill me-1"></i> Run Weekly Report Now (last 7 days)</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>

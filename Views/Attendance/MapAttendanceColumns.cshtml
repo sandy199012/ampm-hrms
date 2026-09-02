@@ -1,0 +1,254 @@
+@model List<string>
+@using AmpmHrmsPro.Models
+@{
+    ViewData["Title"] = "Map Attendance Columns";
+    ViewData["Subtitle"] = "Attendance";
+    string token = ViewBag.Token;
+    string fileName = ViewBag.FileName;
+    AttendanceImportProfile? detected = ViewBag.Detected;
+    string fmt = detected?.Format ?? "PerDayInOut";
+}
+
+<div class="page-header">
+    <div>
+        <h1>Map Columns</h1>
+        <p>@fileName — columns are auto-picked from your file's headers below, please confirm</p>
+    </div>
+    <a href="@Url.Action("BulkAttendanceImport")" class="btn btn-light"><i class="bi bi-arrow-left me-1"></i> Cancel</a>
+</div>
+
+<form method="post" asp-action="ImportWithMapping">
+    @Html.AntiForgeryToken()
+    <input type="hidden" name="token" value="@token" />
+    <input type="hidden" name="mapping.DateColumn" id="hidden_DateColumn" />
+    <input type="hidden" name="mapping.TimeColumn" id="hidden_TimeColumn" />
+
+    <div class="row g-3">
+        <div class="col-lg-7">
+            <div class="alert alert-info d-flex align-items-center mb-3" style="font-size:13px;">
+                <i class="bi bi-magic me-2"></i>
+                <div>We've auto-picked the likely columns below from this file's headers — check the fields marked <span class="badge bg-success-subtle text-success">auto</span> and adjust anything that's wrong before importing.</div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header">1. Row Layout</div>
+                <div class="card-body">
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="radio" name="mapping.Format" id="fmtInOut" value="PerDayInOut" checked="@(fmt == "PerDayInOut")" onchange="toggleFormat()">
+                        <label class="form-check-label" for="fmtInOut"><strong>One row per employee per day — separate Punch In / Punch Out columns</strong> — explicit In Date, In Time, Out Date, Out Time columns. Most biometric exports use this shape, and it's the only one where a missing side (Morning or Evening mispunch) is known directly instead of guessed.</label>
+                    </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="radio" name="mapping.Format" id="fmtPunch" value="PerPunchRow" checked="@(fmt == "PerPunchRow")" onchange="toggleFormat()">
+                        <label class="form-check-label" for="fmtPunch"><strong>One row per punch</strong> — each row is a single in or out event</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="mapping.Format" id="fmtDay" value="PerDayMultiPunch" checked="@(fmt == "PerDayMultiPunch")" onchange="toggleFormat()">
+                        <label class="form-check-label" for="fmtDay"><strong>One row per employee per day — several unlabeled punch columns</strong> — side-by-side punch-time columns with no In/Out label (first filled = In, last filled = Out)</label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header">2. Employee Identifier</div>
+                <div class="card-body">
+                    <label class="form-label">
+                        Employee Code Column *
+                        @if (detected?.EmployeeCodeColumn is { Length: > 0 }) { <span class="badge bg-success-subtle text-success">auto</span> }
+                    </label>
+                    <select name="mapping.EmployeeCodeColumn" class="form-select" required>
+                        <option value="">— Select —</option>
+                        @foreach (var h in Model) { <option value="@h" selected="@(detected?.EmployeeCodeColumn == h)">@h</option> }
+                    </select>
+                    <div class="form-text">Must match the Employee Code in Employee Master exactly.</div>
+                </div>
+            </div>
+
+            <div class="card mb-3" id="inOutFields" style="display:none;">
+                <div class="card-header">3. Punch In / Punch Out Columns</div>
+                <div class="card-body">
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <label class="form-label">
+                                Punch In Date Column
+                                @if (fmt == "PerDayInOut" && detected?.DateColumn is { Length: > 0 }) { <span class="badge bg-success-subtle text-success">auto</span> }
+                            </label>
+                            <select id="io_DateColumn" class="form-select">
+                                <option value="">— Not used —</option>
+                                @foreach (var h in Model) { <option value="@h" selected="@(fmt == "PerDayInOut" && detected?.DateColumn == h)">@h</option> }
+                            </select>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">
+                                Punch In Time Column
+                                @if (fmt == "PerDayInOut" && detected?.TimeColumn is { Length: > 0 }) { <span class="badge bg-success-subtle text-success">auto</span> }
+                            </label>
+                            <select id="io_TimeColumn" class="form-select">
+                                <option value="">— Not used —</option>
+                                @foreach (var h in Model) { <option value="@h" selected="@(fmt == "PerDayInOut" && detected?.TimeColumn == h)">@h</option> }
+                            </select>
+                        </div>
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <label class="form-label">
+                                Punch Out Date Column
+                                @if (detected?.OutDateColumn is { Length: > 0 }) { <span class="badge bg-success-subtle text-success">auto</span> }
+                            </label>
+                            <select name="mapping.OutDateColumn" class="form-select">
+                                <option value="">— Not used (same day as Punch In) —</option>
+                                @foreach (var h in Model) { <option value="@h" selected="@(detected?.OutDateColumn == h)">@h</option> }
+                            </select>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">
+                                Punch Out Time Column
+                                @if (detected?.OutTimeColumn is { Length: > 0 }) { <span class="badge bg-success-subtle text-success">auto</span> }
+                            </label>
+                            <select name="mapping.OutTimeColumn" class="form-select">
+                                <option value="">— Not used —</option>
+                                @foreach (var h in Model) { <option value="@h" selected="@(detected?.OutTimeColumn == h)">@h</option> }
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-text mt-2">Whichever side is blank for a row — missing In, or missing Out — shows up as a Morning or Evening mispunch in the reports. Nothing is guessed from ordering.</div>
+                </div>
+            </div>
+
+            <div class="card mb-3" id="punchRowFields" style="display:none;">
+                <div class="card-header">3. Punch Date/Time</div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Combined Date+Time Column</label>
+                        <select name="mapping.DateTimeColumn" class="form-select">
+                            <option value="">— Not used —</option>
+                            @foreach (var h in Model) { <option value="@h" selected="@(fmt == "PerPunchRow" && detected?.DateTimeColumn == h)">@h</option> }
+                        </select>
+                        <div class="form-text">Use this OR the separate Date + Time columns below, not both.</div>
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <label class="form-label">Date Column</label>
+                            <select id="pr_DateColumn" class="form-select">
+                                <option value="">— Not used —</option>
+                                @foreach (var h in Model) { <option value="@h" selected="@(fmt == "PerPunchRow" && detected?.DateColumn == h)">@h</option> }
+                            </select>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">Time Column</label>
+                            <select id="pr_TimeColumn" class="form-select">
+                                <option value="">— Not used —</option>
+                                @foreach (var h in Model) { <option value="@h" selected="@(fmt == "PerPunchRow" && detected?.TimeColumn == h)">@h</option> }
+                            </select>
+                        </div>
+                    </div>
+                    <label class="form-label">Direction Column (optional)</label>
+                    <select name="mapping.DirectionColumn" class="form-select">
+                        <option value="">— Not sent (earliest punch of the day = In, latest = Out) —</option>
+                        @foreach (var h in Model) { <option value="@h" selected="@(detected?.DirectionColumn == h)">@h</option> }
+                    </select>
+                </div>
+            </div>
+
+            <div class="card mb-3" id="dayFields" style="display:none;">
+                <div class="card-header">3. Day + Punch Columns</div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label">Date Column *</label>
+                        <select id="day_DateColumn" class="form-select">
+                            <option value="">— Select —</option>
+                            @foreach (var h in Model) { <option value="@h">@h</option> }
+                        </select>
+                    </div>
+                    <label class="form-label">Punch Time Columns (check every column that holds a punch time, in order)</label>
+                    <div class="border rounded-3 p-2" style="border-color:var(--border)!important;max-height:220px;overflow-y:auto;">
+                        @foreach (var h in Model)
+                        {
+                            <div class="form-check">
+                                <input class="form-check-input punch-col-check" type="checkbox" value="@h" id="pc_@h.GetHashCode()">
+                                <label class="form-check-label" for="pc_@h.GetHashCode()">@h</label>
+                            </div>
+                        }
+                    </div>
+                    <input type="hidden" name="mapping.PunchColumnsCsv" id="punchColumnsCsv" />
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header">4. Date/Time Format (optional)</div>
+                <div class="card-body">
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <label class="form-label">Date Format</label>
+                            <input type="text" name="mapping.DateFormat" class="form-control" placeholder="e.g. dd-MM-yyyy — blank = auto-detect" />
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">Time Format</label>
+                            <input type="text" name="mapping.TimeFormat" class="form-control" placeholder="e.g. HH:mm:ss — blank = auto-detect" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header">5. Save This Mapping (optional)</div>
+                <div class="card-body">
+                    <label class="form-label">Profile Name</label>
+                    <input type="text" name="saveAsProfileName" class="form-control" placeholder="e.g. eSSL Monthly Export — leave blank to use once without saving" />
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-lg" onclick="return prepSubmit()"><i class="bi bi-upload me-1"></i> Import Now</button>
+        </div>
+
+        <div class="col-lg-5">
+            <div class="card">
+                <div class="card-header"><i class="bi bi-list-columns me-1"></i> Detected Columns</div>
+                <div class="card-body">
+                    @foreach (var h in Model)
+                    {
+                        <span class="badge badge-soft-primary me-1 mb-1">@h</span>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</form>
+
+@section Scripts {
+<script>
+// The three row-layout sections share two field concepts (Date Column,
+// Time Column) with different meanings per layout, so their <select>s are
+// deliberately UNNAMED (id only) — only the active layout's picks are
+// copied into the two real "mapping.DateColumn"/"mapping.TimeColumn"
+// hidden inputs on submit. Giving all three sections the same "name"
+// would make every one of them submit at once, and the model binder
+// would silently bind whichever happened to come first in the form,
+// regardless of which layout was actually selected.
+function toggleFormat() {
+    var fmt = document.querySelector('input[name="mapping.Format"]:checked').value;
+    document.getElementById('inOutFields').style.display = fmt === 'PerDayInOut' ? 'block' : 'none';
+    document.getElementById('punchRowFields').style.display = fmt === 'PerPunchRow' ? 'block' : 'none';
+    document.getElementById('dayFields').style.display = fmt === 'PerDayMultiPunch' ? 'block' : 'none';
+}
+function prepSubmit() {
+    var fmt = document.querySelector('input[name="mapping.Format"]:checked').value;
+    var dateVal = '', timeVal = '';
+    if (fmt === 'PerDayInOut') {
+        dateVal = document.getElementById('io_DateColumn').value;
+        timeVal = document.getElementById('io_TimeColumn').value;
+    } else if (fmt === 'PerPunchRow') {
+        dateVal = document.getElementById('pr_DateColumn').value;
+        timeVal = document.getElementById('pr_TimeColumn').value;
+    } else if (fmt === 'PerDayMultiPunch') {
+        dateVal = document.getElementById('day_DateColumn').value;
+    }
+    document.getElementById('hidden_DateColumn').value = dateVal;
+    document.getElementById('hidden_TimeColumn').value = timeVal;
+
+    var checks = Array.from(document.querySelectorAll('.punch-col-check:checked')).map(c => c.value);
+    document.getElementById('punchColumnsCsv').value = checks.join(',');
+    return true;
+}
+toggleFormat();
+</script>
+}

@@ -1,0 +1,188 @@
+@model Employee
+@{
+    ViewData["Title"] = "Add Employee";
+    ViewData["Subtitle"] = "Employee Master";
+    var departments = (List<Department>)ViewBag.DepartmentList;
+    var designations = (List<Designation>)ViewBag.DesignationList;
+    var locations = (List<Location>)ViewBag.LocationList;
+    var grades = (List<Grade>)ViewBag.GradeList;
+    var empTypes = (List<EmploymentType>)ViewBag.EmploymentTypeList;
+    var shifts = (List<Shift>)ViewBag.ShiftList;
+    var weekOffs = (List<WeekOffPolicy>)ViewBag.WeekOffList;
+    var leavePolicies = (List<LeavePolicy>)ViewBag.LeavePolicyList;
+    var compOffRules = (List<CompOffRule>)ViewBag.CompOffRuleList;
+    var otRules = (List<OTRule>)ViewBag.OTRuleList;
+    var managers = (List<Employee>)ViewBag.ManagerList;
+}
+
+<div class="page-header">
+    <div>
+        <h1>Add New Employee</h1>
+        <p>Create an employee record and assign master data</p>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="@Url.Action("BulkUpload")" class="btn btn-light"><i class="bi bi-file-earmark-arrow-up me-1"></i> Bulk Upload</a>
+        <a href="@Url.Action("Employees")" class="btn btn-light"><i class="bi bi-arrow-left me-1"></i> Back to List</a>
+    </div>
+</div>
+
+<form method="post" asp-action="AddEmployee">
+    @Html.AntiForgeryToken()
+
+    <div class="card">
+        <div class="card-body p-0">
+            <ul class="nav nav-tabs-pro px-3 pt-2">
+                <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#t-id" type="button">Identity &amp; Login</button></li>
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#t-personal" type="button">Personal</button></li>
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#t-emp" type="button">Employment</button></li>
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#t-bank" type="button">Statutory &amp; Bank</button></li>
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#t-emg" type="button">Emergency Contact</button></li>
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#t-loc" type="button">Location &amp; Access</button></li>
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#t-train" type="button">Training</button></li>
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#t-notes" type="button">Notes</button></li>
+            </ul>
+
+            <div class="tab-content p-4">
+                <!-- IDENTITY -->
+                <div class="tab-pane fade show active" id="t-id">
+                    <div class="row g-3">
+                        <div class="col-md-3"><label class="form-label">Employee Code *</label><input type="text" name="EmpCode" class="form-control" required placeholder="e.g. AMP1024" /></div>
+                        <div class="col-md-5"><label class="form-label">Full Name *</label><input type="text" name="Name" class="form-control" required /></div>
+                        <div class="col-md-4"><label class="form-label">Email *</label><input type="email" name="Email" class="form-control" required /></div>
+                        <div class="col-md-3"><label class="form-label">Password</label><input type="text" name="password" class="form-control" placeholder="Welcome@123 (default)" /><div class="form-text">Leave blank to use default.</div></div>
+                        <div class="col-md-3"><label class="form-label">System Role *</label>
+                            <select name="Role" class="form-select" required>
+                                <option value="employee">Employee</option><option value="manager">Manager</option><option value="hr">HR</option><option value="admin">Admin</option>
+                            </select>
+                            <div class="form-text">Controls login access level.</div>
+                        </div>
+                        <div class="col-md-3"><label class="form-label">Mobile</label><input type="text" name="Mobile" class="form-control" /></div>
+                        <div class="col-md-3"><label class="form-label">Alternative Mobile</label><input type="text" name="AlternateMobile" class="form-control" /></div>
+                        <div class="col-md-3"><label class="form-label">Status</label>
+                            <select name="Status" class="form-select"><option value="Active">Active</option><option value="Inactive">Inactive</option><option value="On Hold">On Hold</option></select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- PERSONAL -->
+                <div class="tab-pane fade" id="t-personal">
+                    <div class="row g-3">
+                        <div class="col-md-3"><label class="form-label">Gender</label><select name="Gender" class="form-select"><option value="">Select</option><option value="Male">Male</option><option value="Female">Female</option><option value="Other">Other</option></select></div>
+                        <div class="col-md-3"><label class="form-label">Date of Birth</label><input type="date" name="DOB" class="form-control" /></div>
+                        <div class="col-md-3"><label class="form-label">Date of Joining</label><input type="date" name="DOJ" class="form-control" /></div>
+                        <div class="col-md-3"><label class="form-label">Group DOJ</label><input type="date" name="GroupDOJ" class="form-control" /></div>
+                        <div class="col-md-5"><label class="form-label">Father's / Husband's Name</label><input type="text" name="FatherOrHusbandName" class="form-control" /></div>
+                        <div class="col-md-7"><label class="form-label">Address</label><input type="text" name="Address" class="form-control" /></div>
+                        <div class="col-md-3"><label class="form-label">Country</label><input type="text" name="Country" class="form-control" value="India" /></div>
+                        <div class="col-md-3"><label class="form-label">State</label><input type="text" name="State" class="form-control" /></div>
+                        <div class="col-md-3"><label class="form-label">City</label><input type="text" name="City" class="form-control" /></div>
+                        <div class="col-md-3"><label class="form-label">Pincode</label><input type="text" name="Pincode" class="form-control" /></div>
+                        <div class="col-md-3"><label class="form-label">Nationality</label><input type="text" name="Nationality" class="form-control" value="Indian" /></div>
+                        <div class="col-md-3"><label class="form-label">Religion</label><input type="text" name="Religion" class="form-control" /></div>
+                        <div class="col-md-3"><label class="form-label">Qualification</label><input type="text" name="Qualification" class="form-control" /></div>
+                        <div class="col-md-3"><label class="form-label">Experience</label><input type="text" name="Experience" class="form-control" placeholder="e.g. 3 Years" /></div>
+                    </div>
+                </div>
+
+                <!-- EMPLOYMENT -->
+                <div class="tab-pane fade" id="t-emp">
+                    <div class="row g-3">
+                        <div class="col-md-4"><label class="form-label">Department</label><select name="DepartmentId" class="form-select"><option value="">— Select —</option>@foreach (var d in departments) { <option value="@d.Id">@d.Name</option> }</select></div>
+                        <div class="col-md-4"><label class="form-label">Sub-Department</label><input type="text" name="SubDepartment" class="form-control" /></div>
+                        <div class="col-md-4"><label class="form-label">Designation</label><select name="DesignationId" class="form-select"><option value="">— Select —</option>@foreach (var d in designations) { <option value="@d.Id">@d.Name</option> }</select></div>
+                        <div class="col-md-4"><label class="form-label">Grade</label><select name="GradeId" class="form-select"><option value="">— Select —</option>@foreach (var g in grades) { <option value="@g.Id">@g.Name</option> }</select></div>
+                        <div class="col-md-4"><label class="form-label">Location</label><select name="LocationId" class="form-select"><option value="">— Select —</option>@foreach (var l in locations) { <option value="@l.Id">@l.Name</option> }</select></div>
+                        <div class="col-md-4"><label class="form-label">Employment Type</label><select name="EmploymentTypeId" class="form-select"><option value="">— Select —</option>@foreach (var t in empTypes) { <option value="@t.Id">@t.Name</option> }</select></div>
+                        <div class="col-md-4"><label class="form-label">Reporting Manager</label><select name="ReportingManagerId" class="form-select"><option value="">— None —</option>@foreach (var m in managers) { <option value="@m.Id">@m.Name (@m.EmpCode)</option> }</select></div>
+                        <div class="col-md-4"><label class="form-label">Shift</label><select name="ShiftId" class="form-select"><option value="">— Select —</option>@foreach (var s in shifts) { <option value="@s.Id">@s.Name (@s.StartTime.ToString(@"hh\:mm") - @s.EndTime.ToString(@"hh\:mm"))</option> }</select></div>
+                        <div class="col-md-4"><label class="form-label">Additional Shifts</label><input type="text" name="AdditionalShifts" class="form-control" /></div>
+                        <div class="col-md-4"><label class="form-label">Week-Off Policy</label><select name="WeekOffPolicyId" class="form-select"><option value="">— Select —</option>@foreach (var w in weekOffs) { <option value="@w.Id">@w.Name</option> }</select></div>
+                        <div class="col-md-4"><label class="form-label">Leave Policy</label><select name="LeavePolicyId" class="form-select"><option value="">— Select —</option>@foreach (var lp in leavePolicies) { <option value="@lp.Id">@lp.Name</option> }</select></div>
+                        <div class="col-md-4"><label class="form-label">Comp-Off Rule</label><select name="CompOffRuleId" class="form-select"><option value="">— None —</option>@foreach (var co in compOffRules) { <option value="@co.Id">@co.Name</option> }</select></div>
+                        <div class="col-md-4"><label class="form-label">OT Rule</label><select name="OTRuleId" class="form-select"><option value="">— None —</option>@foreach (var ot in otRules) { <option value="@ot.Id">@ot.Name</option> }</select></div>
+                        <div class="col-md-3"><label class="form-label">Employee Role (HR Level)</label><input type="text" name="EmployeeRole" class="form-control" placeholder="e.g. Employee" /><div class="form-text">Informational only — not login access.</div></div>
+                        <div class="col-md-3"><label class="form-label">Category</label><input type="text" name="Category" class="form-control" placeholder="Staff / Worker" /></div>
+                        <div class="col-md-3"><label class="form-label">Work Station</label><input type="text" name="WorkStation" class="form-control" /></div>
+                        <div class="col-md-3"><label class="form-label">Standard Working Hour</label><input type="text" name="StandardWorkingHour" class="form-control" placeholder="08:30" /></div>
+                        <div class="col-md-3"><label class="form-label">Card Number</label><input type="text" name="CardNumber" class="form-control" /></div>
+                        <div class="col-md-3"><label class="form-label">Company Code</label><input type="text" name="CompanyCode" class="form-control" /></div>
+                        <div class="col-md-3"><label class="form-label">Valid From</label><input type="date" name="ValidFrom" class="form-control" /></div>
+                        <div class="col-md-3"><label class="form-label">Valid To</label><input type="date" name="ValidTo" class="form-control" /></div>
+                        <div class="col-md-3"><label class="form-label">Date of Leaving</label><input type="date" name="DateOfLeaving" class="form-control" /></div>
+                        <div class="col-md-3"><label class="form-label">Inactivation Date</label><input type="date" name="InactivationDate" class="form-control" /></div>
+                        <div class="col-md-3 d-flex align-items-end"><div class="form-check"><input class="form-check-input" type="checkbox" name="IsAutoShift" value="true" id="ias"><label class="form-check-label" for="ias">Is Auto Shift</label></div></div>
+                        <div class="col-md-3 d-flex align-items-end"><div class="form-check"><input class="form-check-input" type="checkbox" name="IsAutoInactive" value="true" id="iai"><label class="form-check-label" for="iai">Is Auto Inactive</label></div></div>
+                    </div>
+                </div>
+
+                <!-- STATUTORY & BANK -->
+                <div class="tab-pane fade" id="t-bank">
+                    <div class="row g-3">
+                        <div class="col-md-3"><label class="form-label">Bank Name</label><input type="text" name="BankName" class="form-control" /></div>
+                        <div class="col-md-3"><label class="form-label">Account Number</label><input type="text" name="AccountNumber" class="form-control" /></div>
+                        <div class="col-md-3"><label class="form-label">Account Holder Name</label><input type="text" name="AccountHolderName" class="form-control" /></div>
+                        <div class="col-md-3"><label class="form-label">IFSC Code</label><input type="text" name="IFSCCode" class="form-control" /></div>
+                        <div class="col-md-3"><label class="form-label">Payment Mode</label><select name="PaymentMode" class="form-select"><option value="Cash">Cash</option><option value="Bank Transfer">Bank Transfer</option><option value="Cheque">Cheque</option></select></div>
+                        <div class="col-md-3"><label class="form-label">UAN Number</label><input type="text" name="UANNumber" class="form-control" /></div>
+                        <div class="col-md-3"><label class="form-label">PF Number</label><input type="text" name="PFNumber" class="form-control" /></div>
+                        <div class="col-md-3"><label class="form-label">Company PF Code</label><input type="text" name="CompanyPFCode" class="form-control" /></div>
+                        <div class="col-md-3"><label class="form-label">ESIC Number</label><input type="text" name="ESICNumber" class="form-control" /></div>
+                        <div class="col-md-3"><label class="form-label">PAN Number</label><input type="text" name="PANNumber" class="form-control" /></div>
+                        <div class="col-md-3"><label class="form-label">Aadhar Number</label><input type="text" name="AadharNumber" class="form-control" /></div>
+                        <div class="col-md-3"><label class="form-label">IP Number</label><input type="text" name="IPNumber" class="form-control" /></div>
+                    </div>
+                </div>
+
+                <!-- EMERGENCY CONTACT -->
+                <div class="tab-pane fade" id="t-emg">
+                    <div class="row g-3">
+                        <div class="col-md-4"><label class="form-label">Contact Name</label><input type="text" name="EmergencyContactName" class="form-control" /></div>
+                        <div class="col-md-4"><label class="form-label">Contact Mobile</label><input type="text" name="EmergencyContactMobile" class="form-control" /></div>
+                        <div class="col-md-4"><label class="form-label">Relation</label><input type="text" name="EmergencyContactRelation" class="form-control" /></div>
+                    </div>
+                </div>
+
+                <!-- LOCATION & ACCESS -->
+                <div class="tab-pane fade" id="t-loc">
+                    <div class="row g-3">
+                        <div class="col-md-3"><label class="form-label">Location Type</label><select name="LocationType" class="form-select"><option value="Strict Location">Strict Location</option><option value="Any Location">Any Location</option></select></div>
+                        <div class="col-md-3"><label class="form-label">Zone</label><input type="text" name="Zone" class="form-control" /></div>
+                        <div class="col-md-3"><label class="form-label">Flexi Hours</label><input type="text" name="FlexiHours" class="form-control" /></div>
+                        <div class="col-md-3"><label class="form-label">Bus Name</label><input type="text" name="BusName" class="form-control" /></div>
+                        <div class="col-md-6"><label class="form-label">Mapped Locations</label><input type="text" name="MappedLocations" class="form-control" /></div>
+                        <div class="col-md-6"><label class="form-label">Mapped Sub Locations</label><input type="text" name="MappedSubLocations" class="form-control" /></div>
+                        <div class="col-md-12"><label class="form-label">Punch In Location (Address)</label><input type="text" name="PunchInLocation" class="form-control" /></div>
+                        <div class="col-md-3 d-flex align-items-end"><div class="form-check"><input class="form-check-input" type="checkbox" name="AppLogin" value="true" checked id="al"><label class="form-check-label" for="al">App Login</label></div></div>
+                        <div class="col-md-3 d-flex align-items-end"><div class="form-check"><input class="form-check-input" type="checkbox" name="AttendanceAccessApp" value="true" checked id="aa"><label class="form-check-label" for="aa">Attendance Access (App)</label></div></div>
+                        <div class="col-md-3 d-flex align-items-end"><div class="form-check"><input class="form-check-input" type="checkbox" name="ActivateCheckIn" value="true" id="ac"><label class="form-check-label" for="ac">Activate Check-in</label></div></div>
+                        <div class="col-md-3 d-flex align-items-end"><div class="form-check"><input class="form-check-input" type="checkbox" name="BusAllowed" value="true" id="ba"><label class="form-check-label" for="ba">Bus Allowed</label></div></div>
+                    </div>
+                </div>
+
+                <!-- TRAINING -->
+                <div class="tab-pane fade" id="t-train">
+                    <div class="row g-3">
+                        <div class="col-md-3"><label class="form-label">Training Given By</label><input type="text" name="TrainingGivenBy" class="form-control" /></div>
+                        <div class="col-md-3"><label class="form-label">Training Type</label><input type="text" name="TrainingType" class="form-control" /></div>
+                        <div class="col-md-3"><label class="form-label">Training User Type</label><input type="text" name="TrainingUserType" class="form-control" /></div>
+                        <div class="col-md-3"><label class="form-label">Training Status</label><input type="text" name="TrainingStatus" class="form-control" /></div>
+                        <div class="col-md-3"><label class="form-label">Training Date</label><input type="date" name="TrainingDate" class="form-control" /></div>
+                        <div class="col-md-4"><label class="form-label">External Trainer Name</label><input type="text" name="ExternalTrainerName" class="form-control" /></div>
+                        <div class="col-md-5"><label class="form-label">External Trainer Email</label><input type="email" name="ExternalTrainerEmail" class="form-control" /></div>
+                    </div>
+                </div>
+
+                <!-- NOTES -->
+                <div class="tab-pane fade" id="t-notes">
+                    <label class="form-label">Remarks</label>
+                    <textarea name="Remarks" class="form-control" rows="4"></textarea>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="d-flex gap-2 mt-3">
+        <button type="submit" class="btn btn-primary px-4"><i class="bi bi-check-circle-fill me-1"></i> Save Employee</button>
+        <a href="@Url.Action("Employees")" class="btn btn-light">Cancel</a>
+    </div>
+</form>

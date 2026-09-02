@@ -1,0 +1,59 @@
+@model List<DateWiseApplicationRow>
+@{
+    ViewData["Title"] = "Date-wise Applications";
+    ViewData["Subtitle"] = "Reports";
+    int year = ViewBag.Year; int month = ViewBag.Month; string monthLabel = ViewBag.MonthLabel;
+}
+
+<div class="page-header">
+    <div>
+        <h1>Date-wise Applications</h1>
+        <p>@monthLabel — chronological ledger</p>
+    </div>
+    <div class="d-flex gap-2">
+        <form method="get" class="d-flex gap-2">
+            <input type="number" name="year" value="@year" class="form-control" style="width:100px;" />
+            <select name="month" class="form-select" style="width:150px;">
+                @for (int mo = 1; mo <= 12; mo++) { <option value="@mo" selected="@(mo==month)">@(new DateTime(2000,mo,1).ToString("MMMM"))</option> }
+            </select>
+            <button type="submit" class="btn btn-light">Go</button>
+        </form>
+        <a class="btn btn-primary" href="@Url.Action("ExportExcel", new { year, month })"><i class="bi bi-file-earmark-excel-fill me-1"></i> Export Excel</a>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body p-0" style="overflow-x:auto;">
+        @if (!Model.Any())
+        {
+            <div class="empty-state"><i class="bi bi-calendar2-week"></i>No applications this month.</div>
+        }
+        else
+        {
+            <table class="table mb-0">
+                <thead><tr><th>Date</th><th>Day</th><th>Employee</th><th>Department</th><th>Attendance Status</th><th>Application Type</th><th>Status</th><th>Approver</th><th>Reason</th></tr></thead>
+                <tbody>
+                @foreach (var r in Model)
+                {
+                    <tr>
+                        <td>@r.Date.ToString("dd-MMM-yyyy")</td>
+                        <td>@r.Date.DayOfWeek</td>
+                        <td>@r.App.Employee?.EmpCode — @r.App.Employee?.Name</td>
+                        <td>@r.App.Employee?.Department?.Name</td>
+                        <td>@r.AttendanceStatus</td>
+                        <td>@(r.App.Type == "Leave" ? (r.App.LeaveType?.Name ?? "Leave") : r.App.Type)</td>
+                        <td>
+                            @{
+                                var badgeClass = r.App.Status switch { "Approved" => "badge-soft-success", "Pending" => "badge-soft-warning", "Rejected" => "badge-soft-danger", _ => "badge-soft-gray" };
+                            }
+                            <span class="badge @badgeClass">@r.App.Status</span>
+                        </td>
+                        <td>@r.App.Approver?.Name</td>
+                        <td style="max-width:200px;white-space:normal;">@r.App.Reason</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        }
+    </div>
+</div>

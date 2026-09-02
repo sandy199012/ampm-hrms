@@ -1,0 +1,208 @@
+@model List<OTLedger>
+@using AmpmHrmsPro.Services
+@{
+    ViewData["Title"] = "OT Ledger";
+    ViewData["Subtitle"] = "Overtime";
+    var employees = (List<Employee>)ViewBag.EmployeeList;
+    var rules     = (List<OTRule>)ViewBag.RuleList;
+    int? selEmpId = ViewBag.SelectedEmployeeId as int?;
+    string? selStatus = ViewBag.SelectedStatus as string;
+    var emp       = ViewBag.Employee as Employee;
+    var summary   = ViewBag.Summary as List<OTSummaryRow>;
+}
+
+<div class="page-header">
+    <div>
+        <h1>OT Ledger</h1>
+        <p>@(emp != null ? emp.Name + " — overtime history" : "Company-wide OT summary")</p>
+    </div>
+    <a asp-action="Assign" class="btn btn-light"><i class="bi bi-person-gear me-1"></i>Assign Rules</a>
+</div>
+
+@if (TempData["Success"] != null) { <div class="alert alert-success">@TempData["Success"]</div> }
+@if (TempData["Error"]   != null) { <div class="alert alert-danger">@TempData["Error"]</div> }
+
+<!-- Filter -->
+<div class="card mb-3">
+    <div class="card-body">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-md-5">
+                <label class="form-label">Employee</label>
+                <select name="employeeId" class="form-select" onchange="this.form.submit()">
+                    <option value="">— All (summary) —</option>
+                    @foreach (var e in employees)
+                    { <option value="@e.Id" selected="@(selEmpId == e.Id)">@e.Name (@e.EmpCode)</option> }
+                </select>
+            </div>
+            @if (selEmpId.HasValue)
+            {
+                <div class="col-md-3">
+                    <label class="form-label">Status</label>
+                    <select name="status" class="form-select" onchange="this.form.submit()">
+                        <option value="">All</option>
+                        @foreach (var s in new[]{"Pending","Approved","Paid","Cancelled"})
+                        { <option value="@s" selected="@(selStatus == s)">@s</option> }
+                    </select>
+                </div>
+            }
+        </form>
+    </div>
+</div>
+
+@if (emp == null && summary != null)
+{
+    <!-- Company-wide summary -->
+    <div class="table-wrap">
+        <table class="table">
+            <thead><tr><th>Employee</th><th>Category</th><th>OT Rule</th><th>Pending / Approved OT</th><th></th></tr></thead>
+            <tbody>
+            @if (!summary.Any())
+            {
+                <tr><td colspan="5"><div class="empty-state"><i class="bi bi-clock-history"></i>No employees have an OT rule assigned.</div></td></tr>
+            }
+            @foreach (var row in summary)
+            {
+                <tr>
+                    <td class="fw-semibold">@row.Employee.Name <span class="text-muted">(@row.Employee.EmpCode)</span></td>
+                    <td>@(row.Employee.Category ?? "—")</td>
+                    <td><span class="badge badge-soft-info">@(row.Employee.OTRule?.Name ?? "—")</span></td>
+                    <td>@(row.OTMinutes > 0 ? OTLedgerEngine.FormatOTMinutes(row.OTMinutes) : "—")</td>
+                    <td><a asp-action="Ledger" asp-route-employeeId="@row.Employee.Id" class="btn btn-sm btn-light">View</a></td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+}
+else if (emp != null)
+{
+    <!-- Per-employee ledger -->
+    <div class="row mb-3 g-2">
+        <div class="col-auto">
+            <div class="stat-card">
+                <div class="stat-label">Pending</div>
+                <div class="stat-value">@OTLedgerEngine.FormatOTMinutes(Model.Where(l=>l.Status=="Pending").Sum(l=>l.OTMinutes))</div>
+            </div>
+        </div>
+        <div class="col-auto">
+            <div class="stat-card">
+                <div class="stat-label">Approved</div>
+                <div class="stat-value">@OTLedgerEngine.FormatOTMinutes(Model.Where(l=>l.Status=="Approved").Sum(l=>l.OTMinutes))</div>
+            </div>
+        </div>
+        <div class="col-auto">
+            <div class="stat-card">
+                <div class="stat-label">Paid</div>
+                <div class="stat-value">@OTLedgerEngine.FormatOTMinutes(Model.Where(l=>l.Status=="Paid").Sum(l=>l.OTMinutes))</div>
+            </div>
+        </div>
+        <div class="col-md-3 ms-auto">
+            <button class="btn btn-outline-primary w-100" data-bs-toggle="modal" data-bs-target="#manualOTModal">
+                <i class="bi bi-plus-lg me-1"></i>Manual OT Entry
+            </button>
+        </div>
+    </div>
+
+    <div class="table-wrap">
+        <table class="table">
+            <thead>
+                <tr><th>Date</th><th>OT</th><th>Kind</th><th>Type</th><th>Source</th><th>Status</th><th>Remarks</th><th></th></tr>
+            </thead>
+            <tbody>
+            @if (!Model.Any())
+            {
+                <tr><td colspan="8"><div class="empty-state"><i class="bi bi-clock-history"></i>No OT records for this filter.</div></td></tr>
+            }
+            @foreach (var l in Model)
+            {
+                <tr>
+                    <td>@l.Date</td>
+                    <td class="fw-semibold">@OTLedgerEngine.FormatOTMinutes(l.OTMinutes)</td>
+                    <td><span class="badge badge-soft-primary">@l.OTKind</span></td>
+                    <td><span class="badge @(l.OTType=="Pay"?"badge-soft-info":l.OTType=="Leave"?"badge-soft-success":"badge-soft-warning")">@l.OTType</span></td>
+                    <td><span class="badge @(l.Source=="Auto"?"badge-soft-gray":"badge-soft-orange")">@l.Source</span></td>
+                    <td>
+                        <span class="badge @(l.Status=="Pending"?"badge-soft-warning":l.Status=="Approved"?"badge-soft-success":l.Status=="Paid"?"badge-soft-primary":"badge-soft-danger")">@l.Status</span>
+                    </td>
+                    <td class="small text-muted">@l.Remarks</td>
+                    <td class="text-end">
+                        @if (l.Status == "Pending")
+                        {
+                            <form method="post" asp-action="ApproveOT" class="d-inline">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="id" value="@l.Id" />
+                                <input type="hidden" name="employeeId" value="@emp.Id" />
+                                <button type="submit" class="btn btn-sm btn-success me-1">Approve</button>
+                            </form>
+                            <form method="post" asp-action="CancelOT" class="d-inline">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="id" value="@l.Id" />
+                                <input type="hidden" name="employeeId" value="@emp.Id" />
+                                <button type="submit" class="btn btn-sm btn-light text-danger">Cancel</button>
+                            </form>
+                        }
+                        @if (l.Status == "Approved" && (l.OTType == "Pay" || l.OTType == "Both"))
+                        {
+                            <form method="post" asp-action="MarkPaid" class="d-inline">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="id" value="@l.Id" />
+                                <input type="hidden" name="employeeId" value="@emp.Id" />
+                                <button type="submit" class="btn btn-sm btn-primary">Mark Paid</button>
+                            </form>
+                        }
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Manual OT Modal -->
+    <div class="modal fade" id="manualOTModal" tabindex="-1">
+        <div class="modal-dialog">
+            <form method="post" asp-action="ManualOT">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="employeeId" value="@emp.Id" />
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Manual OT Entry — @emp.Name</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Date</label>
+                            <input type="date" name="date" class="form-control" value="@DateTime.Today.ToString("yyyy-MM-dd")" required />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">OT Minutes</label>
+                            <input type="number" name="otMinutes" class="form-control" min="1" required placeholder="e.g. 120" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">OT Kind</label>
+                            <select name="otKind" class="form-select">
+                                <option value="Shift">Shift (after-hours)</option>
+                                <option value="Holiday">Holiday</option>
+                                <option value="WeekOff">Week-Off</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">OT Rule (optional)</label>
+                            <select name="ruleId" class="form-select">
+                                <option value="">— Employee's default rule —</option>
+                                @foreach (var r in rules) { <option value="@r.Id">@r.Name</option> }
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Remarks</label>
+                            <input type="text" name="remarks" class="form-control" />
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Save OT Entry</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+}

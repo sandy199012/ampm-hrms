@@ -1,0 +1,223 @@
+@model ComplianceReportsViewModel
+@{
+    ViewData["Title"] = "Compliance Reports";
+    ViewData["Subtitle"] = "Reports";
+    string view = Model.View;
+    int year = ViewBag.Year; int month = ViewBag.Month; int daysInMonth = ViewBag.DaysInMonth; string monthLabel = ViewBag.MonthLabel;
+    int? departmentId = ViewBag.DepartmentId; int? employeeId = ViewBag.EmployeeId;
+    var departments = (List<Department>)ViewBag.DepartmentList;
+    var empList = (List<Employee>)ViewBag.EmployeeList;
+}
+
+<div class="page-header">
+    <div>
+        <h1>Compliance Reports</h1>
+        <p>@monthLabel</p>
+    </div>
+    <div class="d-flex gap-2">
+        <a class="btn btn-light" asp-controller="Reports" asp-action="AttendanceRegister"><i class="bi bi-calendar3 me-1"></i> Attendance Register</a>
+        <a class="btn btn-light" asp-controller="Reports" asp-action="OTDailyRegister"><i class="bi bi-table me-1"></i> Overtime Register</a>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-auto">
+                <label class="form-label mb-1">View</label>
+                <select name="view" class="form-select form-select-sm">
+                    <option value="MusterRoll" selected="@(view == "MusterRoll")">Muster Roll</option>
+                    <option value="WorkingHours" selected="@(view == "WorkingHours")">Working Hours</option>
+                    <option value="HolidayWorking" selected="@(view == "HolidayWorking")">Holiday Working</option>
+                    <option value="WeekOffWorking" selected="@(view == "WeekOffWorking")">Week-Off Working</option>
+                    <option value="EmployeeMovement" selected="@(view == "EmployeeMovement")">Employee Movement</option>
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-1">Year</label>
+                <input type="number" name="year" value="@year" class="form-control form-control-sm" style="width:100px;" />
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-1">Month</label>
+                <select name="month" class="form-select form-select-sm" style="width:150px;">
+                    @for (int mo = 1; mo <= 12; mo++) { <option value="@mo" selected="@(mo == month)">@(new DateTime(2000, mo, 1).ToString("MMMM"))</option> }
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-1">Department</label>
+                <select name="departmentId" class="form-select form-select-sm">
+                    <option value="">All</option>
+                    @foreach (var d in departments) { <option value="@d.Id" selected="@(departmentId == d.Id)">@d.Name</option> }
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-1">Employee</label>
+                <select name="employeeId" class="form-select form-select-sm">
+                    <option value="">All</option>
+                    @foreach (var e in empList) { <option value="@e.Id" selected="@(employeeId == e.Id)">@e.EmpCode — @e.Name</option> }
+                </select>
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-funnel-fill me-1"></i> Apply</button>
+                <a href="@Url.Action("ComplianceReports")" class="btn btn-sm btn-light">Reset</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+@if (view == "MusterRoll")
+{
+    <div class="card">
+        <div class="card-body p-0" style="overflow-x:auto;max-height:75vh;">
+            <table class="table table-sm mb-0" style="font-size:11px;">
+                <thead style="position:sticky;top:0;background:#fff;z-index:2;">
+                    <tr>
+                        <th style="position:sticky;left:0;background:#fff;z-index:3;min-width:150px;">Employee</th>
+                        <th>Code</th><th>Father's/Husband's Name</th><th>Designation</th><th>DOJ</th>
+                        @for (int d = 1; d <= daysInMonth; d++)
+                        {
+                            <th class="text-center">@d<br /><span style="font-weight:400;">@(new DateTime(year, month, d).ToString("ddd"))</span></th>
+                        }
+                        <th class="text-center">P</th><th class="text-center">A</th><th class="text-center">L</th><th class="text-center">WO</th>
+                    </tr>
+                </thead>
+                <tbody>
+                @if (!Model.MusterRows.Any())
+                {
+                    <tr><td colspan="@(9 + daysInMonth)"><div class="empty-state"><i class="bi bi-journal-text"></i>No employees match this selection.</div></td></tr>
+                }
+                @foreach (var row in Model.MusterRows)
+                {
+                    <tr>
+                        <td style="position:sticky;left:0;background:#fff;">@row.Employee.Name</td>
+                        <td>@row.Employee.EmpCode</td>
+                        <td>@row.Employee.FatherOrHusbandName</td>
+                        <td>@row.Employee.Designation?.Name</td>
+                        <td>@row.Employee.DOJ</td>
+                        @for (int d = 1; d <= daysInMonth; d++)
+                        {
+                            if (row.Days.TryGetValue(d, out var rec))
+                            {
+                                string cls = ExcelReportBuilder.IsPresentFamily(rec.EffectiveStatus) ? "background:#E2EFDA;"
+                                    : ExcelReportBuilder.IsMispunch(rec.EffectiveStatus) ? "background:#FFF2CC;"
+                                    : rec.EffectiveStatus == "WO" ? "background:#D6DCE4;"
+                                    : rec.EffectiveStatus == "A" ? "background:#FFC7CE;" : "";
+                                <td class="text-center" style="@cls" title="@rec.EffectiveStatus">@rec.EffectiveStatus</td>
+                            }
+                            else
+                            {
+                                <td class="text-center text-muted">—</td>
+                            }
+                        }
+                        <td class="text-center fw-bold">@row.Present</td>
+                        <td class="text-center fw-bold">@row.Absent</td>
+                        <td class="text-center fw-bold">@row.LeaveDays</td>
+                        <td class="text-center fw-bold">@row.WeekOff</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+else if (view == "WorkingHours")
+{
+    <div class="card">
+        <div class="card-body p-0" style="overflow-x:auto;">
+            <table class="table table-sm mb-0" style="font-size:12.5px;">
+                <thead><tr><th>Employee</th><th>Date</th><th class="text-center">In</th><th class="text-center">Out</th><th class="text-center">Worked Hours</th></tr></thead>
+                <tbody>
+                @if (!Model.WorkingHoursRows.Any())
+                {
+                    <tr><td colspan="5"><div class="empty-state"><i class="bi bi-clock-history"></i>No worked-day data matches this selection.</div></td></tr>
+                }
+                @foreach (var r in Model.WorkingHoursRows)
+                {
+                    <tr>
+                        <td>@r.Employee.EmpCode — @r.Employee.Name</td>
+                        <td>@r.Daily.Date</td>
+                        <td class="text-center">@(r.Daily.InTime?.ToString(@"hh\:mm"))</td>
+                        <td class="text-center">@(r.Daily.OutTime?.ToString(@"hh\:mm"))</td>
+                        <td class="text-center @(r.Hours > 12 ? "text-danger fw-bold" : "")">@r.Hours@(r.Hours > 12 ? " ⚠" : "")</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div class="card mt-3">
+        <div class="card-body" style="font-size:12px;">⚠ = more than 12 worked hours in a single day — worth a manual look for statutory working-hour compliance.</div>
+    </div>
+}
+else if (view == "HolidayWorking" || view == "WeekOffWorking")
+{
+    <div class="card">
+        <div class="card-body p-0" style="overflow-x:auto;">
+            <table class="table table-sm mb-0" style="font-size:12.5px;">
+                <thead><tr><th>Employee</th><th>Date</th><th>@(view == "HolidayWorking" ? "Holiday" : "Week Off")</th><th class="text-center">In</th><th class="text-center">Out</th><th class="text-center">Worked Hours</th></tr></thead>
+                <tbody>
+                @if (!Model.HolidayWeekOffRows.Any())
+                {
+                    <tr><td colspan="6"><div class="empty-state"><i class="bi bi-calendar-check"></i>Nobody worked on a @(view == "HolidayWorking" ? "holiday" : "week-off") in this selection.</div></td></tr>
+                }
+                @foreach (var r in Model.HolidayWeekOffRows)
+                {
+                    <tr>
+                        <td>@r.Employee.EmpCode — @r.Employee.Name</td>
+                        <td>@r.Daily.Date</td>
+                        <td>@r.Label</td>
+                        <td class="text-center">@(r.Daily.InTime?.ToString(@"hh\:mm"))</td>
+                        <td class="text-center">@(r.Daily.OutTime?.ToString(@"hh\:mm"))</td>
+                        <td class="text-center">@(r.Daily.WorkedMinutes.HasValue ? Math.Round(r.Daily.WorkedMinutes.Value / 60m, 2).ToString() : "—")</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+else
+{
+    <div class="row g-3">
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header"><i class="bi bi-person-plus-fill me-1"></i> New Joiners (@Model.Joiners.Count)</div>
+                <div class="card-body p-0" style="overflow-x:auto;">
+                    <table class="table table-sm mb-0" style="font-size:12.5px;">
+                        <thead><tr><th>Employee</th><th>Department</th><th>Designation</th><th>DOJ</th></tr></thead>
+                        <tbody>
+                        @if (!Model.Joiners.Any())
+                        {
+                            <tr><td colspan="4"><div class="empty-state"><i class="bi bi-person-plus"></i>No new joiners this month.</div></td></tr>
+                        }
+                        @foreach (var e in Model.Joiners)
+                        {
+                            <tr><td>@e.EmpCode — @e.Name</td><td>@e.Department?.Name</td><td>@e.Designation?.Name</td><td>@e.DOJ</td></tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card">
+                <div class="card-header"><i class="bi bi-person-dash-fill me-1"></i> Exits (@Model.Exits.Count)</div>
+                <div class="card-body p-0" style="overflow-x:auto;">
+                    <table class="table table-sm mb-0" style="font-size:12.5px;">
+                        <thead><tr><th>Employee</th><th>Department</th><th>Designation</th><th>Date of Leaving</th><th>Status</th></tr></thead>
+                        <tbody>
+                        @if (!Model.Exits.Any())
+                        {
+                            <tr><td colspan="5"><div class="empty-state"><i class="bi bi-person-dash"></i>No exits this month.</div></td></tr>
+                        }
+                        @foreach (var e in Model.Exits)
+                        {
+                            <tr><td>@e.EmpCode — @e.Name</td><td>@e.Department?.Name</td><td>@e.Designation?.Name</td><td>@e.DateOfLeaving</td><td>@e.Status</td></tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+}

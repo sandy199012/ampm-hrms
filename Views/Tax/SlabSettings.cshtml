@@ -1,0 +1,50 @@
+@model List<TaxSlabSettings>
+@{
+    ViewData["Title"] = "Tax Slab Settings";
+    ViewData["Subtitle"] = "Income Tax";
+}
+
+<div class="page-header">
+    <div>
+        <h1>Tax Slab Settings</h1>
+        <p>One row per Financial Year + Regime — fully editable so a Budget change never needs a code change</p>
+    </div>
+    <a class="btn btn-primary" asp-action="SlabSettingsEdit" asp-route-id="0"><i class="bi bi-plus-lg me-1"></i>Add Slab Settings</a>
+</div>
+
+<div class="table-wrap">
+    <table class="table">
+        <thead><tr><th>Financial Year</th><th>Regime</th><th>Standard Deduction</th><th>87A Rebate</th><th>Cess</th><th>Slabs</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+        @if (!Model.Any())
+        {
+            <tr><td colspan="8"><div class="empty-state"><i class="bi bi-percent"></i>No tax slab settings yet.</div></td></tr>
+        }
+        @foreach (var s in Model)
+        {
+            <tr>
+                <td class="fw-semibold" style="color:var(--text);">FY @s.FinancialYear</td>
+                <td>@(s.Regime == "Old" ? Html.Raw("<span class='badge badge-soft-warning'>Old Regime</span>") : Html.Raw("<span class='badge badge-soft-primary'>New Regime</span>"))</td>
+                <td>₹@s.StandardDeduction.ToString("N0")</td>
+                <td>Up to ₹@s.Rebate87AIncomeLimit.ToString("N0") income → ₹@s.Rebate87AMaxAmount.ToString("N0") rebate</td>
+                <td>@s.CessPercent%</td>
+                <td>@s.Slabs.Count slab(s), @s.SurchargeSlabs.Count surcharge tier(s)</td>
+                <td>@(s.IsActive ? Html.Raw("<span class='badge badge-soft-success'>Active</span>") : Html.Raw("<span class='badge badge-soft-gray'>Inactive</span>"))</td>
+                <td class="text-end">
+                    <a class="btn btn-sm btn-light" asp-action="SlabSettingsEdit" asp-route-id="@s.Id"><i class="bi bi-pencil-fill"></i></a>
+                    <button class="btn btn-sm btn-light" onclick="toggleIt(@s.Id)"><i class="bi bi-toggle2-on"></i></button>
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>
+
+@section Scripts {
+<script>
+function toggleIt(id) {
+    fetch('@Url.Action("ToggleSlabSettings")', { method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded'}, body: `id=${id}` })
+        .then(r => r.json()).then(d => { if (d.success) location.reload(); });
+}
+</script>
+}

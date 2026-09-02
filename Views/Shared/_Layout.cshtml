@@ -1,0 +1,269 @@
+@{
+    var action = ViewContext.RouteData.Values["action"]?.ToString() ?? "";
+    var controller = ViewContext.RouteData.Values["controller"]?.ToString() ?? "";
+    bool IsActive(string ctrl, string act) => controller == ctrl && action == act;
+    bool IsActiveAny(string ctrl, params string[] acts) => controller == ctrl && acts.Contains(action);
+    var userName = User.Identity?.Name ?? "User";
+    var userRole = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "employee";
+    var initials = string.Join("", userName.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(w => w[0])).ToUpper();
+    var isAdminOrHr = userRole == "admin" || userRole == "hr";
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@ViewData["Title"] — AMPM HRMS</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="~/css/theme.css" />
+    @await RenderSectionAsync("Styles", required: false)
+</head>
+<body>
+    <div class="app-shell">
+        <aside class="sidebar">
+            <div class="sidebar-brand">
+                <div class="logo-mark">A</div>
+                <div class="brand-text">
+                    <strong>AMPM HRMS</strong>
+                    <span>Fashions Pvt. Ltd.</span>
+                </div>
+            </div>
+            <nav class="sidebar-nav">
+                @if (isAdminOrHr)
+                {
+                <div class="nav-section-label">Overview</div>
+                <a class="sidebar-link @(IsActive("Admin","Index") ? "active" : "")" asp-controller="Admin" asp-action="Index">
+                    <i class="bi bi-grid-1x2-fill"></i> Dashboard
+                </a>
+
+                <div class="nav-section-label">Employee Master</div>
+                <a class="sidebar-link @(IsActive("Admin","Employees") ? "active" : "")" asp-controller="Admin" asp-action="Employees">
+                    <i class="bi bi-people-fill"></i> All Employees
+                </a>
+                <a class="sidebar-link @(IsActive("Admin","AddEmployee") ? "active" : "")" asp-controller="Admin" asp-action="AddEmployee">
+                    <i class="bi bi-person-plus-fill"></i> Add Employee
+                </a>
+                <a class="sidebar-link @(IsActiveAny("Admin","BulkUpload","BulkUploadResult") ? "active" : "")" asp-controller="Admin" asp-action="BulkUpload">
+                    <i class="bi bi-file-earmark-arrow-up-fill"></i> Bulk Upload
+                </a>
+
+                <div class="nav-section-label">Organization Masters</div>
+                <a class="sidebar-link @(IsActive("Admin","Masters") ? "active" : "")" asp-controller="Admin" asp-action="Masters">
+                    <i class="bi bi-diagram-3-fill"></i> Department / Designation
+                </a>
+                <a class="sidebar-link @(IsActive("Admin","Locations") ? "active" : "")" asp-controller="Admin" asp-action="Locations">
+                    <i class="bi bi-geo-alt-fill"></i> Locations
+                </a>
+                <a class="sidebar-link @(IsActive("Admin","Shifts") ? "active" : "")" asp-controller="Admin" asp-action="Shifts">
+                    <i class="bi bi-clock-fill"></i> Shifts
+                </a>
+                <a class="sidebar-link @(IsActive("Admin","WeekOffPolicies") ? "active" : "")" asp-controller="Admin" asp-action="WeekOffPolicies">
+                    <i class="bi bi-calendar-week-fill"></i> Week-Off Policies
+                </a>
+                <a class="sidebar-link @(IsActive("Admin","Holidays") ? "active" : "")" asp-controller="Admin" asp-action="Holidays">
+                    <i class="bi bi-calendar-event-fill"></i> Holidays
+                </a>
+                <a class="sidebar-link @(IsActive("Admin","LeaveTypes") ? "active" : "")" asp-controller="Admin" asp-action="LeaveTypes">
+                    <i class="bi bi-envelope-paper-fill"></i> Leave Types
+                </a>
+                <a class="sidebar-link @(IsActive("Admin","LeavePolicies") ? "active" : "")" asp-controller="Admin" asp-action="LeavePolicies">
+                    <i class="bi bi-calendar2-check-fill"></i> Leave Policies
+                </a>
+
+                <div class="nav-section-label">Attendance</div>
+                <a class="sidebar-link @(IsActive("Attendance","BulkAttendanceImport") ? "active" : "")" asp-controller="Attendance" asp-action="BulkAttendanceImport">
+                    <i class="bi bi-file-earmark-arrow-up-fill"></i> Bulk Import
+                </a>
+                <a class="sidebar-link @(IsActive("Attendance","ApiSettings") ? "active" : "")" asp-controller="Attendance" asp-action="ApiSettings">
+                    <i class="bi bi-plug-fill"></i> Biometric API
+                </a>
+                <a class="sidebar-link @(IsActive("Attendance","FaceMatchSettings") ? "active" : "")" asp-controller="Attendance" asp-action="FaceMatchSettings">
+                    <i class="bi bi-person-bounding-box"></i> Face Match API
+                </a>
+                <a class="sidebar-link @(IsActive("Attendance","KioskDevices") ? "active" : "")" asp-controller="Attendance" asp-action="KioskDevices">
+                    <i class="bi bi-tablet"></i> Kiosk Devices
+                </a>
+                <a class="sidebar-link @(IsActive("Attendance","ManualEntry") ? "active" : "")" asp-controller="Attendance" asp-action="ManualEntry">
+                    <i class="bi bi-pencil-square"></i> Manual Entry
+                </a>
+                <a class="sidebar-link @(IsActive("Attendance","Recompute") ? "active" : "")" asp-controller="Attendance" asp-action="Recompute">
+                    <i class="bi bi-arrow-repeat"></i> Recompute
+                </a>
+                <a class="sidebar-link @(IsActive("Attendance","EmailSettings") ? "active" : "")" asp-controller="Attendance" asp-action="EmailSettings">
+                    <i class="bi bi-envelope-fill"></i> Email Notifications
+                </a>
+
+                <div class="nav-section-label">Salary Structure</div>
+                <a class="sidebar-link @(IsActive("Salary","Components") ? "active" : "")" asp-controller="Salary" asp-action="Components">
+                    <i class="bi bi-cash-coin"></i> Components
+                </a>
+                <a class="sidebar-link @(IsActiveAny("Salary","Templates","TemplateEdit") ? "active" : "")" asp-controller="Salary" asp-action="Templates">
+                    <i class="bi bi-diagram-3-fill"></i> Structure Templates
+                </a>
+                <a class="sidebar-link @(IsActiveAny("Salary","EmployeeStructure","AssignStructure") ? "active" : "")" asp-controller="Salary" asp-action="EmployeeStructure">
+                    <i class="bi bi-person-badge-fill"></i> Employee Structure
+                </a>
+
+                <div class="nav-section-label">Income Tax / TDS</div>
+                <a class="sidebar-link @(IsActiveAny("Tax","SlabSettings","SlabSettingsEdit") ? "active" : "")" asp-controller="Tax" asp-action="SlabSettings">
+                    <i class="bi bi-percent"></i> Tax Slab Settings
+                </a>
+                <a class="sidebar-link @(IsActive("Tax","Sections") ? "active" : "")" asp-controller="Tax" asp-action="Sections">
+                    <i class="bi bi-file-earmark-text-fill"></i> Tax Sections
+                </a>
+                <a class="sidebar-link @(IsActiveAny("Tax","Declarations","Declaration") ? "active" : "")" asp-controller="Tax" asp-action="Declarations">
+                    <i class="bi bi-inbox-fill"></i> Investment Declarations
+                </a>
+                <a class="sidebar-link @(IsActive("Tax","TdsReport") ? "active" : "")" asp-controller="Tax" asp-action="TdsReport">
+                    <i class="bi bi-graph-up-arrow"></i> TDS Report
+                </a>
+
+                <div class="nav-section-label">Applications</div>
+                <a class="sidebar-link @(IsActiveAny("Applications","Index") ? "active" : "")" asp-controller="Applications" asp-action="Index">
+                    <i class="bi bi-inbox-fill"></i> All Applications
+                </a>
+                <a class="sidebar-link @(IsActive("Applications","Apply") ? "active" : "")" asp-controller="Applications" asp-action="Apply">
+                    <i class="bi bi-send-plus-fill"></i> New Application
+                </a>
+
+                <div class="nav-section-label">Comp-Off</div>
+                <a class="sidebar-link @(IsActive("CompOff","Rules") ? "active" : "")" asp-controller="CompOff" asp-action="Rules">
+                    <i class="bi bi-calendar-plus"></i> Comp-Off Rules
+                </a>
+                <a class="sidebar-link @(IsActive("CompOff","Assign") ? "active" : "")" asp-controller="CompOff" asp-action="Assign">
+                    <i class="bi bi-diagram-3-fill"></i> Assign Comp-Off Rule
+                </a>
+                <a class="sidebar-link @(IsActive("CompOff","Ledger") ? "active" : "")" asp-controller="CompOff" asp-action="Ledger">
+                    <i class="bi bi-journal-check"></i> Comp-Off Ledger
+                </a>
+
+                <div class="nav-section-label">Leave Balances</div>
+                <a class="sidebar-link @(IsActiveAny("LeaveBalance","Index","Employee") ? "active" : "")" asp-controller="LeaveBalance" asp-action="Index">
+                    <i class="bi bi-bar-chart-steps"></i> EL / CL / SL Balances
+                </a>
+                <a class="sidebar-link @(IsActive("LeaveBalance","BulkUpload") ? "active" : "")" asp-controller="LeaveBalance" asp-action="BulkUpload">
+                    <i class="bi bi-file-earmark-arrow-up-fill"></i> Upload Leave Data
+                </a>
+
+                <div class="nav-section-label">OT (Overtime)</div>
+                <a class="sidebar-link @(IsActive("OT","Rules") ? "active" : "")" asp-controller="OT" asp-action="Rules">
+                    <i class="bi bi-clock-history"></i> OT Rules
+                </a>
+                <a class="sidebar-link @(IsActive("OT","Assign") ? "active" : "")" asp-controller="OT" asp-action="Assign">
+                    <i class="bi bi-person-gear"></i> Assign OT Rule
+                </a>
+                <a class="sidebar-link @(IsActive("OT","Ledger") ? "active" : "")" asp-controller="OT" asp-action="Ledger">
+                    <i class="bi bi-clock-fill"></i> OT Ledger
+                </a>
+
+                <div class="nav-section-label">Reports</div>
+                <a class="sidebar-link @(IsActive("Reports","Dashboard") ? "active" : "")" asp-controller="Reports" asp-action="Dashboard">
+                    <i class="bi bi-speedometer2"></i> Dashboard
+                </a>
+                <a class="sidebar-link @(IsActive("Reports","AttendanceRegister") ? "active" : "")" asp-controller="Reports" asp-action="AttendanceRegister">
+                    <i class="bi bi-calendar3"></i> Attendance Register
+                </a>
+                <a class="sidebar-link @(IsActive("Reports","AttendanceReports") ? "active" : "")" asp-controller="Reports" asp-action="AttendanceReports">
+                    <i class="bi bi-clipboard-data-fill"></i> Attendance Reports
+                </a>
+                <a class="sidebar-link @(IsActive("Reports","LeaveReports") ? "active" : "")" asp-controller="Reports" asp-action="LeaveReports">
+                    <i class="bi bi-wallet2"></i> Leave Reports
+                </a>
+                <a class="sidebar-link @(IsActive("Reports","ComplianceReports") ? "active" : "")" asp-controller="Reports" asp-action="ComplianceReports">
+                    <i class="bi bi-shield-check"></i> Compliance Reports
+                </a>
+                <a class="sidebar-link @(IsActive("Reports","ApplicationTracker") ? "active" : "")" asp-controller="Reports" asp-action="ApplicationTracker">
+                    <i class="bi bi-card-checklist"></i> Application Tracker
+                </a>
+                <a class="sidebar-link @(IsActive("Reports","EmployeeSummary") ? "active" : "")" asp-controller="Reports" asp-action="EmployeeSummary">
+                    <i class="bi bi-bar-chart-fill"></i> Employee Summary
+                </a>
+                <a class="sidebar-link @(IsActive("Reports","DateWiseApplications") ? "active" : "")" asp-controller="Reports" asp-action="DateWiseApplications">
+                    <i class="bi bi-calendar2-week-fill"></i> Date-wise Applications
+                </a>
+                <a class="sidebar-link @(IsActive("Reports","LegendKey") ? "active" : "")" asp-controller="Reports" asp-action="LegendKey">
+                    <i class="bi bi-question-circle-fill"></i> Legend &amp; Key
+                </a>
+                <a class="sidebar-link @(IsActive("Reports","OTAttendanceReport") ? "active" : "")" asp-controller="Reports" asp-action="OTAttendanceReport">
+                    <i class="bi bi-graph-up"></i> OT - Attendance
+                </a>
+                <a class="sidebar-link @(IsActive("Reports","OTDepartmentSummary") ? "active" : "")" asp-controller="Reports" asp-action="OTDepartmentSummary">
+                    <i class="bi bi-building"></i> OT - Dept Summary
+                </a>
+                <a class="sidebar-link @(IsActive("Reports","OTWorkerDetails") ? "active" : "")" asp-controller="Reports" asp-action="OTWorkerDetails">
+                    <i class="bi bi-person-workspace"></i> OT - Worker Details
+                </a>
+                <a class="sidebar-link @(IsActive("Reports","OTDailyRegister") ? "active" : "")" asp-controller="Reports" asp-action="OTDailyRegister">
+                    <i class="bi bi-table"></i> OT - Daily Register
+                </a>
+                <a class="sidebar-link @(IsActive("Reports","OTRulesLegend") ? "active" : "")" asp-controller="Reports" asp-action="OTRulesLegend">
+                    <i class="bi bi-book-fill"></i> OT Rules &amp; Legend
+                </a>
+                }
+
+                <div class="nav-section-label">My Payroll</div>
+                <a class="sidebar-link @(IsActive("MyTax","Salary") ? "active" : "")" asp-controller="MyTax" asp-action="Salary">
+                    <i class="bi bi-wallet2"></i> My Salary
+                </a>
+                <a class="sidebar-link @(IsActive("MyTax","Declaration") ? "active" : "")" asp-controller="MyTax" asp-action="Declaration">
+                    <i class="bi bi-file-earmark-text"></i> My Tax Declaration
+                </a>
+                <a class="sidebar-link @(IsActive("MyCompOff","Index") ? "active" : "")" asp-controller="MyCompOff" asp-action="Index">
+                    <i class="bi bi-journal-check"></i> My Comp-Off
+                </a>
+                <a class="sidebar-link @(IsActive("MyOT","Index") ? "active" : "")" asp-controller="MyOT" asp-action="Index">
+                    <i class="bi bi-clock-history"></i> My OT
+                </a>
+                <a class="sidebar-link @(IsActive("MyLeave","Index") ? "active" : "")" asp-controller="MyLeave" asp-action="Index">
+                    <i class="bi bi-calendar2-check-fill"></i> My Leave Balance
+                </a>
+
+                <div class="nav-section-label">Account</div>
+                <a class="sidebar-link" asp-controller="Account" asp-action="Logout">
+                    <i class="bi bi-box-arrow-right"></i> Sign Out
+                </a>
+            </nav>
+        </aside>
+
+        <div class="main-col">
+            <header class="topbar">
+                <div class="topbar-title">
+                    @ViewData["Title"]
+                    @if (ViewData["Subtitle"] != null)
+                    {
+                        <div class="breadcrumb-sub">@ViewData["Subtitle"]</div>
+                    }
+                </div>
+                <div class="topbar-right">
+                    <div class="topbar-user dropdown">
+                        <div class="avatar">@initials</div>
+                        <div class="u-meta">
+                            <strong>@userName</strong>
+                            <span>@userRole</span>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <main class="content-area">
+                @if (TempData["Success"] != null)
+                {
+                    <div class="alert alert-success d-flex align-items-center gap-2 mb-3"><i class="bi bi-check-circle-fill"></i> @TempData["Success"]</div>
+                }
+                @if (TempData["Error"] != null)
+                {
+                    <div class="alert alert-danger d-flex align-items-center gap-2 mb-3"><i class="bi bi-exclamation-circle-fill"></i> @TempData["Error"]</div>
+                }
+                @RenderBody()
+            </main>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

@@ -1,0 +1,107 @@
+@model List<KioskDevice>
+@{
+    ViewData["Title"] = "Kiosk Devices";
+    ViewData["Subtitle"] = "Attendance";
+}
+
+<div class="page-header">
+    <div>
+        <h1>Kiosk Devices</h1>
+        <p>Any Android tablet/phone running the separate <strong>AMPM Attendance Kiosk</strong> app becomes a walk-up face-punch machine once it's registered here.</p>
+    </div>
+    <button class="btn btn-primary" onclick="openModal(null,'','')"><i class="bi bi-plus-lg me-1"></i>Add Kiosk Device</button>
+</div>
+
+@if (TempData["NewKioskKey"] != null)
+{
+    <div class="alert alert-success">
+        <strong>Device created — copy this key now,</strong> it won't be shown in full again. Enter it in the kiosk app's Setup screen (server address + this key).
+        <div class="mt-2"><code style="font-size:1.05rem;">@TempData["NewKioskKey"]</code></div>
+    </div>
+}
+
+<div class="table-wrap">
+    <table class="table">
+        <thead><tr><th>Device Name</th><th>Location</th><th>Key</th><th>Last Seen</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+        @if (!Model.Any())
+        {
+            <tr><td colspan="6"><div class="empty-state"><i class="bi bi-tablet"></i>No kiosk devices yet.</div></td></tr>
+        }
+        @foreach (var k in Model)
+        {
+            <tr>
+                <td class="fw-semibold" style="color:var(--text);">@k.DeviceName</td>
+                <td>@(k.LocationLabel ?? "—")</td>
+                <td><code>@(k.ApiKey.Length > 8 ? k.ApiKey.Substring(0, 8) + "…" : k.ApiKey)</code></td>
+                <td class="text-soft">@(k.LastSeenAt.HasValue ? k.LastSeenAt.Value.ToString("dd-MMM-yyyy hh:mm tt") : "Never")</td>
+                <td>@(k.IsActive ? Html.Raw("<span class='badge badge-soft-success'>Active</span>") : Html.Raw("<span class='badge badge-soft-gray'>Inactive</span>"))</td>
+                <td class="text-end">
+                    <button class="btn btn-sm btn-light" onclick='openModal(@k.Id, @Html.Raw(Json.Serialize(k.DeviceName)), @Html.Raw(Json.Serialize(k.LocationLabel ?? "")))'><i class="bi bi-pencil-fill"></i></button>
+                    <button class="btn btn-sm btn-light" onclick="regenerateKey(@k.Id)" title="Issue a new key (old key stops working immediately)"><i class="bi bi-key-fill"></i></button>
+                    <button class="btn btn-sm btn-light" onclick="toggleIt(@k.Id)"><i class="bi bi-toggle2-on"></i></button>
+                    <button class="btn btn-sm btn-light text-danger" onclick="deleteIt(@k.Id)"><i class="bi bi-trash-fill"></i></button>
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>
+
+<div class="modal fade" id="itemModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="post" asp-action="SaveKioskDevice" id="itemForm">
+                @Html.AntiForgeryToken()
+                <div class="modal-header">
+                    <h5 class="modal-title" id="modalTitle">Add Kiosk Device</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" name="id" id="fId" value="0" />
+                    <div class="mb-3">
+                        <label class="form-label">Device Name *</label>
+                        <input type="text" name="deviceName" id="fName" class="form-control" placeholder="e.g. Main Gate" required />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Location Label</label>
+                        <input type="text" name="locationLabel" id="fLocation" class="form-control" placeholder="e.g. Ground Floor Entrance" />
+                    </div>
+                    <div class="form-text" id="createHint">A new device key is generated automatically when you save — you'll see it once right after, to enter into the kiosk app's Setup screen.</div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+const itemModal = new bootstrap.Modal(document.getElementById('itemModal'));
+function openModal(id, name, location) {
+    document.getElementById('modalTitle').innerText = id ? 'Edit Kiosk Device' : 'Add Kiosk Device';
+    document.getElementById('fId').value = id || 0;
+    document.getElementById('fName').value = name || '';
+    document.getElementById('fLocation').value = location || '';
+    document.getElementById('createHint').style.display = id ? 'none' : 'block';
+    itemModal.show();
+}
+function toggleIt(id) {
+    fetch('@Url.Action("ToggleKioskDevice")', { method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded'}, body: `id=${id}` })
+        .then(r => r.json()).then(d => { if (d.success) location.reload(); });
+}
+function regenerateKey(id) {
+    if (!confirm('Issue a new key for this device? The old key will stop working immediately — you will need to re-enter the new key in the kiosk app.')) return;
+    fetch('@Url.Action("RegenerateKioskKey")', { method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded'}, body: `id=${id}` })
+        .then(r => r.json()).then(d => { if (d.success) { alert('New key: ' + d.apiKey + '\n\nCopy it now — enter it in the kiosk app.'); location.reload(); } });
+}
+function deleteIt(id) {
+    if (!confirm('Delete this kiosk device? Its key will stop working immediately.')) return;
+    fetch('@Url.Action("DeleteKioskDevice")', { method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded'}, body: `id=${id}` })
+        .then(r => r.json()).then(d => { alert(d.message || 'Done.'); if (d.success) location.reload(); });
+}
+</script>
+}

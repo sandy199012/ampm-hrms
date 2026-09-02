@@ -1,0 +1,71 @@
+@using AmpmHrmsPro.Services
+@{
+    ViewData["Title"] = "TDS Report";
+    ViewData["Subtitle"] = "Income Tax";
+    var departments = (List<Department>)ViewBag.Departments;
+    string fy = ViewBag.FinancialYear;
+    int? deptId = ViewBag.DepartmentId;
+    string? lastDept = null;
+}
+
+<div class="page-header">
+    <div>
+        <h1>TDS Report</h1>
+        <p>Projected annual tax liability and suggested monthly TDS per employee, department-wise</p>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-md-2"><label class="form-label">Financial Year</label><input type="text" name="financialYear" class="form-control" value="@fy" /></div>
+            <div class="col-md-3">
+                <label class="form-label">Department</label>
+                <select name="departmentId" class="form-select">
+                    <option value="">All Departments</option>
+                    @foreach (var d in departments) { <option value="@d.Id" selected="@(deptId == d.Id)">@d.Name</option> }
+                </select>
+            </div>
+            <div class="col-md-2"><button type="submit" class="btn btn-primary w-100">Filter</button></div>
+        </form>
+    </div>
+</div>
+
+<div class="table-wrap">
+    <table class="table">
+        <thead><tr><th>Employee</th><th>Department</th><th>Regime Used</th><th class="text-end">Taxable Income</th><th class="text-end">Final Annual Tax</th><th class="text-end">Suggested Monthly TDS</th></tr></thead>
+        <tbody>
+        @{ int count = 0; decimal totalTax = 0, totalTds = 0; }
+        @foreach (var row in ViewBag.Rows)
+        {
+            count++;
+            Employee e = row.Employee;
+            TaxComputationResult r = row.Result;
+            var usedRegime = r.RegimeUsed == "Old" ? r.OldRegime : r.NewRegime;
+            var deptName = e.Department?.Name ?? "—";
+            if (deptName != lastDept)
+            {
+                <tr class="table-light"><td colspan="6" class="fw-bold" style="color:var(--primary-dark);">@deptName</td></tr>
+                lastDept = deptName;
+            }
+            <tr>
+                <td>@e.Name <span class="text-muted">(@e.EmpCode)</span></td>
+                <td>@deptName</td>
+                <td>@(r.HasSalaryStructure ? r.RegimeUsed : "—")</td>
+                <td class="text-end">@(r.HasSalaryStructure ? $"₹{usedRegime?.TaxableIncome:N0}" : "—")</td>
+                <td class="text-end fw-semibold">@(r.HasSalaryStructure ? $"₹{r.FinalAnnualTax:N0}" : "No structure")</td>
+                <td class="text-end">@(r.HasSalaryStructure ? $"₹{r.SuggestedMonthlyTDS:N0}" : "—")</td>
+            </tr>
+            if (r.HasSalaryStructure) { totalTax += r.FinalAnnualTax; totalTds += r.SuggestedMonthlyTDS; }
+        }
+        @if (count == 0)
+        {
+            <tr><td colspan="6"><div class="empty-state"><i class="bi bi-graph-up"></i>No employees with a salary structure yet.</div></td></tr>
+        }
+        else
+        {
+            <tr class="fw-bold" style="border-top:2px solid var(--border);"><td colspan="4">Total (@count employee(s))</td><td class="text-end">₹@totalTax.ToString("N0")</td><td class="text-end">₹@totalTds.ToString("N0")</td></tr>
+        }
+        </tbody>
+    </table>
+</div>

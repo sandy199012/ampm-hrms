@@ -1,0 +1,49 @@
+@model List<OTAttendanceRow>
+@{
+    ViewData["Title"] = "OT - Attendance Report";
+    ViewData["Subtitle"] = "Reports";
+    int year = ViewBag.Year; int month = ViewBag.Month; string monthLabel = ViewBag.MonthLabel;
+}
+
+<div class="page-header">
+    <div>
+        <h1>OT - Attendance Report</h1>
+        <p>@monthLabel — grouped by department</p>
+    </div>
+    <div class="d-flex gap-2">
+        <form method="get" class="d-flex gap-2">
+            <input type="number" name="year" value="@year" class="form-control" style="width:100px;" />
+            <select name="month" class="form-select" style="width:150px;">
+                @for (int mo = 1; mo <= 12; mo++) { <option value="@mo" selected="@(mo==month)">@(new DateTime(2000,mo,1).ToString("MMMM"))</option> }
+            </select>
+            <button type="submit" class="btn btn-light">Go</button>
+        </form>
+        <a class="btn btn-primary" href="@Url.Action("ExportExcel", new { year, month })"><i class="bi bi-file-earmark-excel-fill me-1"></i> Export Excel</a>
+    </div>
+</div>
+
+<div class="alert alert-info" style="font-size:12.5px;">Retail Workers: OT after 9h (In+9h=shift end) | Non-Retail Workers: OT after shift end + Sunday≥7h=8h | Workers/Retail Workers only — Staff never earn OT</div>
+
+<div class="card">
+    <div class="card-body p-0" style="overflow-x:auto;">
+        <table class="table table-sm mb-0">
+            <thead><tr><th>Employee</th><th>Code</th><th>Designation</th><th>Category</th><th class="text-center">Working Days</th><th class="text-center">Present</th><th class="text-center">Absent</th><th class="text-center">Miss Punch</th><th class="text-center">Leave</th><th class="text-center">Avg Hrs/Day</th><th class="text-center">OT Hours</th></tr></thead>
+            <tbody>
+            @foreach (var deptGroup in Model.GroupBy(r => r.Department))
+            {
+                <tr><td colspan="11" style="background:#4472C4;color:#fff;font-weight:bold;">▶ @deptGroup.Key</td></tr>
+                @foreach (var r in deptGroup)
+                {
+                    <tr>
+                        <td>@r.Employee.Name</td><td>@r.Employee.EmpCode</td><td>@r.Employee.Designation?.Name</td>
+                        <td style="@(r.IsRetail ? "background:#D6E4BC;" : (!r.IsStaff && r.OTHours > 0 ? "background:#E2CFED;" : ""))">@r.Employee.Category</td>
+                        <td class="text-center">@r.WorkingDays</td><td class="text-center">@r.Present</td><td class="text-center">@r.Absent</td>
+                        <td class="text-center">@r.MissPunch</td><td class="text-center">@r.Leave</td><td class="text-center">@r.AvgHrsPerDay</td>
+                        <td class="text-center" style="@(!r.IsStaff && r.OTHours > 0 ? "background:#E2CFED;" : "")">@(r.IsStaff ? "" : r.OTHours.ToString())</td>
+                    </tr>
+                }
+            }
+            </tbody>
+        </table>
+    </div>
+</div>

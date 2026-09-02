@@ -1,0 +1,266 @@
+@model Employee
+@{
+    ViewData["Title"] = "Edit Employee";
+    ViewData["Subtitle"] = Model.Name;
+    var departments = (List<Department>)ViewBag.DepartmentList;
+    var designations = (List<Designation>)ViewBag.DesignationList;
+    var locations = (List<Location>)ViewBag.LocationList;
+    var grades = (List<Grade>)ViewBag.GradeList;
+    var empTypes = (List<EmploymentType>)ViewBag.EmploymentTypeList;
+    var shifts = (List<Shift>)ViewBag.ShiftList;
+    var weekOffs = (List<WeekOffPolicy>)ViewBag.WeekOffList;
+    var leavePolicies = (List<LeavePolicy>)ViewBag.LeavePolicyList;
+    var compOffRules = (List<CompOffRule>)ViewBag.CompOffRuleList;
+    var otRules = (List<OTRule>)ViewBag.OTRuleList;
+    var managers = (List<Employee>)ViewBag.ManagerList;
+}
+
+<div class="page-header">
+    <div>
+        <h1>Edit Employee</h1>
+        <p>@Model.EmpCode — @Model.Name</p>
+    </div>
+    <a href="@Url.Action("Employees")" class="btn btn-light"><i class="bi bi-arrow-left me-1"></i> Back to List</a>
+</div>
+
+<form method="post" asp-action="EditEmployee">
+    @Html.AntiForgeryToken()
+    <input type="hidden" name="Id" value="@Model.Id" />
+    <input type="hidden" name="EmpCode" value="@Model.EmpCode" />
+    <input type="hidden" name="PasswordHash" value="@Model.PasswordHash" />
+    <input type="hidden" name="CreatedAt" value="@Model.CreatedAt.ToString("o")" />
+
+    <div class="card">
+        <div class="card-body p-0">
+            <ul class="nav nav-tabs-pro px-3 pt-2">
+                <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#t-id" type="button">Identity &amp; Login</button></li>
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#t-personal" type="button">Personal</button></li>
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#t-emp" type="button">Employment</button></li>
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#t-bank" type="button">Statutory &amp; Bank</button></li>
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#t-emg" type="button">Emergency Contact</button></li>
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#t-loc" type="button">Location &amp; Access</button></li>
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#t-train" type="button">Training</button></li>
+                <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#t-notes" type="button">Notes</button></li>
+            </ul>
+
+            <div class="tab-content p-4">
+                <!-- IDENTITY -->
+                <div class="tab-pane fade show active" id="t-id">
+                    <div class="row g-3">
+                        <div class="col-md-3"><label class="form-label">Employee Code</label><input type="text" class="form-control" value="@Model.EmpCode" disabled /></div>
+                        <div class="col-md-5"><label class="form-label">Full Name *</label><input type="text" name="Name" class="form-control" value="@Model.Name" required /></div>
+                        <div class="col-md-4"><label class="form-label">Email *</label><input type="email" name="Email" class="form-control" value="@Model.Email" required /></div>
+                        <div class="col-md-3"><label class="form-label">System Role *</label>
+                            <select name="Role" class="form-select" required>
+                                <option value="employee" selected="@(Model.Role=="employee")">Employee</option>
+                                <option value="manager" selected="@(Model.Role=="manager")">Manager</option>
+                                <option value="hr" selected="@(Model.Role=="hr")">HR</option>
+                                <option value="admin" selected="@(Model.Role=="admin")">Admin</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3"><label class="form-label">Mobile</label><input type="text" name="Mobile" class="form-control" value="@Model.Mobile" /></div>
+                        <div class="col-md-3"><label class="form-label">Alternative Mobile</label><input type="text" name="AlternateMobile" class="form-control" value="@Model.AlternateMobile" /></div>
+                        <div class="col-md-3"><label class="form-label">Status</label>
+                            <select name="Status" class="form-select">
+                                <option value="Active" selected="@(Model.Status=="Active")">Active</option>
+                                <option value="Inactive" selected="@(Model.Status=="Inactive")">Inactive</option>
+                                <option value="On Hold" selected="@(Model.Status=="On Hold")">On Hold</option>
+                                <option value="Resigned" selected="@(Model.Status=="Resigned")">Resigned</option>
+                                <option value="Terminated" selected="@(Model.Status=="Terminated")">Terminated</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- PERSONAL -->
+                <div class="tab-pane fade" id="t-personal">
+                    <div class="row g-3">
+                        <div class="col-md-3"><label class="form-label">Gender</label>
+                            <select name="Gender" class="form-select">
+                                <option value="">Select</option>
+                                <option value="Male" selected="@(Model.Gender=="Male")">Male</option>
+                                <option value="Female" selected="@(Model.Gender=="Female")">Female</option>
+                                <option value="Other" selected="@(Model.Gender=="Other")">Other</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3"><label class="form-label">Date of Birth</label><input type="date" name="DOB" class="form-control" value="@Model.DOB" /></div>
+                        <div class="col-md-3"><label class="form-label">Date of Joining</label><input type="date" name="DOJ" class="form-control" value="@Model.DOJ" /></div>
+                        <div class="col-md-3"><label class="form-label">Group DOJ</label><input type="date" name="GroupDOJ" class="form-control" value="@Model.GroupDOJ" /></div>
+                        <div class="col-md-5"><label class="form-label">Father's / Husband's Name</label><input type="text" name="FatherOrHusbandName" class="form-control" value="@Model.FatherOrHusbandName" /></div>
+                        <div class="col-md-7"><label class="form-label">Address</label><input type="text" name="Address" class="form-control" value="@Model.Address" /></div>
+                        <div class="col-md-3"><label class="form-label">Country</label><input type="text" name="Country" class="form-control" value="@Model.Country" /></div>
+                        <div class="col-md-3"><label class="form-label">State</label><input type="text" name="State" class="form-control" value="@Model.State" /></div>
+                        <div class="col-md-3"><label class="form-label">City</label><input type="text" name="City" class="form-control" value="@Model.City" /></div>
+                        <div class="col-md-3"><label class="form-label">Pincode</label><input type="text" name="Pincode" class="form-control" value="@Model.Pincode" /></div>
+                        <div class="col-md-3"><label class="form-label">Nationality</label><input type="text" name="Nationality" class="form-control" value="@Model.Nationality" /></div>
+                        <div class="col-md-3"><label class="form-label">Religion</label><input type="text" name="Religion" class="form-control" value="@Model.Religion" /></div>
+                        <div class="col-md-3"><label class="form-label">Qualification</label><input type="text" name="Qualification" class="form-control" value="@Model.Qualification" /></div>
+                        <div class="col-md-3"><label class="form-label">Experience</label><input type="text" name="Experience" class="form-control" value="@Model.Experience" /></div>
+                    </div>
+                </div>
+
+                <!-- EMPLOYMENT -->
+                <div class="tab-pane fade" id="t-emp">
+                    <div class="row g-3">
+                        <div class="col-md-4"><label class="form-label">Department</label><select name="DepartmentId" class="form-select"><option value="">— Select —</option>@foreach (var d in departments) { <option value="@d.Id" selected="@(Model.DepartmentId==d.Id)">@d.Name</option> }</select></div>
+                        <div class="col-md-4"><label class="form-label">Sub-Department</label><input type="text" name="SubDepartment" class="form-control" value="@Model.SubDepartment" /></div>
+                        <div class="col-md-4"><label class="form-label">Designation</label><select name="DesignationId" class="form-select"><option value="">— Select —</option>@foreach (var d in designations) { <option value="@d.Id" selected="@(Model.DesignationId==d.Id)">@d.Name</option> }</select></div>
+                        <div class="col-md-4"><label class="form-label">Grade</label><select name="GradeId" class="form-select"><option value="">— Select —</option>@foreach (var g in grades) { <option value="@g.Id" selected="@(Model.GradeId==g.Id)">@g.Name</option> }</select></div>
+                        <div class="col-md-4"><label class="form-label">Location</label><select name="LocationId" class="form-select"><option value="">— Select —</option>@foreach (var l in locations) { <option value="@l.Id" selected="@(Model.LocationId==l.Id)">@l.Name</option> }</select></div>
+                        <div class="col-md-4"><label class="form-label">Employment Type</label><select name="EmploymentTypeId" class="form-select"><option value="">— Select —</option>@foreach (var t in empTypes) { <option value="@t.Id" selected="@(Model.EmploymentTypeId==t.Id)">@t.Name</option> }</select></div>
+                        <div class="col-md-4"><label class="form-label">Reporting Manager</label><select name="ReportingManagerId" class="form-select"><option value="">— None —</option>@foreach (var m in managers.Where(m => m.Id != Model.Id)) { <option value="@m.Id" selected="@(Model.ReportingManagerId==m.Id)">@m.Name (@m.EmpCode)</option> }</select></div>
+                        <div class="col-md-4"><label class="form-label">Shift</label><select name="ShiftId" class="form-select"><option value="">— Select —</option>@foreach (var s in shifts) { <option value="@s.Id" selected="@(Model.ShiftId==s.Id)">@s.Name (@s.StartTime.ToString(@"hh\:mm") - @s.EndTime.ToString(@"hh\:mm"))</option> }</select></div>
+                        <div class="col-md-4"><label class="form-label">Additional Shifts</label><input type="text" name="AdditionalShifts" class="form-control" value="@Model.AdditionalShifts" /></div>
+                        <div class="col-md-4"><label class="form-label">Week-Off Policy</label><select name="WeekOffPolicyId" class="form-select"><option value="">— Select —</option>@foreach (var w in weekOffs) { <option value="@w.Id" selected="@(Model.WeekOffPolicyId==w.Id)">@w.Name</option> }</select></div>
+                        <div class="col-md-4"><label class="form-label">Leave Policy</label><select name="LeavePolicyId" class="form-select"><option value="">— Select —</option>@foreach (var lp in leavePolicies) { <option value="@lp.Id" selected="@(Model.LeavePolicyId==lp.Id)">@lp.Name</option> }</select></div>
+                        <div class="col-md-4"><label class="form-label">Comp-Off Rule</label><select name="CompOffRuleId" class="form-select"><option value="">— None —</option>@foreach (var co in compOffRules) { <option value="@co.Id" selected="@(Model.CompOffRuleId==co.Id)">@co.Name</option> }</select></div>
+                        <div class="col-md-4"><label class="form-label">OT Rule</label><select name="OTRuleId" class="form-select"><option value="">— None —</option>@foreach (var ot in otRules) { <option value="@ot.Id" selected="@(Model.OTRuleId==ot.Id)">@ot.Name</option> }</select></div>
+                        <div class="col-md-3"><label class="form-label">Employee Role (HR Level)</label><input type="text" name="EmployeeRole" class="form-control" value="@Model.EmployeeRole" /></div>
+                        <div class="col-md-3"><label class="form-label">Category</label><input type="text" name="Category" class="form-control" value="@Model.Category" /></div>
+                        <div class="col-md-3"><label class="form-label">Work Station</label><input type="text" name="WorkStation" class="form-control" value="@Model.WorkStation" /></div>
+                        <div class="col-md-3"><label class="form-label">Standard Working Hour</label><input type="text" name="StandardWorkingHour" class="form-control" value="@Model.StandardWorkingHour" /></div>
+                        <div class="col-md-3"><label class="form-label">Card Number</label><input type="text" name="CardNumber" class="form-control" value="@Model.CardNumber" /></div>
+                        <div class="col-md-3"><label class="form-label">Company Code</label><input type="text" name="CompanyCode" class="form-control" value="@Model.CompanyCode" /></div>
+                        <div class="col-md-3"><label class="form-label">Valid From</label><input type="date" name="ValidFrom" class="form-control" value="@Model.ValidFrom" /></div>
+                        <div class="col-md-3"><label class="form-label">Valid To</label><input type="date" name="ValidTo" class="form-control" value="@Model.ValidTo" /></div>
+                        <div class="col-md-3"><label class="form-label">Date of Leaving</label><input type="date" name="DateOfLeaving" class="form-control" value="@Model.DateOfLeaving" /></div>
+                        <div class="col-md-3"><label class="form-label">Inactivation Date</label><input type="date" name="InactivationDate" class="form-control" value="@Model.InactivationDate" /></div>
+                        <div class="col-md-3 d-flex align-items-end"><div class="form-check"><input class="form-check-input" type="checkbox" name="IsAutoShift" value="true" id="ias" checked="@Model.IsAutoShift"><label class="form-check-label" for="ias">Is Auto Shift</label></div></div>
+                        <div class="col-md-3 d-flex align-items-end"><div class="form-check"><input class="form-check-input" type="checkbox" name="IsAutoInactive" value="true" id="iai" checked="@Model.IsAutoInactive"><label class="form-check-label" for="iai">Is Auto Inactive</label></div></div>
+                    </div>
+                </div>
+
+                <!-- STATUTORY & BANK -->
+                <div class="tab-pane fade" id="t-bank">
+                    <div class="row g-3">
+                        <div class="col-md-3"><label class="form-label">Bank Name</label><input type="text" name="BankName" class="form-control" value="@Model.BankName" /></div>
+                        <div class="col-md-3"><label class="form-label">Account Number</label><input type="text" name="AccountNumber" class="form-control" value="@Model.AccountNumber" /></div>
+                        <div class="col-md-3"><label class="form-label">Account Holder Name</label><input type="text" name="AccountHolderName" class="form-control" value="@Model.AccountHolderName" /></div>
+                        <div class="col-md-3"><label class="form-label">IFSC Code</label><input type="text" name="IFSCCode" class="form-control" value="@Model.IFSCCode" /></div>
+                        <div class="col-md-3"><label class="form-label">Payment Mode</label>
+                            <select name="PaymentMode" class="form-select">
+                                <option value="Cash" selected="@(Model.PaymentMode=="Cash")">Cash</option>
+                                <option value="Bank Transfer" selected="@(Model.PaymentMode=="Bank Transfer")">Bank Transfer</option>
+                                <option value="Cheque" selected="@(Model.PaymentMode=="Cheque")">Cheque</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3"><label class="form-label">UAN Number</label><input type="text" name="UANNumber" class="form-control" value="@Model.UANNumber" /></div>
+                        <div class="col-md-3"><label class="form-label">PF Number</label><input type="text" name="PFNumber" class="form-control" value="@Model.PFNumber" /></div>
+                        <div class="col-md-3"><label class="form-label">Company PF Code</label><input type="text" name="CompanyPFCode" class="form-control" value="@Model.CompanyPFCode" /></div>
+                        <div class="col-md-3"><label class="form-label">ESIC Number</label><input type="text" name="ESICNumber" class="form-control" value="@Model.ESICNumber" /></div>
+                        <div class="col-md-3"><label class="form-label">PAN Number</label><input type="text" name="PANNumber" class="form-control" value="@Model.PANNumber" /></div>
+                        <div class="col-md-3"><label class="form-label">Aadhar Number</label><input type="text" name="AadharNumber" class="form-control" value="@Model.AadharNumber" /></div>
+                        <div class="col-md-3"><label class="form-label">IP Number</label><input type="text" name="IPNumber" class="form-control" value="@Model.IPNumber" /></div>
+                    </div>
+                </div>
+
+                <!-- EMERGENCY CONTACT -->
+                <div class="tab-pane fade" id="t-emg">
+                    <div class="row g-3">
+                        <div class="col-md-4"><label class="form-label">Contact Name</label><input type="text" name="EmergencyContactName" class="form-control" value="@Model.EmergencyContactName" /></div>
+                        <div class="col-md-4"><label class="form-label">Contact Mobile</label><input type="text" name="EmergencyContactMobile" class="form-control" value="@Model.EmergencyContactMobile" /></div>
+                        <div class="col-md-4"><label class="form-label">Relation</label><input type="text" name="EmergencyContactRelation" class="form-control" value="@Model.EmergencyContactRelation" /></div>
+                    </div>
+                </div>
+
+                <!-- LOCATION & ACCESS -->
+                <div class="tab-pane fade" id="t-loc">
+                    <div class="row g-3">
+                        <div class="col-md-3"><label class="form-label">Location Type</label>
+                            <select name="LocationType" class="form-select">
+                                <option value="Strict Location" selected="@(Model.LocationType=="Strict Location")">Strict Location</option>
+                                <option value="Any Location" selected="@(Model.LocationType=="Any Location")">Any Location</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3"><label class="form-label">Zone</label><input type="text" name="Zone" class="form-control" value="@Model.Zone" /></div>
+                        <div class="col-md-3"><label class="form-label">Flexi Hours</label><input type="text" name="FlexiHours" class="form-control" value="@Model.FlexiHours" /></div>
+                        <div class="col-md-3"><label class="form-label">Bus Name</label><input type="text" name="BusName" class="form-control" value="@Model.BusName" /></div>
+                        <div class="col-md-6"><label class="form-label">Mapped Locations</label><input type="text" name="MappedLocations" class="form-control" value="@Model.MappedLocations" /></div>
+                        <div class="col-md-6"><label class="form-label">Mapped Sub Locations</label><input type="text" name="MappedSubLocations" class="form-control" value="@Model.MappedSubLocations" /></div>
+                        <div class="col-md-12"><label class="form-label">Punch In Location (Address)</label><input type="text" name="PunchInLocation" class="form-control" value="@Model.PunchInLocation" /></div>
+                        <div class="col-md-3 d-flex align-items-end"><div class="form-check"><input class="form-check-input" type="checkbox" name="AppLogin" value="true" id="al" checked="@Model.AppLogin"><label class="form-check-label" for="al">App Login</label></div></div>
+                        <div class="col-md-3 d-flex align-items-end"><div class="form-check"><input class="form-check-input" type="checkbox" name="AttendanceAccessApp" value="true" id="aa" checked="@Model.AttendanceAccessApp"><label class="form-check-label" for="aa">Attendance Access (App)</label></div></div>
+                        <div class="col-md-3 d-flex align-items-end"><div class="form-check"><input class="form-check-input" type="checkbox" name="ActivateCheckIn" value="true" id="ac" checked="@Model.ActivateCheckIn"><label class="form-check-label" for="ac">Activate Check-in</label></div></div>
+                        <div class="col-md-3 d-flex align-items-end"><div class="form-check"><input class="form-check-input" type="checkbox" name="BusAllowed" value="true" id="ba" checked="@Model.BusAllowed"><label class="form-check-label" for="ba">Bus Allowed</label></div></div>
+                    </div>
+                </div>
+
+                <!-- TRAINING -->
+                <div class="tab-pane fade" id="t-train">
+                    <div class="row g-3">
+                        <div class="col-md-3"><label class="form-label">Training Given By</label><input type="text" name="TrainingGivenBy" class="form-control" value="@Model.TrainingGivenBy" /></div>
+                        <div class="col-md-3"><label class="form-label">Training Type</label><input type="text" name="TrainingType" class="form-control" value="@Model.TrainingType" /></div>
+                        <div class="col-md-3"><label class="form-label">Training User Type</label><input type="text" name="TrainingUserType" class="form-control" value="@Model.TrainingUserType" /></div>
+                        <div class="col-md-3"><label class="form-label">Training Status</label><input type="text" name="TrainingStatus" class="form-control" value="@Model.TrainingStatus" /></div>
+                        <div class="col-md-3"><label class="form-label">Training Date</label><input type="date" name="TrainingDate" class="form-control" value="@Model.TrainingDate" /></div>
+                        <div class="col-md-4"><label class="form-label">External Trainer Name</label><input type="text" name="ExternalTrainerName" class="form-control" value="@Model.ExternalTrainerName" /></div>
+                        <div class="col-md-5"><label class="form-label">External Trainer Email</label><input type="email" name="ExternalTrainerEmail" class="form-control" value="@Model.ExternalTrainerEmail" /></div>
+                    </div>
+                </div>
+
+                <!-- NOTES -->
+                <div class="tab-pane fade" id="t-notes">
+                    <label class="form-label">Remarks</label>
+                    <textarea name="Remarks" class="form-control" rows="4">@Model.Remarks</textarea>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="d-flex gap-2 mt-3">
+        <button type="submit" class="btn btn-primary px-4"><i class="bi bi-check-circle-fill me-1"></i> Update Employee</button>
+        <a href="@Url.Action("Employees")" class="btn btn-light">Cancel</a>
+    </div>
+</form>
+
+@{
+    var faceProfile = (FaceProfile?)ViewBag.FaceProfile;
+}
+<div class="card mt-3">
+    <div class="card-header">Face Recognition — Attendance Kiosk &amp; Mobile Punch</div>
+    <div class="card-body">
+        <p class="text-soft mb-3">
+            This is the reference photo used to recognize @Model.Name at any Attendance Kiosk device,
+            and to face-verify their Punch In/Out from the mobile app. Employees can also self-enroll
+            this from their own phone (Profile &gt; Enroll Face) — either way updates the same record.
+        </p>
+        <div class="row g-4 align-items-start">
+            <div class="col-auto">
+                @if (faceProfile != null)
+                {
+                    <img src="@faceProfile.PhotoPath" alt="Enrolled face" style="width:110px;height:110px;object-fit:cover;border-radius:12px;border:1px solid #eee;" />
+                }
+                else
+                {
+                    <div style="width:110px;height:110px;border-radius:12px;border:1px dashed #ccc;display:flex;align-items:center;justify-content:center;color:#aaa;">
+                        <i class="bi bi-person-bounding-box" style="font-size:2rem;"></i>
+                    </div>
+                }
+            </div>
+            <div class="col">
+                @if (faceProfile != null)
+                {
+                    <div class="mb-2"><span class="badge badge-soft-success">Enrolled</span> <span class="text-soft ms-1">since @faceProfile.EnrolledAt.ToString("dd-MMM-yyyy hh:mm tt")</span></div>
+                }
+                else
+                {
+                    <div class="mb-2"><span class="badge badge-soft-gray">Not enrolled</span> <span class="text-soft ms-1">— this employee won't be recognized at a kiosk until a photo is added.</span></div>
+                }
+                <form method="post" asp-action="UploadEmployeeFace" enctype="multipart/form-data" class="d-flex align-items-center gap-2 flex-wrap">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="employeeId" value="@Model.Id" />
+                    <input type="file" name="photo" accept="image/*" class="form-control" style="max-width:280px;" required />
+                    <button type="submit" class="btn btn-primary btn-sm">@(faceProfile != null ? "Replace Photo" : "Upload Photo")</button>
+                </form>
+                @if (faceProfile != null)
+                {
+                    <form method="post" asp-action="RemoveEmployeeFace" class="mt-2" onsubmit="return confirm('Remove this employee\'s enrolled face? They will need to be re-enrolled before being recognized again.');">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="employeeId" value="@Model.Id" />
+                        <button type="submit" class="btn btn-sm btn-light text-danger"><i class="bi bi-trash-fill me-1"></i>Remove Enrolled Face</button>
+                    </form>
+                }
+            </div>
+        </div>
+    </div>
+</div>

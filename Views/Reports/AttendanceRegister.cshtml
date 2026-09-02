@@ -1,0 +1,78 @@
+@model List<AttendanceRegisterRow>
+@{
+    ViewData["Title"] = "Attendance Register";
+    ViewData["Subtitle"] = "Reports";
+    int year = ViewBag.Year; int month = ViewBag.Month; string monthLabel = ViewBag.MonthLabel; int daysInMonth = ViewBag.DaysInMonth;
+}
+
+<div class="page-header">
+    <div>
+        <h1>Attendance Register</h1>
+        <p>@monthLabel — @Model.Count employee(s)</p>
+    </div>
+    <div class="d-flex gap-2">
+        <form method="get" class="d-flex gap-2">
+            <input type="number" name="year" value="@year" class="form-control" style="width:100px;" />
+            <select name="month" class="form-select" style="width:150px;">
+                @for (int mo = 1; mo <= 12; mo++) { <option value="@mo" selected="@(mo==month)">@(new DateTime(2000,mo,1).ToString("MMMM"))</option> }
+            </select>
+            <button type="submit" class="btn btn-light">Go</button>
+        </form>
+        <a class="btn btn-primary" href="@Url.Action("ExportExcel", new { year, month })"><i class="bi bi-file-earmark-excel-fill me-1"></i> Export Excel</a>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body" style="font-size:12px;">
+        <span class="badge badge-soft-success me-1">P / HD / POW / L</span> Present-family
+        <span class="badge badge-soft-danger me-1 ms-2">A</span> Absent
+        <span class="badge badge-soft-warning me-1 ms-2">A (MIS-Morning/Evening)</span> Mispunch
+        <span class="badge badge-soft-gray me-1 ms-2">WO</span> Week Off
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body p-0" style="overflow-x:auto;max-height:75vh;">
+        <table class="table table-sm mb-0" style="font-size:11.5px;">
+            <thead style="position:sticky;top:0;background:#fff;z-index:2;">
+                <tr>
+                    <th style="position:sticky;left:0;background:#fff;z-index:3;min-width:160px;">Employee</th>
+                    <th>Code</th>
+                    @for (int d = 1; d <= daysInMonth; d++)
+                    {
+                        <th class="text-center">@d<br /><span style="font-weight:400;">@(new DateTime(year, month, d).ToString("ddd"))</span></th>
+                    }
+                    <th class="text-center">P</th><th class="text-center">A</th><th class="text-center">L</th><th class="text-center">WO</th>
+                </tr>
+            </thead>
+            <tbody>
+            @foreach (var row in Model)
+            {
+                <tr>
+                    <td style="position:sticky;left:0;background:#fff;">@row.Employee.Name</td>
+                    <td>@row.Employee.EmpCode</td>
+                    @for (int d = 1; d <= daysInMonth; d++)
+                    {
+                        if (row.Days.TryGetValue(d, out var rec))
+                        {
+                            string cls = ExcelReportBuilder.IsPresentFamily(rec.EffectiveStatus) ? "background:#E2EFDA;"
+                                : ExcelReportBuilder.IsMispunch(rec.EffectiveStatus) ? "background:#FFF2CC;"
+                                : rec.EffectiveStatus == "WO" ? "background:#D6DCE4;"
+                                : rec.EffectiveStatus == "A" ? "background:#FFC7CE;" : "";
+                            <td class="text-center" style="@cls" title="@rec.EffectiveStatus">@rec.EffectiveStatus</td>
+                        }
+                        else
+                        {
+                            <td class="text-center text-muted">—</td>
+                        }
+                    }
+                    <td class="text-center fw-bold">@row.Present</td>
+                    <td class="text-center fw-bold">@row.Absent</td>
+                    <td class="text-center fw-bold">@row.LeaveDays</td>
+                    <td class="text-center fw-bold">@row.WeekOff</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+</div>

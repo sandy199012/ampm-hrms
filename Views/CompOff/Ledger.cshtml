@@ -1,0 +1,158 @@
+@model List<CompOffLedger>
+@{
+    ViewData["Title"] = "Comp-Off Ledger";
+    ViewData["Subtitle"] = "Comp-Off";
+    var employees = (List<Employee>)ViewBag.EmployeeList;
+    var rules = (List<CompOffRule>)ViewBag.RuleList;
+    int? selectedId = ViewBag.SelectedEmployeeId;
+    var selectedEmp = ViewBag.Employee as Employee;
+}
+
+<div class="page-header">
+    <div>
+        <h1>Comp-Off Ledger</h1>
+        <p>Earned / used / expired history, plus manual credits for instances that never hit attendance</p>
+    </div>
+    <a asp-action="Assign" class="btn btn-light"><i class="bi bi-diagram-3-fill me-1"></i>Assign Rule</a>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <form method="get" asp-action="Ledger" class="row g-2 align-items-end">
+            <div class="col-md-6">
+                <label class="form-label">Employee</label>
+                <select name="employeeId" class="form-select" onchange="this.form.submit()">
+                    <option value="">— Company-wide summary —</option>
+                    @foreach (var e in employees)
+                    {
+                        <option value="@e.Id" selected="@(selectedId == e.Id)">@e.Name (@e.EmpCode)</option>
+                    }
+                </select>
+            </div>
+        </form>
+    </div>
+</div>
+
+@if (selectedId.HasValue && selectedEmp != null)
+{
+    <div class="row g-3 mb-3">
+        <div class="col-md-4">
+            <div class="stat-card">
+                <div class="stat-label">Available Balance</div>
+                <div class="stat-value">@(((decimal)ViewBag.Balance).ToString("0.#")) days</div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="stat-card">
+                <div class="stat-label">Employee</div>
+                <div class="stat-value" style="font-size:1.1rem;">@selectedEmp.Name</div>
+                <div class="text-muted small">@selectedEmp.EmpCode</div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="stat-card">
+                <div class="stat-label">Assigned Rule</div>
+                <div class="stat-value" style="font-size:1.1rem;">@(selectedEmp.CompOffRule?.Name ?? "— Unassigned —")</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="mb-3">Log a Manual Credit</h6>
+            <form method="post" asp-action="ManualCredit" class="row g-3 align-items-end">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="employeeId" value="@selectedId" />
+                <div class="col-md-3">
+                    <label class="form-label">Earned Date *</label>
+                    <input type="date" name="earnedDate" class="form-control" required value="@DateTime.Today.ToString("yyyy-MM-dd")" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Days *</label>
+                    <input type="number" step="0.5" min="0.5" name="earnedDays" class="form-control" required value="1" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Rule (for expiry)</label>
+                    <select name="ruleId" class="form-select">
+                        <option value="">— Use employee's assigned rule —</option>
+                        @foreach (var r in rules) { <option value="@r.Id">@r.Name</option> }
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Remarks</label>
+                    <input type="text" name="remarks" class="form-control" placeholder="e.g. Worked company event, off-attendance" />
+                </div>
+                <div class="col-md-1"><button type="submit" class="btn btn-primary w-100">Add</button></div>
+            </form>
+        </div>
+    </div>
+
+    <div class="table-wrap">
+        <table class="table">
+            <thead><tr><th>Earned Date</th><th>Source</th><th>Earned</th><th>Used</th><th>Balance</th><th>Expiry</th><th>Status</th><th>Remarks</th><th></th></tr></thead>
+            <tbody>
+            @if (!Model.Any())
+            {
+                <tr><td colspan="9"><div class="empty-state"><i class="bi bi-journal"></i>No Comp-Off history yet.</div></td></tr>
+            }
+            @foreach (var l in Model)
+            {
+                var statusBadge = l.Status switch
+                {
+                    "Available" => "badge-soft-success",
+                    "Used" => "badge-soft-primary",
+                    "Expired" => "badge-soft-warning",
+                    _ => "badge-soft-gray"
+                };
+                <tr>
+                    <td>@l.EarnedDate</td>
+                    <td><span class="badge @(l.Source == "Auto" ? "badge-soft-primary" : "badge-soft-gray")">@l.Source</span></td>
+                    <td>@l.EarnedDays.ToString("0.#")</td>
+                    <td>@l.UsedDays.ToString("0.#")</td>
+                    <td>@((l.EarnedDays - l.UsedDays).ToString("0.#"))</td>
+                    <td>@l.ExpiryDate</td>
+                    <td><span class="badge @statusBadge">@l.Status</span></td>
+                    <td class="text-muted small">@l.Remarks</td>
+                    <td class="text-end">
+                        @if (l.UsedDays == 0 && l.Status != "Cancelled")
+                        {
+                            <form method="post" asp-action="CancelLedgerEntry" onsubmit="return confirm('Cancel this credit?');" style="display:inline;">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="id" value="@l.Id" />
+                                <input type="hidden" name="employeeId" value="@selectedId" />
+                                <button type="submit" class="btn btn-sm btn-light text-danger"><i class="bi bi-x-circle"></i></button>
+                            </form>
+                        }
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+}
+else
+{
+    var summary = (List<CompOffBalanceRow>)ViewBag.Summary;
+    <div class="table-wrap">
+        <table class="table">
+            <thead><tr><th>Employee</th><th>Department</th><th>Assigned Rule</th><th>Available Balance</th><th></th></tr></thead>
+            <tbody>
+            @if (!summary.Any())
+            {
+                <tr><td colspan="5"><div class="empty-state"><i class="bi bi-people"></i>No employees have a Comp-Off Rule assigned yet — start from <a asp-action="Assign">Assign Comp-Off Rule</a>.</div></td></tr>
+            }
+            @foreach (var row in summary.OrderByDescending(x => x.Balance))
+            {
+                var emp = row.Employee;
+                <tr>
+                    <td class="fw-semibold" style="color:var(--text);">@emp.Name <span class="text-muted">(@emp.EmpCode)</span></td>
+                    <td>@(emp.Department?.Name ?? "—")</td>
+                    <td>@(emp.CompOffRule?.Name ?? "—")</td>
+                    <td>@row.Balance.ToString("0.#") days</td>
+                    <td class="text-end"><a asp-action="Ledger" asp-route-employeeId="@emp.Id" class="btn btn-sm btn-light"><i class="bi bi-eye-fill"></i> View</a></td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+}

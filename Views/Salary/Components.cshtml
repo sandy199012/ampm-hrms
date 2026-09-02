@@ -1,0 +1,128 @@
+@model List<SalaryComponent>
+@{
+    ViewData["Title"] = "Salary Components";
+    ViewData["Subtitle"] = "Salary Structure";
+    var calcTypes = new[] { "Fixed", "PercentOfBasic", "PercentOfCTC", "PercentOfGross" };
+    var calcLabels = new Dictionary<string,string> { {"Fixed","Fixed ₹/month"}, {"PercentOfBasic","% of Basic"}, {"PercentOfCTC","% of CTC"}, {"PercentOfGross","% of Gross-so-far"} };
+}
+
+<div class="page-header">
+    <div>
+        <h1>Salary Component Master</h1>
+        <p>Build whatever earning/deduction components your payroll needs — no fixed structure, fully customizable</p>
+    </div>
+    <button class="btn btn-primary" onclick='openModal(null,"","","Earning","Fixed",0,false,true,false,0,true)'><i class="bi bi-plus-lg me-1"></i>Add Component</button>
+</div>
+
+<div class="alert alert-primary d-flex align-items-center gap-2 mb-3" style="background:var(--primary-light);color:var(--primary-dark);">
+    <i class="bi bi-info-circle-fill"></i> Mark exactly one Earning component <strong>Basic</strong> and (optionally) one <strong>HRA</strong> — the tax engine and % calculations key off these two flags.
+</div>
+
+<div class="table-wrap">
+    <table class="table">
+        <thead><tr><th>Name</th><th>Code</th><th>Type</th><th>Calculation</th><th>Default</th><th>Basic</th><th>HRA</th><th>Taxable</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+        @if (!Model.Any())
+        {
+            <tr><td colspan="10"><div class="empty-state"><i class="bi bi-cash-coin"></i>No salary components yet.</div></td></tr>
+        }
+        @foreach (var c in Model)
+        {
+            <tr>
+                <td class="fw-semibold" style="color:var(--text);">@c.Name</td>
+                <td>@(c.Code ?? "—")</td>
+                <td>@(c.ComponentType == "Earning" ? Html.Raw("<span class='badge badge-soft-success'>Earning</span>") : Html.Raw("<span class='badge badge-soft-warning'>Deduction</span>"))</td>
+                <td>@calcLabels.GetValueOrDefault(c.CalculationType, c.CalculationType)</td>
+                <td>@(c.CalculationType == "Fixed" ? $"₹{c.DefaultValue:N0}" : $"{c.DefaultValue}%")</td>
+                <td>@(c.IsBasic ? "✔️" : "—")</td>
+                <td>@(c.IsHRA ? "✔️" : "—")</td>
+                <td>@(c.IsTaxable ? "✔️" : "—")</td>
+                <td>@(c.IsActive ? Html.Raw("<span class='badge badge-soft-success'>Active</span>") : Html.Raw("<span class='badge badge-soft-gray'>Inactive</span>"))</td>
+                <td class="text-end">
+                    <button class="btn btn-sm btn-light" onclick='openModal(@c.Id, @Html.Raw(Json.Serialize(c.Name)), @Html.Raw(Json.Serialize(c.Code ?? "")), @Html.Raw(Json.Serialize(c.ComponentType)), @Html.Raw(Json.Serialize(c.CalculationType)), @c.DefaultValue, @Json.Serialize(c.IsBasic), @Json.Serialize(c.IsTaxable), @Json.Serialize(c.IsHRA), @c.DisplayOrder, @Json.Serialize(c.IsActive))'><i class="bi bi-pencil-fill"></i></button>
+                    <button class="btn btn-sm btn-light" onclick="toggleIt(@c.Id)"><i class="bi bi-toggle2-on"></i></button>
+                    <button class="btn btn-sm btn-light text-danger" onclick="deleteIt(@c.Id)"><i class="bi bi-trash-fill"></i></button>
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>
+
+<div class="modal fade" id="itemModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="post" asp-action="SaveSalaryComponent" id="itemForm">
+                @Html.AntiForgeryToken()
+                <div class="modal-header">
+                    <h5 class="modal-title" id="modalTitle">Add Component</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" name="Id" id="fId" value="0" />
+                    <div class="row g-3">
+                        <div class="col-8"><label class="form-label">Name *</label><input type="text" name="Name" id="fName" class="form-control" required placeholder="e.g. Basic, HRA, Special Allowance" /></div>
+                        <div class="col-4"><label class="form-label">Code</label><input type="text" name="Code" id="fCode" class="form-control" maxlength="20" placeholder="BASIC" /></div>
+                        <div class="col-6">
+                            <label class="form-label">Type</label>
+                            <select name="ComponentType" id="fType" class="form-select">
+                                <option value="Earning">Earning</option>
+                                <option value="Deduction">Deduction</option>
+                            </select>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">Calculation</label>
+                            <select name="CalculationType" id="fCalc" class="form-select">
+                                @foreach (var t in calcTypes) { <option value="@t">@calcLabels[t]</option> }
+                            </select>
+                        </div>
+                        <div class="col-6"><label class="form-label">Default Value</label><input type="number" step="0.01" name="DefaultValue" id="fValue" class="form-control" /><div class="form-text">Flat ₹/month, or % — depending on Calculation above</div></div>
+                        <div class="col-6"><label class="form-label">Display Order</label><input type="number" name="DisplayOrder" id="fOrder" class="form-control" /></div>
+                        <div class="col-12">
+                            <div class="d-flex gap-4 mt-2 flex-wrap">
+                                <div class="form-check"><input class="form-check-input" type="checkbox" name="IsBasic" id="fBasic" value="true" /><label class="form-check-label" for="fBasic">This is the Basic component</label></div>
+                                <div class="form-check"><input class="form-check-input" type="checkbox" name="IsHRA" id="fHRA" value="true" /><label class="form-check-label" for="fHRA">This is the HRA component</label></div>
+                                <div class="form-check"><input class="form-check-input" type="checkbox" name="IsTaxable" id="fTaxable" value="true" /><input type="hidden" name="IsTaxable" value="false" /><label class="form-check-label" for="fTaxable">Taxable (included in Gross for tax)</label></div>
+                                <div class="form-check"><input class="form-check-input" type="checkbox" name="IsActive" id="fActive" value="true" /><input type="hidden" name="IsActive" value="false" /><label class="form-check-label" for="fActive">Active</label></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+const itemModal = new bootstrap.Modal(document.getElementById('itemModal'));
+function openModal(id, name, code, type, calc, value, basic, taxable, hra, order, active) {
+    document.getElementById('modalTitle').innerText = id ? 'Edit Component' : 'Add Component';
+    document.getElementById('fId').value = id || 0;
+    document.getElementById('fName').value = name || '';
+    document.getElementById('fCode').value = code || '';
+    document.getElementById('fType').value = type || 'Earning';
+    document.getElementById('fCalc').value = calc || 'Fixed';
+    document.getElementById('fValue').value = value || 0;
+    document.getElementById('fOrder').value = order || 0;
+    document.getElementById('fBasic').checked = !!basic;
+    document.getElementById('fHRA').checked = !!hra;
+    document.getElementById('fTaxable').checked = taxable !== false;
+    document.getElementById('fActive').checked = active !== false;
+    itemModal.show();
+}
+function toggleIt(id) {
+    fetch('@Url.Action("ToggleSalaryComponent")', { method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded'}, body: `id=${id}` })
+        .then(r => r.json()).then(d => { if (d.success) location.reload(); });
+}
+function deleteIt(id) {
+    if (!confirm('Delete this component?')) return;
+    fetch('@Url.Action("DeleteSalaryComponent")', { method: 'POST', headers: {'Content-Type':'application/x-www-form-urlencoded'}, body: `id=${id}` })
+        .then(r => r.json()).then(d => { alert(d.message || 'Done.'); if (d.success) location.reload(); });
+}
+</script>
+}

@@ -1,0 +1,103 @@
+@using AmpmHrmsPro.Services
+@{
+    ViewData["Title"] = "Employee Salary Structure";
+    ViewData["Subtitle"] = "Salary Structure";
+    var employees = (List<Employee>)ViewBag.Employees;
+    Employee? selected = ViewBag.SelectedEmployee;
+    List<EmployeeSalaryStructure>? history = ViewBag.History;
+    SalaryBreakdown? bd = ViewBag.CurrentBreakdown;
+}
+
+<div class="page-header">
+    <div>
+        <h1>Employee Salary Structure</h1>
+        <p>Assign or revise the versioned salary structure for one employee</p>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <form method="get" class="d-flex gap-2">
+            <select name="employeeId" class="form-select" style="max-width:360px;" onchange="this.form.submit()">
+                <option value="">— Choose an employee —</option>
+                @foreach (var e in employees)
+                {
+                    <option value="@e.Id" selected="@(selected != null && selected.Id == e.Id)">@e.Name (@e.EmpCode)</option>
+                }
+            </select>
+        </form>
+    </div>
+</div>
+
+@if (selected != null)
+{
+    var current = history!.FirstOrDefault(s => s.EffectiveTo == null);
+    <div class="row g-3 mb-3">
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span>Current Structure</span>
+                    <a class="btn btn-sm btn-primary" asp-action="AssignStructure" asp-route-employeeId="@selected.Id">
+                        <i class="bi bi-@(current != null ? "arrow-repeat" : "plus-lg") me-1"></i>@(current != null ? "Revise" : "Assign")
+                    </a>
+                </div>
+                <div class="card-body">
+                    @if (current == null)
+                    {
+                        <p class="text-muted small mb-0">No salary structure assigned yet.</p>
+                    }
+                    else
+                    {
+                        <p class="text-soft mb-2" style="font-size:12.5px;">Effective from @current.EffectiveFrom @(current.SourceTemplate != null ? $"· built from \"{current.SourceTemplate.Name}\"" : "")</p>
+                        <table class="table table-sm mb-0">
+                            <thead><tr><th>Component</th><th>Type</th><th class="text-end">Monthly ₹</th></tr></thead>
+                            <tbody>
+                            @if (bd != null)
+                            {
+                                @foreach (var line in bd.Lines)
+                                {
+                                    <tr><td>@line.Name</td><td>@line.Type</td><td class="text-end">@line.Monthly.ToString("N0")</td></tr>
+                                }
+                                <tr class="fw-semibold"><td colspan="2">Gross Earnings / month</td><td class="text-end">@bd.MonthlyGrossEarnings.ToString("N0")</td></tr>
+                                <tr class="fw-semibold"><td colspan="2">Deductions / month</td><td class="text-end">@bd.MonthlyDeductions.ToString("N0")</td></tr>
+                                <tr class="fw-bold" style="color:var(--primary-dark);"><td colspan="2">Net / month</td><td class="text-end">@bd.MonthlyNet.ToString("N0")</td></tr>
+                            }
+                            </tbody>
+                        </table>
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header">Version History</div>
+                <div class="card-body" style="max-height:340px;overflow-y:auto;">
+                    @if (!history!.Any())
+                    {
+                        <p class="text-muted small mb-0">No history yet.</p>
+                    }
+                    else
+                    {
+                        @foreach (var h in history)
+                        {
+                            <div class="d-flex justify-content-between align-items-center py-2" style="border-bottom:1px solid var(--border);">
+                                <div>
+                                    <div class="fw-semibold" style="font-size:13.5px;">₹@h.AnnualCTC.ToString("N0") CTC</div>
+                                    <div class="text-muted" style="font-size:12px;">@h.EffectiveFrom → @(h.EffectiveTo ?? "current")</div>
+                                </div>
+                                @if (h.EffectiveTo == null)
+                                {
+                                    <span class="badge badge-soft-success">Current</span>
+                                }
+                                else
+                                {
+                                    <a class="btn btn-sm btn-light" asp-action="AssignStructure" asp-route-employeeId="@selected.Id" asp-route-copyFromStructureId="@h.Id" title="Copy this version into a new revision"><i class="bi bi-files"></i></a>
+                                }
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}

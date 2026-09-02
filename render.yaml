@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: ampm-hrms
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: Jwt__Issuer
+        value: AmpmHrmsPro
+      - key: Jwt__Audience
+        value: AmpmHrmsMobile
+      - key: DATABASE_URL
+        sync: false          # Set manually in Render dashboard (Supabase URL)
+      - key: Jwt__Key
+        sync: false          # Set manually in Render dashboard

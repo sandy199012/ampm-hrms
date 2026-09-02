@@ -1,0 +1,102 @@
+@model List<AmpmHrmsPro.Models.LeaveBalance>
+@{
+    AmpmHrmsPro.Models.Employee emp = ViewBag.Employee;
+    int year = ViewBag.Year;
+    var years = (List<int>)ViewBag.Years;
+    ViewData["Title"] = $"Leave — {emp.Name}";
+
+    var months = new[] { "Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec" };
+    var el = Model.FirstOrDefault(b => b.LeaveTypeCode == "EL");
+    var cl = Model.FirstOrDefault(b => b.LeaveTypeCode == "CL");
+}
+
+<style>
+    .leave-card  { border-radius:12px; margin-bottom:1.5rem; }
+    .leave-card .card-header { border-radius:12px 12px 0 0; font-weight:600; }
+    .month-grid  { display:grid; grid-template-columns:repeat(6,1fr); gap:.5rem; margin-top:.75rem; }
+    .month-cell  { border:1px solid #e0e0e0; border-radius:8px; padding:.5rem; text-align:center; background:#fff; }
+    .month-cell .m-name  { font-size:.65rem; color:#888; }
+    .month-cell .m-earn  { font-size:.85rem; color:#198754; font-weight:600; }
+    .month-cell .m-cons  { font-size:.85rem; color:#dc3545; }
+    .month-cell .m-sep   { font-size:.6rem; color:#ccc; }
+    .stat-row    { display:flex; gap:1rem; flex-wrap:wrap; margin-top:.75rem; }
+    .stat-item   { background:#f8f9fa; border-radius:8px; padding:.5rem .9rem; }
+    .stat-item .v{ font-size:1.3rem; font-weight:700; }
+    .stat-item .l{ font-size:.7rem; color:#888; }
+    .zero-val    { color:#bbb; }
+</style>
+
+<div class="d-flex align-items-center gap-3 mb-3">
+    <div>
+        <h5 class="mb-0">@emp.Name</h5>
+        <small class="text-muted">@emp.EmpCode — Leave Summary @year</small>
+    </div>
+    <form method="get" class="ms-auto d-flex gap-2 align-items-center">
+        <input type="hidden" name="id" value="@emp.Id" />
+        <select name="year" class="form-select form-select-sm" style="width:90px" onchange="this.form.submit()">
+            @foreach (var y in years)
+            {
+                <option value="@y" selected="@(y==year)">@y</option>
+            }
+        </select>
+    </form>
+    <a asp-action="Index" class="btn btn-outline-secondary btn-sm ms-1">← Back</a>
+</div>
+
+@if (!Model.Any())
+{
+    <div class="alert alert-info">No leave balance data found for @emp.Name in @year.</div>
+}
+
+@foreach (var b in new[] { el, cl }.Where(x => x != null))
+{
+    bool isEL = b!.LeaveTypeCode == "EL";
+    string hdrClass = isEL ? "bg-primary text-white" : "bg-success text-white";
+    <div class="card leave-card">
+        <div class="card-header @hdrClass">
+            <i class="bi bi-calendar2-check-fill"></i>
+            @b.LeaveTypeCode — @(isEL ? "Earned / Privilege Leave" : "Casual Leave") — @year
+        </div>
+        <div class="card-body">
+            <div class="stat-row">
+                <div class="stat-item">
+                    <div class="v text-info">@b.CarryForward.ToString("F2")</div>
+                    <div class="l">Carry Forward</div>
+                </div>
+                <div class="stat-item">
+                    <div class="v text-success">@b.TotalEarned.ToString("F2")</div>
+                    <div class="l">Total Earned</div>
+                </div>
+                <div class="stat-item">
+                    <div class="v text-danger">@b.TotalConsumed.ToString("F2")</div>
+                    <div class="l">Total Consumed</div>
+                </div>
+                <div class="stat-item">
+                    <div class="v @(b.Balance < 0 ? "text-danger" : "text-dark")">@b.Balance.ToString("F2")</div>
+                    <div class="l">Balance</div>
+                </div>
+                <div class="stat-item ms-auto">
+                    <div class="l" style="font-size:.65rem">Updated</div>
+                    <div style="font-size:.78rem">@b.UpdatedAt.ToString("dd MMM yyyy")</div>
+                </div>
+            </div>
+
+            <div class="month-grid">
+                @for (int i = 0; i < 12; i++)
+                {
+                    var e2 = b.EarnedByMonth[i];
+                    var c = b.ConsumedByMonth[i];
+                    <div class="month-cell">
+                        <div class="m-name">@months[i]</div>
+                        <div class="m-earn @(e2==0?"zero-val":"")">@(e2==0?"—":e2.ToString("F2"))</div>
+                        <div class="m-sep">↕</div>
+                        <div class="m-cons @(c==0?"zero-val":"")">@(c==0?"—":c.ToString("F2"))</div>
+                    </div>
+                }
+            </div>
+            <div style="font-size:.65rem;color:#aaa;margin-top:.4rem;">
+                ▲ Earned (green) &nbsp;|&nbsp; ▼ Consumed (red)
+            </div>
+        </div>
+    </div>
+}

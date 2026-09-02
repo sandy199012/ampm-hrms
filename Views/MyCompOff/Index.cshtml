@@ -1,0 +1,67 @@
+@model List<CompOffLedger>
+@{
+    ViewData["Title"] = "My Comp-Off";
+    ViewData["Subtitle"] = "My Payroll";
+    var emp = (Employee)ViewBag.Employee;
+}
+
+<div class="page-header">
+    <div>
+        <h1>My Comp-Off Balance</h1>
+        <p>Compensatory-off earned from working a Holiday or Week-Off, and its usage history</p>
+    </div>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-md-4">
+        <div class="stat-card">
+            <div class="stat-label">Available Balance</div>
+            <div class="stat-value">@(((decimal)ViewBag.Balance).ToString("0.#")) days</div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="stat-card">
+            <div class="stat-label">Assigned Rule</div>
+            <div class="stat-value" style="font-size:1.1rem;">@(ViewBag.RuleName ?? "— Not assigned —")</div>
+        </div>
+    </div>
+</div>
+
+@if (emp.CompOffRuleId == null)
+{
+    <div class="alert alert-primary d-flex align-items-center gap-2 mb-3" style="background:var(--primary-light);color:var(--primary-dark);">
+        <i class="bi bi-info-circle-fill"></i> You don't have a Comp-Off Rule assigned yet — ask HR to assign one before working an off-day, so it credits automatically.
+    </div>
+}
+
+<div class="table-wrap">
+    <table class="table">
+        <thead><tr><th>Earned Date</th><th>Source</th><th>Earned</th><th>Used</th><th>Balance</th><th>Expiry</th><th>Status</th><th>Remarks</th></tr></thead>
+        <tbody>
+        @if (!Model.Any())
+        {
+            <tr><td colspan="8"><div class="empty-state"><i class="bi bi-journal"></i>No Comp-Off history yet.</div></td></tr>
+        }
+        @foreach (var l in Model)
+        {
+            var statusBadge = l.Status switch
+            {
+                "Available" => "badge-soft-success",
+                "Used" => "badge-soft-primary",
+                "Expired" => "badge-soft-warning",
+                _ => "badge-soft-gray"
+            };
+            <tr>
+                <td>@l.EarnedDate</td>
+                <td><span class="badge @(l.Source == "Auto" ? "badge-soft-primary" : "badge-soft-gray")">@l.Source</span></td>
+                <td>@l.EarnedDays.ToString("0.#")</td>
+                <td>@l.UsedDays.ToString("0.#")</td>
+                <td>@((l.EarnedDays - l.UsedDays).ToString("0.#"))</td>
+                <td>@l.ExpiryDate</td>
+                <td><span class="badge @statusBadge">@l.Status</span></td>
+                <td class="text-muted small">@l.Remarks</td>
+            </tr>
+        }
+        </tbody>
+    </table>
+</div>
