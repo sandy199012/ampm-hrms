@@ -191,51 +191,35 @@ app.MapGet("/api/health", () => Results.Ok(new { status = "ok", server = "AmpmHr
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+    // ── 1. Schema ──────────────────────────────────────────────────────────
     try
     {
         var creator = db.Database.GetService<IRelationalDatabaseCreator>();
-
-        // Step 1: Ensure the database itself exists (no-op on Supabase —
-        // the 'postgres' DB always exists there).
         if (!creator.Exists())
             creator.Create();
 
-        // Step 2: Apply schema IDEMPOTENTLY using IF NOT EXISTS.
-        //
-        // WHY NOT HasTables()+CreateTables():
-        //   • Supabase always has an existing 'postgres' DB, so HasTables()
-        //     returns true even when none of OUR tables exist yet, causing
-        //     CreateTables() to be skipped entirely.
-        //   • Even if called, CreateTables() uses plain CREATE TABLE (no
-        //     IF NOT EXISTS), so the first already-existing object aborts
-        //     the whole batch and leaves the rest uncreated.
-        //
-        // SOLUTION: Generate the full EF Core DDL script and inject
-        // IF NOT EXISTS into every CREATE statement so each one is a safe
-        // no-op when the object already exists. Execute one statement at a
-        // time via raw ADO.NET (bypasses EF parameter parsing that would
-        // misinterpret '@' chars in PostgreSQL DDL).
-        Console.WriteLine("⚙️  Applying schema (idempotent IF NOT EXISTS)...");
+        // Generate full EF Core DDL and inject IF NOT EXISTS on every
+        // CREATE statement so re-runs on a partially-created Supabase DB
+        // are always safe. Execute via raw ADO.NET (avoids EF parameter
+        // parsing misreading '@' chars in PostgreSQL DDL).
+        Console.WriteLine("⚙️  Applying schema (IF NOT EXISTS)...");
         var script = db.Database.GenerateCreateScript();
-
         var conn = db.Database.GetDbConnection();
-        if (conn.State != System.Data.ConnectionState.Open)
-            conn.Open();
+        if (conn.State != System.Data.ConnectionState.Open) conn.Open();
 
         int ok = 0, skipped = 0;
         foreach (var rawSql in script.Split(';').Select(s => s.Trim()).Where(s => s.Length > 0))
         {
-            // Inject IF NOT EXISTS for each DDL object type
             var sql = rawSql;
-            if (sql.StartsWith("CREATE TABLE ", StringComparison.OrdinalIgnoreCase))
-                sql = "CREATE TABLE IF NOT EXISTS " + sql["CREATE TABLE ".Length..];
+            if      (sql.StartsWith("CREATE TABLE ",        StringComparison.OrdinalIgnoreCase))
+                sql = "CREATE TABLE IF NOT EXISTS "        + sql["CREATE TABLE ".Length..];
             else if (sql.StartsWith("CREATE UNIQUE INDEX ", StringComparison.OrdinalIgnoreCase))
                 sql = "CREATE UNIQUE INDEX IF NOT EXISTS " + sql["CREATE UNIQUE INDEX ".Length..];
-            else if (sql.StartsWith("CREATE INDEX ", StringComparison.OrdinalIgnoreCase))
-                sql = "CREATE INDEX IF NOT EXISTS " + sql["CREATE INDEX ".Length..];
-            else if (sql.StartsWith("CREATE SEQUENCE ", StringComparison.OrdinalIgnoreCase))
-                sql = "CREATE SEQUENCE IF NOT EXISTS " + sql["CREATE SEQUENCE ".Length..];
-
+            else if (sql.StartsWith("CREATE INDEX ",        StringComparison.OrdinalIgnoreCase))
+                sql = "CREATE INDEX IF NOT EXISTS "        + sql["CREATE INDEX ".Length..];
+            else if (sql.StartsWith("CREATE SEQUENCE ",     StringComparison.OrdinalIgnoreCase))
+                sql = "CREATE SEQUENCE IF NOT EXISTS "     + sql["CREATE SEQUENCE ".Length..];
             try
             {
                 using var cmd = conn.CreateCommand();
@@ -245,22 +229,64 @@ using (var scope = app.Services.CreateScope())
             }
             catch (Exception stmtEx)
             {
-                Console.WriteLine($"  ⚠️ Skipped (already exists): {stmtEx.Message.Split('\n')[0].Trim()}");
+                Console.WriteLine($"  ⚠️ Skipped: {stmtEx.Message.Split('\n')[0].Trim()}");
                 skipped++;
             }
         }
         Console.WriteLine($"✅ Schema: {ok} applied, {skipped} already existed");
-
-        SeedData.Run(db, app.Configuration);
-        Console.WriteLine("✅ Database ready");
     }
     catch (Exception ex)
     {
-        Console.WriteLine("❌ DB INIT FAILED:");
-        Console.WriteLine(ex);
-        if (app.Environment.IsDevelopment())
-            throw;
+        Console.WriteLine("❌ Schema init failed:"); Console.WriteLine(ex);
+        if (app.Environment.IsDevelopment()) throw;
     }
+
+    // ── 2. Reference data (best-effort) ────────────────────────────────────
+    try
+    {
+        SeedData.Run(db, app.Configuration);
+        Console.WriteLine("✅ SeedData completed");
+    }
+    catch (Exception seedEx)
+    {
+        // Partial failures are expected on re-deploys when some tables
+        // already have data. The admin fallback below runs regardless.
+        Console.WriteLine($"⚠️ SeedData partial: {seedEx.Message.Split('\n')[0]}");
+    }
+
+    // ── 3. Admin user guarantee ─────────────────────────────────────────────
+    // Runs in its own block so a SeedData failure never locks out the app.
+    // Idempotent: skips insert when ADMIN001 already exists.
+    try
+    {
+        if (!db.Employees.Any(e => e.EmpCode == "ADMIN001"))
+        {
+            Console.WriteLine("⚠️  ADMIN001 missing — creating now...");
+            db.Employees.Add(new Employee
+            {
+                EmpCode      = "ADMIN001",
+                Name         = "HR Admin",
+                Email        = app.Configuration["AdminEmail"] ?? "admin@ampmfashions.com",
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(
+                    app.Configuration["AdminPassword"] ?? "AMPM@Admin123"),
+                Role         = "admin",
+                Status       = "Active",
+                IsActive     = true
+            });
+            db.SaveChanges();
+            Console.WriteLine("✅ Admin created — login: ADMIN001 / AMPM@Admin123");
+        }
+        else
+        {
+            Console.WriteLine("✅ Admin ADMIN001 exists");
+        }
+    }
+    catch (Exception adminEx)
+    {
+        Console.WriteLine($"❌ Admin creation failed: {adminEx.Message}");
+    }
+
+    Console.WriteLine("✅ Database ready");
 }
 
 Console.WriteLine("\n🚀 AMPM Fashions HRMS Pro — LOCAL TESTING MODE");
