@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using Microsoft.AspNetCore.Hosting.Server;
@@ -152,6 +153,20 @@ if (app.Environment.IsDevelopment())
 }
 
 // ── Middleware ──
+
+// Render (and most reverse-proxy cloud hosts) terminate TLS at the load
+// balancer and forward plain HTTP to the container with X-Forwarded-For /
+// X-Forwarded-Proto headers. Without this middleware the app sees every
+// request as plain HTTP, which breaks anti-forgery token validation:
+// the browser submits the form from https://..., the Referer/Origin header
+// says "https", but the app thinks the scheme is "http" → mismatch →
+// [ValidateAntiForgeryToken] throws → "Something went wrong".
+// This must be the FIRST middleware in the pipeline.
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+});
+
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Home/Error");
