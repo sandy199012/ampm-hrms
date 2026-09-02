@@ -5,6 +5,8 @@ using System.Text;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Storage;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
@@ -174,20 +176,32 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     try
     {
-        // Using SQLite with EnsureCreated — creates the DB file and all tables
-        // from the model automatically on first run. Safe to call on every
-        // startup: does nothing if the database and tables already exist.
-        db.Database.EnsureCreated();
-        Console.WriteLine("✅ Database ready");
+        var creator = db.Database.GetService<IRelationalDatabaseCreator>();
+
+        // Step 1: Create the database itself if it doesn't exist
+        if (!creator.Exists())
+            creator.Create();
+
+        // Step 2: Create tables if they don't exist yet.
+        // EnsureCreated() skips table creation when the DB already exists
+        // (e.g. Supabase always has an existing 'postgres' DB), so we use
+        // HasTables() + CreateTables() to force schema creation reliably.
+        if (!creator.HasTables())
+        {
+            Console.WriteLine("⚠️  No tables found — creating schema now...");
+            creator.CreateTables();
+            Console.WriteLine("✅ Schema created");
+        }
+        else
+        {
+            Console.WriteLine("✅ Schema already present");
+        }
 
         SeedData.Run(db, app.Configuration);
+        Console.WriteLine("✅ Database ready");
     }
     catch (Exception ex)
     {
-        // Fail loudly instead of silently — a swallowed error here previously
-        // meant the app kept limping along with missing tables and a
-        // confusing "Invalid object name" error on every later page instead
-        // of showing the real cause once, right at startup.
         Console.WriteLine("❌ DB INIT FAILED — this is the real error, please share this if the app still won't start:");
         Console.WriteLine(ex);
         if (app.Environment.IsDevelopment())
