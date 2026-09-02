@@ -155,8 +155,10 @@ if (app.Environment.IsDevelopment())
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Home/Error");
-    app.UseHsts();
-    app.UseHttpsRedirection();
+    // NOTE: UseHsts and UseHttpsRedirection are intentionally omitted here.
+    // Render (and most cloud hosts) terminate SSL at the load balancer and
+    // forward plain HTTP to the container — the app must NOT redirect to
+    // HTTPS itself or the browser gets a 400 "Bad Request" loop.
 }
 
 app.UseStaticFiles();
