@@ -50,6 +50,9 @@
                 <a class="sidebar-link @(IsActiveAny("Admin","BulkUpload","BulkUploadResult") ? "active" : "")" asp-controller="Admin" asp-action="BulkUpload">
                     <i class="bi bi-file-earmark-arrow-up-fill"></i> Bulk Upload
                 </a>
+                <a class="sidebar-link @(IsActive("Admin","AssignPolicies") ? "active" : "")" asp-controller="Admin" asp-action="AssignPolicies">
+                    <i class="bi bi-sliders2-vertical"></i> Bulk Assign Policy
+                </a>
 
                 <div class="nav-section-label">Organization Masters</div>
                 <a class="sidebar-link @(IsActive("Admin","Masters") ? "active" : "")" asp-controller="Admin" asp-action="Masters">
@@ -202,6 +205,14 @@
                 </a>
                 <a class="sidebar-link @(IsActive("Reports","OTRulesLegend") ? "active" : "")" asp-controller="Reports" asp-action="OTRulesLegend">
                     <i class="bi bi-book-fill"></i> OT Rules &amp; Legend
+                </a>
+                }
+
+                @if (!isAdminOrHr)
+                {
+                <div class="nav-section-label">My Overview</div>
+                <a class="sidebar-link @(IsActive("EmployeeDashboard","Index") ? "active" : "")" asp-controller="EmployeeDashboard" asp-action="Index">
+                    <i class="bi bi-grid-1x2-fill"></i> My Dashboard
                 </a>
                 }
 

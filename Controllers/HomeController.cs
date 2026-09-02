@@ -6,9 +6,13 @@ namespace AmpmHrmsPro.Controllers
     {
         public IActionResult Index()
         {
-            return User.Identity?.IsAuthenticated == true
+            if (User.Identity?.IsAuthenticated != true)
+                return RedirectToAction("Login", "Account");
+
+            var role = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "employee";
+            return (role == "admin" || role == "hr")
                 ? RedirectToAction("Index", "Admin")
-                : RedirectToAction("Login", "Account");
+                : RedirectToAction("Index", "EmployeeDashboard");
         }
 
         public IActionResult Error() => View();

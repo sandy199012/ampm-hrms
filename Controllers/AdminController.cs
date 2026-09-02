@@ -307,6 +307,104 @@ namespace AmpmHrmsPro.Controllers
         }
 
         // ═══════════════════════════════════════════
+        // BULK POLICY ASSIGNMENT — assign Leave Policy / Shift / Week-Off /
+        // Manager in one shot to a whole department, category, HOD-team, or
+        // individual employees. Only the fields the admin actually fills in
+        // (non-null/non-zero) are written — blank = no change.
+        // ═══════════════════════════════════════════
+        public IActionResult AssignPolicies()
+        {
+            LoadMasterDropdowns();
+            ViewBag.Employees = _db.Employees
+                .Include(e => e.Department)
+                .Include(e => e.Designation)
+                .Include(e => e.Shift)
+                .Include(e => e.LeavePolicy)
+                .Include(e => e.WeekOffPolicy)
+                .Include(e => e.ReportingManager)
+                .Where(e => e.IsActive)
+                .OrderBy(e => e.Name)
+                .ToList();
+            return View();
+        }
+
+        [HttpPost, ValidateAntiForgeryToken]
+        public IActionResult AssignPolicies(
+            string mode,
+            int[]? departmentIds,
+            string? category,
+            int? gradeId,
+            int? employmentTypeId,
+            int? managerId,
+            int[]? employeeIds,
+            int? leavePolicyId,
+            int? shiftId,
+            int? weekOffPolicyId,
+            int? reportingManagerId,
+            int? gradeId_assign,
+            int? employmentTypeId_assign)
+        {
+            bool anyAssignment = leavePolicyId.HasValue || shiftId.HasValue ||
+                                 weekOffPolicyId.HasValue || reportingManagerId.HasValue ||
+                                 gradeId_assign.HasValue || employmentTypeId_assign.HasValue;
+            if (!anyAssignment)
+            {
+                TempData["Error"] = "Please select at least one policy/field to assign.";
+                return RedirectToAction("AssignPolicies");
+            }
+
+            IQueryable<Employee> query = _db.Employees.Where(e => e.IsActive);
+
+            switch (mode)
+            {
+                case "department":
+                    if (departmentIds == null || departmentIds.Length == 0)
+                    { TempData["Error"] = "Select at least one department."; return RedirectToAction("AssignPolicies"); }
+                    query = query.Where(e => e.DepartmentId.HasValue && departmentIds.Contains(e.DepartmentId.Value));
+                    break;
+                case "category":
+                    if (string.IsNullOrWhiteSpace(category))
+                    { TempData["Error"] = "Select a category."; return RedirectToAction("AssignPolicies"); }
+                    query = query.Where(e => e.Category == category);
+                    if (gradeId.HasValue)         query = query.Where(e => e.GradeId == gradeId);
+                    if (employmentTypeId.HasValue) query = query.Where(e => e.EmploymentTypeId == employmentTypeId);
+                    break;
+                case "hod":
+                    if (!managerId.HasValue)
+                    { TempData["Error"] = "Select a manager / HOD."; return RedirectToAction("AssignPolicies"); }
+                    query = query.Where(e => e.ReportingManagerId == managerId);
+                    break;
+                case "employee":
+                    if (employeeIds == null || employeeIds.Length == 0)
+                    { TempData["Error"] = "Select at least one employee."; return RedirectToAction("AssignPolicies"); }
+                    query = query.Where(e => employeeIds.Contains(e.Id));
+                    break;
+                default:
+                    TempData["Error"] = "Unknown assignment mode."; return RedirectToAction("AssignPolicies");
+            }
+
+            var employees = query.ToList();
+            if (!employees.Any())
+            {
+                TempData["Error"] = "No employees matched the selected filter.";
+                return RedirectToAction("AssignPolicies");
+            }
+
+            foreach (var emp in employees)
+            {
+                if (leavePolicyId.HasValue)            emp.LeavePolicyId      = leavePolicyId;
+                if (shiftId.HasValue)                  emp.ShiftId            = shiftId;
+                if (weekOffPolicyId.HasValue)           emp.WeekOffPolicyId    = weekOffPolicyId;
+                if (reportingManagerId.HasValue)        emp.ReportingManagerId = reportingManagerId == emp.Id ? null : reportingManagerId;
+                if (gradeId_assign.HasValue)            emp.GradeId            = gradeId_assign;
+                if (employmentTypeId_assign.HasValue)   emp.EmploymentTypeId   = employmentTypeId_assign;
+            }
+            _db.SaveChanges();
+            TempData["Success"] = $"✅ {employees.Count} employee(s) updated successfully.";
+            return RedirectToAction("AssignPolicies");
+        }
+
+        // ═══════════════════════════════════════════
         // BULK UPLOAD — imports the company's existing HR export format
         // (Employee Code, Employee Name, Manager Name, ... 75 columns) as-is.
         // Matched by header NAME (not column position), so column order

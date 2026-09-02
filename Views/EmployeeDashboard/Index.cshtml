@@ -1,0 +1,277 @@
+@using AmpmHrmsPro.Models
+@{
+    ViewData["Title"] = "My Dashboard";
+    var emp = (Employee)ViewBag.Employee;
+    var todayRecord = ViewBag.TodayRecord as AttendanceDaily;
+    var todayPunches = ViewBag.TodayPunches as List<AttendancePunch> ?? new List<AttendancePunch>();
+    var recentAtt = ViewBag.RecentAttendance as List<AttendanceDaily> ?? new List<AttendanceDaily>();
+    var leaveBalances = ViewBag.LeaveBalances as List<LeaveBalance> ?? new List<LeaveBalance>();
+    var pendingApps = ViewBag.PendingApplications as List<Application> ?? new List<Application>();
+
+    string StatusBadge(string s) => s switch {
+        var x when x.StartsWith("P")   => "success",
+        var x when x.StartsWith("A")   => "danger",
+        "WO"                            => "secondary",
+        "HD"                            => "warning",
+        _                               => "secondary"
+    };
+    string StatusLabel(string s) => s switch {
+        "P"         => "Present",
+        "A"         => "Absent",
+        "A (MIS)"   => "Mispunch",
+        "HD"        => "Half Day",
+        "WO"        => "Week Off",
+        "POW"       => "Present on WO",
+        _           => s
+    };
+}
+
+@* ── Top profile banner ── *@
+<div class="card mb-4" style="background:linear-gradient(135deg,var(--primary) 0%,var(--primary-dark,#1a3a6b) 100%);border:none;">
+    <div class="card-body d-flex align-items-center gap-4 py-3">
+        <div style="width:56px;height:56px;border-radius:50%;background:rgba(255,255,255,0.2);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;color:#fff;flex-shrink:0;">
+            @(string.Join("", emp.Name.Split(' ').Take(2).Select(w => w[0])).ToUpper())
+        </div>
+        <div style="color:#fff;">
+            <div style="font-size:18px;font-weight:700;">@emp.Name <span style="font-size:13px;opacity:.8;">(@emp.EmpCode)</span></div>
+            <div style="font-size:13px;opacity:.85;">
+                @(emp.Designation?.Name ?? "—") &nbsp;·&nbsp; @(emp.Department?.Name ?? "—")
+                @if (emp.Shift != null) { <span>&nbsp;·&nbsp; <i class="bi bi-clock"></i> @emp.Shift.Name (@emp.Shift.StartTime.ToString(@"hh\:mm") – @emp.Shift.EndTime.ToString(@"hh\:mm"))</span> }
+            </div>
+        </div>
+        <div class="ms-auto d-flex gap-2 flex-wrap">
+            <a href="@Url.Action("Apply","Applications")" class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:#fff;border:1px solid rgba(255,255,255,0.4);">
+                <i class="bi bi-send-plus-fill"></i> Apply Leave
+            </a>
+        </div>
+    </div>
+</div>
+
+@* ── Today's punch card ── *@
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <div class="card h-100">
+            <div class="card-header d-flex align-items-center gap-2">
+                <i class="bi bi-fingerprint" style="color:var(--primary);font-size:16px;"></i>
+                <strong>Today's Attendance</strong>
+                <span class="ms-auto text-muted" style="font-size:12px;">@DateTime.Today.ToString("ddd, dd MMM")</span>
+            </div>
+            <div class="card-body">
+                @if (todayRecord != null)
+                {
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <span class="badge rounded-pill bg-@StatusBadge(todayRecord.EffectiveStatus)" style="font-size:13px;padding:6px 14px;">
+                            @StatusLabel(todayRecord.EffectiveStatus)
+                        </span>
+                        @if (todayRecord.RawStatus == "A (MIS)")
+                        {
+                            <span class="badge rounded-pill bg-warning text-dark" style="font-size:12px;">Mispunch</span>
+                        }
+                    </div>
+                    <div class="row text-center g-2">
+                        <div class="col-6">
+                            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;">In Time</div>
+                            <div style="font-size:22px;font-weight:700;color:var(--success);">
+                                @(todayRecord.InTime.HasValue ? DateTime.Today.Add(todayRecord.InTime.Value).ToString("HH:mm") : "—")
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;">Out Time</div>
+                            <div style="font-size:22px;font-weight:700;color:var(--danger);">
+                                @(todayRecord.OutTime.HasValue ? DateTime.Today.Add(todayRecord.OutTime.Value).ToString("HH:mm") : "—")
+                            </div>
+                        </div>
+                    </div>
+                    @if (todayRecord.WorkedMinutes.HasValue)
+                    {
+                        <div class="text-center mt-2" style="font-size:12px;color:var(--text-muted);">
+                            Worked: <strong>@(todayRecord.WorkedMinutes / 60)h @(todayRecord.WorkedMinutes % 60)m</strong>
+                        </div>
+                    }
+                }
+                else
+                {
+                    <div class="text-center py-3">
+                        <i class="bi bi-clock-history" style="font-size:32px;color:var(--text-muted);opacity:.4;"></i>
+                        <div class="mt-2 text-muted" style="font-size:13px;">No punch recorded today</div>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    @* ── Month summary ── *@
+    <div class="col-md-8">
+        <div class="card h-100">
+            <div class="card-header d-flex align-items-center gap-2">
+                <i class="bi bi-calendar3" style="color:var(--primary);font-size:16px;"></i>
+                <strong>@DateTime.Today.ToString("MMMM yyyy") Summary</strong>
+            </div>
+            <div class="card-body">
+                <div class="row g-3 text-center">
+                    <div class="col-4 col-md-2">
+                        <div style="font-size:28px;font-weight:800;color:var(--success);">@ViewBag.PresentDays</div>
+                        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Present</div>
+                    </div>
+                    <div class="col-4 col-md-2">
+                        <div style="font-size:28px;font-weight:800;color:var(--danger);">@ViewBag.AbsentDays</div>
+                        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Absent</div>
+                    </div>
+                    <div class="col-4 col-md-2">
+                        <div style="font-size:28px;font-weight:800;color:var(--secondary,#6c757d);">@ViewBag.WeekOffDays</div>
+                        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Week-Off</div>
+                    </div>
+                    <div class="col-4 col-md-2">
+                        <div style="font-size:28px;font-weight:800;color:var(--info);">@ViewBag.HolidayDays</div>
+                        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Holiday</div>
+                    </div>
+                    <div class="col-4 col-md-2">
+                        <div style="font-size:28px;font-weight:800;color:var(--text);">@ViewBag.WorkingDays</div>
+                        <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Working Days</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 mb-4">
+    @* ── Leave balances ── *@
+    <div class="col-lg-4">
+        <div class="card h-100">
+            <div class="card-header d-flex align-items-center gap-2">
+                <i class="bi bi-wallet2" style="color:var(--primary);"></i>
+                <strong>Leave Balance</strong>
+                <a href="@Url.Action("Index","MyLeave")" class="ms-auto btn btn-sm btn-outline-primary" style="font-size:11px;">View All</a>
+            </div>
+            <div class="card-body p-0">
+                @if (!leaveBalances.Any())
+                {
+                    <div class="text-center py-4 text-muted" style="font-size:13px;">No leave balance assigned yet.<br/>Contact HR.</div>
+                }
+                else
+                {
+                    <div class="list-group list-group-flush">
+                        @foreach (var lb in leaveBalances)
+                        {
+                            var total = lb.CarryForward + lb.TotalEarned;
+                            var pct = total > 0 ? (int)Math.Round(lb.Balance / total * 100) : 0;
+                            <div class="list-group-item px-3 py-2">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <span style="font-size:13px;font-weight:600;">@lb.LeaveTypeCode</span>
+                                    <span style="font-size:13px;font-weight:700;color:var(--primary);">@lb.Balance <span style="font-weight:400;color:var(--text-muted);">/ @total</span></span>
+                                </div>
+                                <div class="progress" style="height:4px;">
+                                    <div class="progress-bar bg-primary" style="width:@pct%;"></div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    @* ── Recent attendance ── *@
+    <div class="col-lg-5">
+        <div class="card h-100">
+            <div class="card-header d-flex align-items-center gap-2">
+                <i class="bi bi-calendar-check" style="color:var(--primary);"></i>
+                <strong>Recent Attendance</strong>
+            </div>
+            <div class="card-body p-0" style="max-height:320px;overflow-y:auto;">
+                @if (!recentAtt.Any())
+                {
+                    <div class="text-center py-4 text-muted" style="font-size:13px;">No attendance records found.</div>
+                }
+                else
+                {
+                    <table class="table table-sm mb-0" style="font-size:13px;">
+                        <thead style="position:sticky;top:0;background:var(--surface);">
+                            <tr>
+                                <th style="font-weight:600;">Date</th>
+                                <th>In</th>
+                                <th>Out</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var r in recentAtt)
+                            {
+                                var d = DateTime.TryParse(r.Date, out var dt) ? dt.ToString("dd MMM, ddd") : r.Date;
+                                <tr>
+                                    <td>@d</td>
+                                    <td>@(r.InTime.HasValue ? DateTime.Today.Add(r.InTime.Value).ToString("HH:mm") : "—")</td>
+                                    <td>@(r.OutTime.HasValue ? DateTime.Today.Add(r.OutTime.Value).ToString("HH:mm") : "—")</td>
+                                    <td>
+                                        <span class="badge rounded-pill bg-@StatusBadge(r.EffectiveStatus)" style="font-size:11px;">
+                                            @StatusLabel(r.EffectiveStatus)
+                                        </span>
+                                        @if (r.RawStatus == "A (MIS)") { <span class="badge rounded-pill bg-warning text-dark ms-1" style="font-size:10px;">Mispunch</span> }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+        </div>
+    </div>
+
+    @* ── Pending applications + upcoming holidays ── *@
+    <div class="col-lg-3">
+        <div class="card mb-3">
+            <div class="card-header d-flex align-items-center gap-2">
+                <i class="bi bi-hourglass-split" style="color:var(--warning);"></i>
+                <strong>Pending Applications</strong>
+            </div>
+            <div class="card-body p-0">
+                @if (!pendingApps.Any())
+                {
+                    <div class="text-center py-3 text-muted" style="font-size:12px;">No pending applications</div>
+                }
+                else
+                {
+                    @foreach (var a in pendingApps)
+                    {
+                        <div class="px-3 py-2" style="border-bottom:1px solid var(--border);font-size:12px;">
+                            <div class="fw-semibold">@a.Type</div>
+                            <div class="text-muted">@a.FromDate → @a.ToDate</div>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header d-flex align-items-center gap-2">
+                <i class="bi bi-calendar-event-fill" style="color:var(--danger);"></i>
+                <strong>Upcoming Holidays</strong>
+            </div>
+            <div class="card-body p-0">
+                @{
+                    var holidays = ViewBag.UpcomingHolidays as List<(string Name, string Type, DateTime Date, int DaysAway)>;
+                }
+                @if (holidays == null || !holidays.Any())
+                {
+                    <div class="text-center py-3 text-muted" style="font-size:12px;">No upcoming holidays</div>
+                }
+                else
+                {
+                    @foreach (var h in holidays)
+                    {
+                        <div class="px-3 py-2 d-flex justify-content-between align-items-center" style="border-bottom:1px solid var(--border);font-size:12px;">
+                            <div>
+                                <div class="fw-semibold">@h.Name</div>
+                                <div class="text-muted">@h.Date.ToString("dd MMM, ddd")</div>
+                            </div>
+                            <span class="badge rounded-pill bg-danger-subtle text-danger" style="font-size:11px;">
+                                @(h.DaysAway == 0 ? "Today" : h.DaysAway == 1 ? "Tomorrow" : $"in {h.DaysAway}d")
+                            </span>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    </div>
+</div>

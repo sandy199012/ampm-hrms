@@ -1,0 +1,324 @@
+@using AmpmHrmsPro.Models
+@{
+    ViewData["Title"]    = "Bulk Policy Assignment";
+    ViewData["Subtitle"] = "Assign Leave Policy, Shift, Week-Off & more in bulk";
+
+    var employees  = (List<Employee>)ViewBag.Employees;
+    var depts      = (List<Department>)ViewBag.DepartmentList;
+    var shifts     = (List<Shift>)ViewBag.ShiftList;
+    var weekoffs   = (List<WeekOffPolicy>)ViewBag.WeekOffList;
+    var policies   = (List<LeavePolicy>)ViewBag.LeavePolicyList;
+    var managers   = (List<Employee>)ViewBag.ManagerList;
+    var grades     = (List<Grade>)ViewBag.GradeList;
+    var empTypes   = (List<EmploymentType>)ViewBag.EmploymentTypeList;
+
+    var categories = employees.Select(e => e.Category).Where(c => !string.IsNullOrWhiteSpace(c)).Distinct().OrderBy(c => c).ToList();
+}
+
+@if (TempData["Success"] != null)
+{
+    <div class="alert alert-success alert-dismissible fade show d-flex align-items-center gap-2">
+        <i class="bi bi-check-circle-fill"></i> @TempData["Success"]
+        <button type="button" class="btn-close ms-auto" data-bs-dismiss="alert"></button>
+    </div>
+}
+@if (TempData["Error"] != null)
+{
+    <div class="alert alert-danger alert-dismissible fade show d-flex align-items-center gap-2">
+        <i class="bi bi-exclamation-circle-fill"></i> @TempData["Error"]
+        <button type="button" class="btn-close ms-auto" data-bs-dismiss="alert"></button>
+    </div>
+}
+
+@* ── Tab navigation ── *@
+<ul class="nav nav-tabs mb-4" id="assignTab">
+    <li class="nav-item">
+        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-dept"><i class="bi bi-diagram-3-fill me-1"></i>Department-wise</button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-category"><i class="bi bi-tag-fill me-1"></i>Category/Group</button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-hod"><i class="bi bi-person-lines-fill me-1"></i>HOD-wise</button>
+    </li>
+    <li class="nav-item">
+        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-emp"><i class="bi bi-person-fill me-1"></i>Employee-wise</button>
+    </li>
+</ul>
+
+<div class="tab-content">
+
+    @* ══════════════════════════════════════════════
+       TAB 1: DEPARTMENT-WISE
+    ══════════════════════════════════════════════ *@
+    <div class="tab-pane fade show active" id="tab-dept">
+        <div class="card">
+            <div class="card-header">Assign to all employees in selected department(s)</div>
+            <div class="card-body">
+                <form method="post" asp-action="AssignPolicies">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="mode" value="department" />
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">Select Departments <span class="text-danger">*</span></label>
+                            <select name="departmentIds" class="form-select" multiple size="6" required>
+                                @foreach (var d in depts)
+                                {
+                                    <option value="@d.Id">@d.Name</option>
+                                }
+                            </select>
+                            <div class="form-text">Hold Ctrl/Cmd to select multiple</div>
+                        </div>
+                        <div class="col-md-6">
+                            @await Html.PartialAsync("_PolicyFields", new ViewDataDictionary(ViewData) {
+                                { "prefix", "dept" }, { "shifts", shifts }, { "weekoffs", weekoffs }, { "policies", policies }, { "managers", managers }, { "grades", grades }, { "empTypes", empTypes }
+                            })
+                        </div>
+                    </div>
+
+                    <div class="d-flex align-items-center gap-3">
+                        <button type="submit" class="btn btn-primary px-4">
+                            <i class="bi bi-check2-all me-1"></i> Apply to Department(s)
+                        </button>
+                        <span class="text-muted" style="font-size:12px;">Only the fields you fill in will be updated. Blank = no change.</span>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        @* Preview table *@
+        <div class="card mt-3">
+            <div class="card-header">Employees by Department</div>
+            <div class="card-body p-0" style="max-height:380px;overflow-y:auto;">
+                <table class="table table-sm mb-0" style="font-size:13px;">
+                    <thead style="position:sticky;top:0;background:var(--surface);">
+                        <tr>
+                            <th>Emp Code</th><th>Name</th><th>Department</th><th>Shift</th><th>Leave Policy</th><th>Week-Off</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var e in employees.OrderBy(e => e.Department?.Name).ThenBy(e => e.Name))
+                        {
+                            <tr>
+                                <td>@e.EmpCode</td>
+                                <td>@e.Name</td>
+                                <td>@(e.Department?.Name ?? "—")</td>
+                                <td>@(e.Shift?.Name ?? "—")</td>
+                                <td>@(e.LeavePolicy?.Name ?? "—")</td>
+                                <td>@(e.WeekOffPolicy?.Name ?? "—")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    @* ══════════════════════════════════════════════
+       TAB 2: CATEGORY / GROUP-WISE
+    ══════════════════════════════════════════════ *@
+    <div class="tab-pane fade" id="tab-category">
+        <div class="card">
+            <div class="card-header">Assign to all employees in selected Category (Staff / Worker / etc.)</div>
+            <div class="card-body">
+                <form method="post" asp-action="AssignPolicies">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="mode" value="category" />
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold">Select Category <span class="text-danger">*</span></label>
+                            @if (categories.Any())
+                            {
+                                <select name="category" class="form-select" required>
+                                    <option value="">-- Choose --</option>
+                                    @foreach (var c in categories)
+                                    {
+                                        <option>@c</option>
+                                    }
+                                </select>
+                            }
+                            else
+                            {
+                                <div class="alert alert-warning py-2" style="font-size:13px;">
+                                    No categories found. Set the <em>Category</em> field (Staff / Worker / etc.) on employees via Edit Employee or Bulk Upload.
+                                </div>
+                                <input type="hidden" name="category" value="" />
+                            }
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold">Also filter by Grade (optional)</label>
+                            <select name="gradeId" class="form-select">
+                                <option value="">All Grades</option>
+                                @foreach (var g in grades)
+                                {
+                                    <option value="@g.Id">@g.Name</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-semibold">Also filter by Employment Type (optional)</label>
+                            <select name="employmentTypeId" class="form-select">
+                                <option value="">All Types</option>
+                                @foreach (var t in empTypes)
+                                {
+                                    <option value="@t.Id">@t.Name</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+
+                    @await Html.PartialAsync("_PolicyFields", new ViewDataDictionary(ViewData) {
+                        { "prefix", "cat" }, { "shifts", shifts }, { "weekoffs", weekoffs }, { "policies", policies }, { "managers", managers }, { "grades", grades }, { "empTypes", empTypes }
+                    })
+
+                    <div class="d-flex align-items-center gap-3 mt-3">
+                        <button type="submit" class="btn btn-primary px-4">
+                            <i class="bi bi-check2-all me-1"></i> Apply to Category
+                        </button>
+                        <span class="text-muted" style="font-size:12px;">Only the fields you fill in will be updated.</span>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    @* ══════════════════════════════════════════════
+       TAB 3: HOD-WISE (Reporting Manager)
+    ══════════════════════════════════════════════ *@
+    <div class="tab-pane fade" id="tab-hod">
+        <div class="card">
+            <div class="card-header">Assign to all employees reporting to a specific HOD / Manager</div>
+            <div class="card-body">
+                <form method="post" asp-action="AssignPolicies">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="mode" value="hod" />
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-5">
+                            <label class="form-label fw-semibold">Select HOD / Manager <span class="text-danger">*</span></label>
+                            <select name="managerId" class="form-select" required>
+                                <option value="">-- Choose HOD --</option>
+                                @foreach (var m in managers.OrderBy(m => m.Name))
+                                {
+                                    <option value="@m.Id">@m.Name (@m.EmpCode) — @(m.Designation?.Name ?? m.Role)</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-7">
+                            @await Html.PartialAsync("_PolicyFields", new ViewDataDictionary(ViewData) {
+                                { "prefix", "hod" }, { "shifts", shifts }, { "weekoffs", weekoffs }, { "policies", policies }, { "managers", managers }, { "grades", grades }, { "empTypes", empTypes }
+                            })
+                        </div>
+                    </div>
+
+                    <div class="d-flex align-items-center gap-3">
+                        <button type="submit" class="btn btn-primary px-4">
+                            <i class="bi bi-check2-all me-1"></i> Apply to Team
+                        </button>
+                        <span class="text-muted" style="font-size:12px;">Only the fields you fill in will be updated.</span>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        @* HOD preview *@
+        <div class="card mt-3">
+            <div class="card-header">Reporting structure</div>
+            <div class="card-body p-0" style="max-height:350px;overflow-y:auto;">
+                <table class="table table-sm mb-0" style="font-size:13px;">
+                    <thead style="position:sticky;top:0;background:var(--surface);">
+                        <tr><th>Employee</th><th>Dept</th><th>Reports To</th><th>Shift</th><th>Leave Policy</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var e in employees.OrderBy(e => e.ReportingManager?.Name).ThenBy(e => e.Name))
+                        {
+                            <tr>
+                                <td>@e.Name <span class="text-muted">(@e.EmpCode)</span></td>
+                                <td>@(e.Department?.Name ?? "—")</td>
+                                <td>@(e.ReportingManager?.Name ?? "—")</td>
+                                <td>@(e.Shift?.Name ?? "—")</td>
+                                <td>@(e.LeavePolicy?.Name ?? "—")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    @* ══════════════════════════════════════════════
+       TAB 4: EMPLOYEE-WISE (Individual)
+    ══════════════════════════════════════════════ *@
+    <div class="tab-pane fade" id="tab-emp">
+        <div class="card">
+            <div class="card-header">Assign to individual employees — search &amp; select one or more</div>
+            <div class="card-body">
+                <form method="post" asp-action="AssignPolicies" id="empForm">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="mode" value="employee" />
+
+                    @* search box *@
+                    <div class="mb-3">
+                        <input type="text" id="empSearch" class="form-control" placeholder="Search by name, code, department…" />
+                    </div>
+
+                    @* employee check list *@
+                    <div style="max-height:240px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;" class="mb-3 p-2">
+                        <div class="d-flex gap-2 mb-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="selectAll(true)">Select All</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="selectAll(false)">Clear</button>
+                        </div>
+                        @foreach (var e in employees.OrderBy(e => e.Name))
+                        {
+                            <div class="form-check emp-row" data-search="@e.Name.ToLower() @e.EmpCode.ToLower() @(e.Department?.Name.ToLower() ?? "")">
+                                <input class="form-check-input emp-cb" type="checkbox" name="employeeIds" value="@e.Id" id="cb_@e.Id" />
+                                <label class="form-check-label" for="cb_@e.Id" style="font-size:13px;">
+                                    <strong>@e.Name</strong> <span class="text-muted">(@e.EmpCode)</span>
+                                    — @(e.Department?.Name ?? "No Dept")
+                                    @if (e.Shift != null) { <span class="badge rounded-pill" style="background:var(--primary-light);color:var(--primary-dark);font-size:10px;">@e.Shift.Name</span> }
+                                    @if (e.LeavePolicy != null) { <span class="badge rounded-pill bg-success-subtle text-success" style="font-size:10px;">@e.LeavePolicy.Name</span> }
+                                </label>
+                            </div>
+                        }
+                    </div>
+
+                    @await Html.PartialAsync("_PolicyFields", new ViewDataDictionary(ViewData) {
+                        { "prefix", "emp" }, { "shifts", shifts }, { "weekoffs", weekoffs }, { "policies", policies }, { "managers", managers }, { "grades", grades }, { "empTypes", empTypes }
+                    })
+
+                    <div class="d-flex align-items-center gap-3 mt-3">
+                        <button type="submit" class="btn btn-primary px-4" onclick="return checkSelected()">
+                            <i class="bi bi-check2-all me-1"></i> Apply to Selected Employees
+                        </button>
+                        <span class="text-muted" style="font-size:12px;">Only fields you fill in will be updated.</span>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+@section Scripts {
+<script>
+// Employee search
+document.getElementById('empSearch').addEventListener('input', function() {
+    var q = this.value.toLowerCase();
+    document.querySelectorAll('.emp-row').forEach(function(row) {
+        row.style.display = row.dataset.search.includes(q) ? '' : 'none';
+    });
+});
+function selectAll(chk) {
+    document.querySelectorAll('.emp-cb').forEach(function(cb) {
+        if (cb.closest('.emp-row').style.display !== 'none') cb.checked = chk;
+    });
+}
+function checkSelected() {
+    var checked = document.querySelectorAll('.emp-cb:checked').length;
+    if (checked === 0) { alert('Please select at least one employee.'); return false; }
+    return true;
+}
+</script>
+}

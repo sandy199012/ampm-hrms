@@ -1,0 +1,73 @@
+@* Shared partial — the assignment fields rendered inside each tab.
+   ViewData keys: prefix, shifts, weekoffs, policies, managers, grades, empTypes *@
+@using AmpmHrmsPro.Models
+@{
+    var shifts    = ViewData["shifts"]   as List<Shift>         ?? new();
+    var weekoffs  = ViewData["weekoffs"] as List<WeekOffPolicy> ?? new();
+    var policies  = ViewData["policies"] as List<LeavePolicy>   ?? new();
+    var managers  = ViewData["managers"] as List<Employee>      ?? new();
+    var grades    = ViewData["grades"]   as List<Grade>         ?? new();
+    var empTypes  = ViewData["empTypes"] as List<EmploymentType> ?? new();
+}
+<div class="row g-2">
+    <div class="col-md-6 col-lg-4">
+        <label class="form-label" style="font-size:12px;font-weight:600;">Leave Policy</label>
+        <select name="leavePolicyId" class="form-select form-select-sm">
+            <option value="">— no change —</option>
+            @foreach (var p in policies)
+            {
+                <option value="@p.Id">@p.Name</option>
+            }
+        </select>
+    </div>
+    <div class="col-md-6 col-lg-4">
+        <label class="form-label" style="font-size:12px;font-weight:600;">Shift</label>
+        <select name="shiftId" class="form-select form-select-sm">
+            <option value="">— no change —</option>
+            @foreach (var s in shifts)
+            {
+                <option value="@s.Id">@s.Name (@s.StartTime.ToString(@"hh\:mm")–@s.EndTime.ToString(@"hh\:mm"))</option>
+            }
+        </select>
+    </div>
+    <div class="col-md-6 col-lg-4">
+        <label class="form-label" style="font-size:12px;font-weight:600;">Week-Off Policy</label>
+        <select name="weekOffPolicyId" class="form-select form-select-sm">
+            <option value="">— no change —</option>
+            @foreach (var w in weekoffs)
+            {
+                <option value="@w.Id">@w.Name</option>
+            }
+        </select>
+    </div>
+    <div class="col-md-6 col-lg-4">
+        <label class="form-label" style="font-size:12px;font-weight:600;">Reporting Manager (HOD)</label>
+        <select name="reportingManagerId" class="form-select form-select-sm">
+            <option value="">— no change —</option>
+            @foreach (var m in managers.OrderBy(m => m.Name))
+            {
+                <option value="@m.Id">@m.Name (@m.EmpCode)</option>
+            }
+        </select>
+    </div>
+    <div class="col-md-6 col-lg-4">
+        <label class="form-label" style="font-size:12px;font-weight:600;">Grade</label>
+        <select name="gradeId_assign" class="form-select form-select-sm">
+            <option value="">— no change —</option>
+            @foreach (var g in grades)
+            {
+                <option value="@g.Id">@g.Name</option>
+            }
+        </select>
+    </div>
+    <div class="col-md-6 col-lg-4">
+        <label class="form-label" style="font-size:12px;font-weight:600;">Employment Type</label>
+        <select name="employmentTypeId_assign" class="form-select form-select-sm">
+            <option value="">— no change —</option>
+            @foreach (var t in empTypes)
+            {
+                <option value="@t.Id">@t.Name</option>
+            }
+        </select>
+    </div>
+</div>
