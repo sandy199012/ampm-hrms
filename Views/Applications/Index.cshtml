@@ -1,123 +1,145 @@
-@model List<Application>
+@model List<AmpmHrmsPro.Models.Application>
 @{
-    ViewData["Title"] = "Applications";
-    ViewData["Subtitle"] = "Leave / Regularisation / WFH / OD / Comp-Off Credits";
-    var employees = (List<Employee>)ViewBag.EmployeeList;
-    string? status = ViewBag.Status; string? type = ViewBag.Type; int? employeeId = ViewBag.EmployeeId;
-    int pendingCount = ViewBag.PendingCount;
+    ViewData["Title"] = "My Applications";
+
+    string StatusBadge(string s) => s switch {
+        "Approved"  => "success",
+        "Rejected"  => "danger",
+        "Cancelled" => "secondary",
+        "Revoked"   => "warning",
+        _           => "primary"   // Pending
+    };
+    string TypeIcon(string t) => t switch {
+        "Leave"          => "bi-calendar-x-fill",
+        "Regularisation" => "bi-patch-check-fill",
+        "WFH"            => "bi-house-fill",
+        "OD"             => "bi-briefcase-fill",
+        _                => "bi-file-earmark-text-fill"
+    };
+    string TypeColor(string t) => t switch {
+        "Leave"          => "var(--danger)",
+        "Regularisation" => "var(--warning,#f59e0b)",
+        "WFH"            => "var(--primary)",
+        "OD"             => "var(--info,#0ea5e9)",
+        _                => "var(--text-muted)"
+    };
 }
 
-<div class="page-header">
-    <div>
-        <h1>Applications</h1>
-        <p>@Model.Count shown @(pendingCount > 0 ? $"— {pendingCount} pending approval" : "")</p>
+@if (TempData["Success"] != null)
+{
+    <div class="alert alert-success alert-dismissible fade show d-flex align-items-center gap-2">
+        <i class="bi bi-check-circle-fill"></i> @TempData["Success"]
+        <button type="button" class="btn-close ms-auto" data-bs-dismiss="alert"></button>
     </div>
-    <a href="@Url.Action("Apply")" class="btn btn-primary"><i class="bi bi-plus-lg me-1"></i> New Application</a>
+}
+@if (TempData["Error"] != null)
+{
+    <div class="alert alert-danger alert-dismissible fade show d-flex align-items-center gap-2">
+        <i class="bi bi-exclamation-circle-fill"></i> @TempData["Error"]
+        <button type="button" class="btn-close ms-auto" data-bs-dismiss="alert"></button>
+    </div>
+}
+
+@* ── Quick Apply buttons ── *@
+<div class="d-flex flex-wrap gap-2 mb-4">
+    <a href="@Url.Action("Apply","Applications",new{type="Leave"})"          class="btn btn-outline-danger"><i class="bi bi-calendar-x-fill me-1"></i>Apply Leave</a>
+    <a href="@Url.Action("Apply","Applications",new{type="Regularisation"})" class="btn btn-outline-warning"><i class="bi bi-patch-check-fill me-1"></i>Regularisation</a>
+    <a href="@Url.Action("Apply","Applications",new{type="WFH"})"            class="btn btn-outline-primary"><i class="bi bi-house-fill me-1"></i>Work From Home</a>
+    <a href="@Url.Action("Apply","Applications",new{type="OD"})"             class="btn btn-outline-info"><i class="bi bi-briefcase-fill me-1"></i>On Duty</a>
 </div>
 
-<div class="card mb-3">
-    <div class="card-body">
-        <form method="get" asp-action="Index" class="row g-2 align-items-end">
-            <div class="col-md-3">
-                <label class="form-label">Employee</label>
-                <select name="employeeId" class="form-select" onchange="this.form.submit()">
-                    <option value="">All Employees</option>
-                    @foreach (var e in employees) { <option value="@e.Id" selected="@(employeeId == e.Id)">@e.EmpCode — @e.Name</option> }
-                </select>
-            </div>
-            <div class="col-md-3">
-                <label class="form-label">Type</label>
-                <select name="type" class="form-select" onchange="this.form.submit()">
-                    <option value="">All Types</option>
-                    @foreach (var t in new[] { "Leave", "Regularisation", "WFH", "OD", "CompOff" }) { <option value="@t" selected="@(type == t)">@(t == "CompOff" ? "Comp-Off Credit" : t)</option> }
-                </select>
-            </div>
-            <div class="col-md-3">
-                <label class="form-label">Status</label>
-                <select name="status" class="form-select" onchange="this.form.submit()">
-                    <option value="">All Status</option>
-                    @foreach (var s in new[] { "Pending", "Approved", "Rejected", "Revoked", "Cancelled" }) { <option value="@s" selected="@(status == s)">@s</option> }
-                </select>
-            </div>
-            <div class="col-md-3">
-                <a href="@Url.Action("Index")" class="btn btn-light w-100">Clear Filters</a>
-            </div>
-        </form>
-    </div>
-</div>
-
+@* ── Applications table ── *@
 <div class="card">
-    <div class="card-body p-0" style="overflow-x:auto;">
+    <div class="card-header d-flex align-items-center gap-2">
+        <i class="bi bi-journal-text" style="color:var(--primary);"></i>
+        <strong>All My Applications</strong>
+        <span class="badge rounded-pill bg-primary-subtle text-primary ms-1">@Model.Count</span>
+    </div>
+    <div class="card-body p-0">
         @if (!Model.Any())
         {
-            <div class="empty-state"><i class="bi bi-inbox"></i>No applications found.</div>
+            <div class="text-center py-5 text-muted">
+                <i class="bi bi-inbox" style="font-size:36px;opacity:.3;"></i>
+                <div class="mt-2">No applications yet</div>
+            </div>
         }
         else
         {
-            <table class="table mb-0">
-                <thead>
-                    <tr><th>Employee</th><th>Type</th><th>From</th><th>To</th><th>Days</th><th>Reason</th><th>Approver</th><th>Applied On</th><th>Status</th><th></th></tr>
-                </thead>
-                <tbody>
-                @foreach (var a in Model)
-                {
-                    <tr>
-                        <td>@a.Employee?.EmpCode — @a.Employee?.Name</td>
-                        <td>
-                            @if (a.Type == "Leave" && a.LeaveType != null)
-                            { @($"Leave ({a.LeaveType.Alias})") }
-                            else if (a.Type == "CompOff")
-                            { <span class="badge badge-soft-info">Comp-Off Credit</span> }
-                            else
-                            { @a.Type }
-                        </td>
-                        <td>@a.FromDate</td>
-                        <td>@a.ToDate</td>
-                        <td>@a.DurationDays</td>
-                        <td style="max-width:220px;white-space:normal;">@a.Reason</td>
-                        <td>@(a.Approver?.Name ?? a.PendingAt)</td>
-                        <td>@a.AppliedOn.ToString("dd-MMM-yyyy")</td>
-                        <td>
-                            @{
-                                var badgeClass = a.Status switch
-                                {
-                                    "Approved" => "badge-soft-success",
-                                    "Pending" => "badge-soft-warning",
-                                    "Rejected" => "badge-soft-danger",
-                                    _ => "badge-soft-gray"
-                                };
-                            }
-                            <span class="badge @badgeClass">@a.Status</span>
-                        </td>
-                        <td>
-                            @if (a.Status == "Pending")
-                            {
-                                <div class="d-flex gap-1">
-                                    <form method="post" asp-action="Approve" style="display:inline;">
-                                        @Html.AntiForgeryToken()
-                                        <input type="hidden" name="id" value="@a.Id" />
-                                        <button type="submit" class="btn btn-sm btn-light text-success" title="Approve"><i class="bi bi-check-lg"></i></button>
-                                    </form>
-                                    <form method="post" asp-action="Reject" style="display:inline;">
-                                        @Html.AntiForgeryToken()
-                                        <input type="hidden" name="id" value="@a.Id" />
-                                        <button type="submit" class="btn btn-sm btn-light text-danger" title="Reject"><i class="bi bi-x-lg"></i></button>
-                                    </form>
-                                </div>
-                            }
-                            else if (a.Status == "Approved")
-                            {
-                                <form method="post" asp-action="Revoke" style="display:inline;">
-                                    @Html.AntiForgeryToken()
-                                    <input type="hidden" name="id" value="@a.Id" />
-                                    <button type="submit" class="btn btn-sm btn-light text-secondary" title="Revoke" onclick="return confirm('Revoke this approved application?')"><i class="bi bi-arrow-counterclockwise"></i></button>
-                                </form>
-                            }
-                        </td>
-                    </tr>
-                }
-                </tbody>
-            </table>
+            <div class="table-responsive">
+                <table class="table table-sm mb-0 align-middle" style="font-size:13px;">
+                    <thead style="position:sticky;top:0;background:var(--surface);">
+                        <tr>
+                            <th>Type</th>
+                            <th>Details</th>
+                            <th>Period</th>
+                            <th>Days</th>
+                            <th>Applied On</th>
+                            <th>Status</th>
+                            <th>Pending At</th>
+                            <th>Remarks</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var a in Model)
+                        {
+                            <tr>
+                                <td>
+                                    <span style="color:@TypeColor(a.Type);">
+                                        <i class="bi @TypeIcon(a.Type) me-1"></i>@a.Type
+                                    </span>
+                                </td>
+                                <td>
+                                    @if (a.Type == "Leave" && a.LeaveType != null)
+                                    {
+                                        <span class="badge bg-danger-subtle text-danger">@a.LeaveType.Name</span>
+                                    }
+                                    else if (a.Type == "Regularisation")
+                                    {
+                                        <span class="text-muted" style="font-size:12px;">
+                                            @(a.RequestedInTime.HasValue ? a.RequestedInTime.Value.ToString(@"hh\:mm") : "—")
+                                            → @(a.RequestedOutTime.HasValue ? a.RequestedOutTime.Value.ToString(@"hh\:mm") : "—")
+                                        </span>
+                                    }
+                                    else { <span class="text-muted">—</span> }
+                                </td>
+                                <td class="text-nowrap">
+                                    @{
+                                        var f = DateTime.TryParse(a.FromDate, out var fd) ? fd.ToString("dd MMM") : a.FromDate;
+                                        var t = DateTime.TryParse(a.ToDate,   out var td) ? td.ToString("dd MMM") : a.ToDate;
+                                    }
+                                    @if (a.FromDate == a.ToDate) { @f }
+                                    else { @($"{f} – {t}") }
+                                    @if (a.DayPart != "Single") { <span class="badge bg-secondary-subtle text-secondary ms-1" style="font-size:10px;">@a.DayPart</span> }
+                                </td>
+                                <td>@a.DurationDays</td>
+                                <td class="text-nowrap text-muted">@a.AppliedOn.ToString("dd MMM, HH:mm")</td>
+                                <td>
+                                    <span class="badge rounded-pill bg-@StatusBadge(a.Status)-subtle text-@StatusBadge(a.Status)" style="font-size:11px;">
+                                        @a.Status
+                                    </span>
+                                </td>
+                                <td class="text-muted" style="font-size:12px;">@(a.PendingAt ?? "—")</td>
+                                <td class="text-muted" style="font-size:12px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="@a.Remarks">
+                                    @(a.Remarks ?? "—")
+                                </td>
+                                <td>
+                                    @if (a.Status == "Pending")
+                                    {
+                                        <form method="post" asp-action="Cancel" asp-route-id="@a.Id"
+                                              onsubmit="return confirm('Cancel this application?');">
+                                            @Html.AntiForgeryToken()
+                                            <button class="btn btn-sm btn-outline-danger px-2" title="Cancel">
+                                                <i class="bi bi-x-circle"></i>
+                                            </button>
+                                        </form>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
         }
     </div>
 </div>

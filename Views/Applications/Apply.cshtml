@@ -1,104 +1,194 @@
-@model Application
+@using AmpmHrmsPro.Models
 @{
-    ViewData["Title"] = "New Application";
-    ViewData["Subtitle"] = "Leave / Regularisation / WFH / OD";
-    var employees = (List<Employee>)ViewBag.EmployeeList;
-    var leaveTypes = (List<LeaveType>)ViewBag.LeaveTypeList;
+    ViewData["Title"] = "Apply";
+    var leaveTypes = ViewBag.LeaveTypes as List<LeaveType> ?? new List<LeaveType>();
+    var emp        = ViewBag.Employee as Employee;
+    string activeType = ViewBag.Type as string ?? "Leave";
 }
 
-<div class="page-header">
-    <div>
-        <h1>New Application</h1>
-        <p>Log a Leave, Regularisation, Work From Home, or On Duty request</p>
+@if (TempData["Error"] != null)
+{
+    <div class="alert alert-danger alert-dismissible fade show d-flex align-items-center gap-2">
+        <i class="bi bi-exclamation-circle-fill"></i> @TempData["Error"]
+        <button type="button" class="btn-close ms-auto" data-bs-dismiss="alert"></button>
     </div>
-    <a href="@Url.Action("Index")" class="btn btn-light"><i class="bi bi-arrow-left me-1"></i> Back to List</a>
-</div>
+}
 
-<div class="card" style="max-width:720px;">
-    <div class="card-body">
-        <form method="post" asp-action="Apply">
-            @Html.AntiForgeryToken()
-            <div class="row g-3 mb-3">
-                <div class="col-md-6">
-                    <label class="form-label">Employee *</label>
-                    <select name="EmployeeId" class="form-select" required>
-                        <option value="">— Select —</option>
-                        @foreach (var e in employees) { <option value="@e.Id">@e.EmpCode — @e.Name</option> }
-                    </select>
-                </div>
-                <div class="col-md-6">
-                    <label class="form-label">Type *</label>
-                    <select name="Type" id="appType" class="form-select" required onchange="toggleType()">
-                        <option value="Leave">Leave</option>
-                        <option value="Regularisation">Regularisation</option>
-                        <option value="WFH">Work From Home</option>
-                        <option value="OD">On Duty</option>
-                    </select>
-                </div>
+@* ── Type tabs ── *@
+<ul class="nav nav-tabs mb-4" id="appTab">
+    <li class="nav-item">
+        <a class="nav-link @(activeType=="Leave" ? "active" : "")"
+           href="@Url.Action("Apply","Applications",new{type="Leave"})">
+            <i class="bi bi-calendar-x-fill text-danger me-1"></i>Leave
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link @(activeType=="Regularisation" ? "active" : "")"
+           href="@Url.Action("Apply","Applications",new{type="Regularisation"})">
+            <i class="bi bi-patch-check-fill text-warning me-1"></i>Regularisation
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link @(activeType=="WFH" ? "active" : "")"
+           href="@Url.Action("Apply","Applications",new{type="WFH"})">
+            <i class="bi bi-house-fill text-primary me-1"></i>Work From Home
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link @(activeType=="OD" ? "active" : "")"
+           href="@Url.Action("Apply","Applications",new{type="OD"})">
+            <i class="bi bi-briefcase-fill text-info me-1"></i>On Duty
+        </a>
+    </li>
+</ul>
+
+<div class="row justify-content-center">
+    <div class="col-lg-7">
+        <div class="card">
+            <div class="card-header fw-semibold">
+                @if (activeType == "Leave")          { <i class="bi bi-calendar-x-fill text-danger me-2"></i><span>Apply Leave</span> }
+                else if (activeType == "Regularisation") { <i class="bi bi-patch-check-fill text-warning me-2"></i><span>Regularisation Request</span> }
+                else if (activeType == "WFH")        { <i class="bi bi-house-fill text-primary me-2"></i><span>Work From Home</span> }
+                else                                 { <i class="bi bi-briefcase-fill text-info me-2"></i><span>On Duty</span> }
             </div>
+            <div class="card-body">
+                <form method="post" asp-action="Apply">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="type" value="@activeType" />
 
-            <div class="row g-3 mb-3" id="leaveTypeWrap">
-                <div class="col-md-6">
-                    <label class="form-label">Leave Type *</label>
-                    <select name="LeaveTypeId" class="form-select">
-                        <option value="">— Select —</option>
-                        @foreach (var lt in leaveTypes) { <option value="@lt.Id">@lt.Alias — @lt.Name</option> }
-                    </select>
-                </div>
+                    @* ── Leave type (only for Leave) ── *@
+                    @if (activeType == "Leave")
+                    {
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">Leave Type <span class="text-danger">*</span></label>
+                            @if (leaveTypes.Any())
+                            {
+                                <select name="leaveTypeId" class="form-select" required>
+                                    <option value="">-- Select Leave Type --</option>
+                                    @foreach (var lt in leaveTypes)
+                                    {
+                                        <option value="@lt.Id">@lt.Name (@lt.Code)</option>
+                                    }
+                                </select>
+                            }
+                            else
+                            {
+                                <div class="alert alert-warning py-2" style="font-size:13px;">
+                                    No leave types configured. Contact HR.
+                                </div>
+                                <input type="hidden" name="leaveTypeId" value="" />
+                            }
+                        </div>
+                    }
+
+                    @* ── Dates ── *@
+                    <div class="row g-3 mb-3">
+                        @if (activeType == "Regularisation")
+                        {
+                            @* Regularisation: only one date *@
+                            <div class="col-12">
+                                <label class="form-label fw-semibold">Date <span class="text-danger">*</span></label>
+                                <input type="date" name="fromDate" id="fromDate"
+                                       class="form-control" max="@DateTime.Today.ToString("yyyy-MM-dd")" required
+                                       onchange="document.getElementById('toDate').value=this.value" />
+                                <input type="hidden" name="toDate" id="toDate" />
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="col-6">
+                                <label class="form-label fw-semibold">From Date <span class="text-danger">*</span></label>
+                                <input type="date" name="fromDate" class="form-control" required />
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label fw-semibold">To Date <span class="text-danger">*</span></label>
+                                <input type="date" name="toDate" class="form-control" required />
+                            </div>
+                        }
+                    </div>
+
+                    @* ── Day Part (Leave only) ── *@
+                    @if (activeType == "Leave")
+                    {
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold">Duration</label>
+                            <div class="d-flex gap-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="dayPart" value="Single" id="dp_single" checked />
+                                    <label class="form-check-label" for="dp_single">Full Day(s)</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="dayPart" value="FirstHalf" id="dp_first" />
+                                    <label class="form-check-label" for="dp_first">First Half</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="dayPart" value="SecondHalf" id="dp_second" />
+                                    <label class="form-check-label" for="dp_second">Second Half</label>
+                                </div>
+                            </div>
+                        </div>
+                    }
+
+                    @* ── Requested times (Regularisation only) ── *@
+                    @if (activeType == "Regularisation")
+                    {
+                        <div class="row g-3 mb-3">
+                            <div class="col-6">
+                                <label class="form-label fw-semibold">Requested In Time</label>
+                                @if (emp?.Shift != null)
+                                {
+                                    <div class="text-muted mb-1" style="font-size:11px;">
+                                        Shift: @emp.Shift.StartTime.ToString(@"hh\:mm") – @emp.Shift.EndTime.ToString(@"hh\:mm")
+                                    </div>
+                                }
+                                <input type="time" name="requestedInTime" class="form-control" />
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label fw-semibold">Requested Out Time</label>
+                                <div class="text-muted mb-1" style="font-size:11px;">&nbsp;</div>
+                                <input type="time" name="requestedOutTime" class="form-control" />
+                            </div>
+                        </div>
+                        <div class="alert alert-info py-2 mb-3" style="font-size:12px;">
+                            <i class="bi bi-info-circle me-1"></i>
+                            Use this if your punch is missing or incorrect. Fill only the time(s) you want corrected.
+                        </div>
+                    }
+
+                    @* ── Reason ── *@
+                    <div class="mb-4">
+                        <label class="form-label fw-semibold">
+                            Reason
+                            @if (activeType == "Leave" || activeType == "OD") { <span class="text-danger">*</span> }
+                        </label>
+                        <textarea name="reason" class="form-control" rows="3"
+                                  placeholder="@(activeType == "Regularisation" ? "Why was the punch missed or wrong?" : activeType == "WFH" ? "Nature of work / reason for WFH" : activeType == "OD" ? "Location and purpose of on-duty" : "Reason for leave")"
+                                  @(activeType == "Leave" || activeType == "OD" ? "required" : "")></textarea>
+                    </div>
+
+                    <div class="d-flex gap-3 align-items-center">
+                        <button type="submit" class="btn btn-primary px-4">
+                            <i class="bi bi-send-fill me-1"></i> Submit Application
+                        </button>
+                        <a href="@Url.Action("Index","Applications")" class="btn btn-outline-secondary">
+                            <i class="bi bi-arrow-left me-1"></i> My Applications
+                        </a>
+                    </div>
+                </form>
             </div>
-
-            <div class="row g-3 mb-3">
-                <div class="col-md-4">
-                    <label class="form-label">From Date *</label>
-                    <input type="date" name="FromDate" class="form-control" value="@Model.FromDate" required />
-                </div>
-                <div class="col-md-4">
-                    <label class="form-label">To Date *</label>
-                    <input type="date" name="ToDate" class="form-control" value="@Model.ToDate" required />
-                </div>
-                <div class="col-md-4">
-                    <label class="form-label">Day Part</label>
-                    <select name="DayPart" class="form-select">
-                        <option value="Single">Full Day(s)</option>
-                        <option value="FirstHalf">First Half</option>
-                        <option value="SecondHalf">Second Half</option>
-                    </select>
-                </div>
-            </div>
-
-            <div class="mb-3">
-                <label class="form-label">Duration (Days)</label>
-                <input type="number" step="0.5" min="0.5" name="DurationDays" class="form-control" value="1" style="max-width:150px;" />
-            </div>
-
-            <div class="row g-3 mb-3" id="regularisationWrap" style="display:none;">
-                <div class="col-md-6">
-                    <label class="form-label">Corrected In-Time</label>
-                    <input type="time" name="RequestedInTime" class="form-control" />
-                </div>
-                <div class="col-md-6">
-                    <label class="form-label">Corrected Out-Time</label>
-                    <input type="time" name="RequestedOutTime" class="form-control" />
-                </div>
-            </div>
-
-            <div class="mb-3">
-                <label class="form-label">Reason</label>
-                <textarea name="Reason" class="form-control" rows="2"></textarea>
-            </div>
-
-            <button type="submit" class="btn btn-primary"><i class="bi bi-send-fill me-1"></i> Submit</button>
-        </form>
+        </div>
     </div>
 </div>
 
 @section Scripts {
 <script>
-function toggleType() {
-    var t = document.getElementById('appType').value;
-    document.getElementById('leaveTypeWrap').style.display = t === 'Leave' ? 'flex' : 'none';
-    document.getElementById('regularisationWrap').style.display = t === 'Regularisation' ? 'flex' : 'none';
-}
-toggleType();
+// Keep From ≤ To
+(function(){
+    var from = document.querySelector('[name="fromDate"]:not([type=hidden])');
+    var to   = document.querySelector('[name="toDate"]:not([type=hidden])');
+    if (!from || !to) return;
+    from.addEventListener('change', function(){ if (to.value && to.value < from.value) to.value = from.value; });
+    to.addEventListener('change',   function(){ if (from.value && from.value > to.value)  from.value = to.value; });
+})();
 </script>
 }

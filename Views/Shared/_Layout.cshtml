@@ -214,6 +214,27 @@
                 <a class="sidebar-link @(IsActive("EmployeeDashboard","Index") ? "active" : "")" asp-controller="EmployeeDashboard" asp-action="Index">
                     <i class="bi bi-grid-1x2-fill"></i> My Dashboard
                 </a>
+
+                <div class="nav-section-label">My Applications</div>
+                <a class="sidebar-link @(IsActive("Applications","Index") ? "active" : "")" asp-controller="Applications" asp-action="Index">
+                    <i class="bi bi-journal-text"></i> All Applications
+                </a>
+                <a class="sidebar-link @(IsActive("Applications","Apply") && (ViewBag.Type as string)=="Leave" ? "active" : "")"
+                   href="@Url.Action("Apply","Applications",new{type="Leave"})">
+                    <i class="bi bi-calendar-x-fill text-danger"></i> Apply Leave
+                </a>
+                <a class="sidebar-link @(IsActive("Applications","Apply") && (ViewBag.Type as string)=="Regularisation" ? "active" : "")"
+                   href="@Url.Action("Apply","Applications",new{type="Regularisation"})">
+                    <i class="bi bi-patch-check-fill text-warning"></i> Regularisation
+                </a>
+                <a class="sidebar-link @(IsActive("Applications","Apply") && (ViewBag.Type as string)=="WFH" ? "active" : "")"
+                   href="@Url.Action("Apply","Applications",new{type="WFH"})">
+                    <i class="bi bi-house-fill text-primary"></i> Work From Home
+                </a>
+                <a class="sidebar-link @(IsActive("Applications","Apply") && (ViewBag.Type as string)=="OD" ? "active" : "")"
+                   href="@Url.Action("Apply","Applications",new{type="OD"})">
+                    <i class="bi bi-briefcase-fill text-info"></i> On Duty
+                </a>
                 }
 
                 <div class="nav-section-label">My Payroll</div>
