@@ -16,6 +16,10 @@ using AmpmHrmsPro.Models;
 using AmpmHrmsPro.Services;
 using BCrypt.Net;
 
+// Npgsql 8.x strict timestamp mode rejects DateTime.Now (Kind=Local).
+// This switch restores legacy permissive behavior so Employee.CreatedAt = DateTime.Now works.
+AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Render injects PORT env var — use it so the load balancer can reach us
@@ -271,7 +275,8 @@ using (var scope = app.Services.CreateScope())
                     app.Configuration["AdminPassword"] ?? "AMPM@Admin123"),
                 Role         = "admin",
                 Status       = "Active",
-                IsActive     = true
+                IsActive     = true,
+                CreatedAt    = DateTime.UtcNow
             });
             db.SaveChanges();
             Console.WriteLine("✅ Admin created — login: ADMIN001 / AMPM@Admin123");
