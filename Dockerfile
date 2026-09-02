@@ -14,13 +14,14 @@ RUN dotnet publish -c Release -o /app/publish /p:UseAppHost=false
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
 WORKDIR /app
 
-# /data is where Fly.io mounts the persistent volume — SQLite DB yahan rahega
 RUN mkdir -p /data
 
 COPY --from=build /app/publish .
 
-# Fly.io port 8080 use karta hai by default
 ENV ASPNETCORE_URLS=http://+:8080
+# Use polling instead of inotify — avoids Linux container inotify limit errors
+ENV DOTNET_USE_POLLING_FILE_WATCHER=1
+
 EXPOSE 8080
 
 ENTRYPOINT ["dotnet", "AmpmHrmsPro.dll"]
