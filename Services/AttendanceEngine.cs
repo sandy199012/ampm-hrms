@@ -22,7 +22,9 @@ namespace AmpmHrmsPro.Services
         {
             string dateStr = date.ToString("yyyy-MM-dd");
 
-            var employee = await db.Employees.Include(e => e.Shift).Include(e => e.WeekOffPolicy)
+            var employee = await db.Employees
+                .Include(e => e.Shift)
+                .Include(e => e.WeekOffPolicy).ThenInclude(w => w!.Rules)
                 .FirstOrDefaultAsync(e => e.Id == employeeId);
             if (employee == null) return;
 
