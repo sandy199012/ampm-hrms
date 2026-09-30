@@ -23,9 +23,10 @@ namespace AmpmHrmsPro.Controllers
         readonly IBiometricSyncService _sync;
         readonly IEmailSender _emailSender;
         readonly IHrEmailNotificationService _notifier;
-        public AttendanceController(AppDbContext db, IBiometricSyncService sync, IEmailSender emailSender, IHrEmailNotificationService notifier)
+        readonly IServiceScopeFactory _scopeFactory;
+        public AttendanceController(AppDbContext db, IBiometricSyncService sync, IEmailSender emailSender, IHrEmailNotificationService notifier, IServiceScopeFactory scopeFactory)
         {
-            _db = db; _sync = sync; _emailSender = emailSender; _notifier = notifier;
+            _db = db; _sync = sync; _emailSender = emailSender; _notifier = notifier; _scopeFactory = scopeFactory;
         }
 
         static string TempDir => Path.Combine(Directory.GetCurrentDirectory(), "App_Data", "temp");
@@ -699,9 +700,20 @@ namespace AmpmHrmsPro.Controllers
             }
             else
             {
-                await AttendanceEngine.RecomputeAllAsync(_db, from, to);
+                // Run in background so the HTTP request doesn't time out on large datasets.
+                // A fresh DI scope gives the background task its own DbContext instance,
+                // which is required because DbContext is NOT thread-safe.
                 int empCount = await _db.Employees.CountAsync(e => e.IsActive);
-                TempData["Success"] = $"Recomputed {days} day(s) for all {empCount} active employees.";
+                var fromCopy = from;
+                var toCopy = to;
+                _ = Task.Run(async () =>
+                {
+                    using var scope = _scopeFactory.CreateScope();
+                    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                    try { await AttendanceEngine.RecomputeAllAsync(db, fromCopy, toCopy); }
+                    catch { /* errors logged inside engine; do not crash background thread */ }
+                });
+                TempData["Success"] = $"Recompute background mein start ho gaya — {empCount} active employees ke liye {days} din ka data process ho raha hai. Kuch minute baad page refresh karein.";
             }
 
             return View();

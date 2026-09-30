@@ -147,7 +147,12 @@ namespace AmpmHrmsPro.Services
         {
             var ids = employeeIds?.ToList() ?? await db.Employees.Where(e => e.IsActive).Select(e => e.Id).ToListAsync();
             foreach (var id in ids)
+            {
                 await RecomputeRangeAsync(db, id, from, to);
+                // Clear the EF change tracker after each employee so memory doesn't
+                // balloon when recomputing many employees over a large date range.
+                db.ChangeTracker.Clear();
+            }
         }
 
         // Earliest punch of the day = In, latest = Out — used when the
