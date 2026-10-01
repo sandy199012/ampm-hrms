@@ -26,7 +26,7 @@ namespace AmpmHrmsPro.Services
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _log.LogInformation(
-                "AttendanceReviewEmailHostedService started — daily fire at {:D2}:{:D2}",
+                "AttendanceReviewEmailHostedService started — daily fire at {Hour:D2}:{Minute:D2}",
                 _opts.EmailScheduleHour, _opts.EmailScheduleMinute);
 
             while (!stoppingToken.IsCancellationRequested)

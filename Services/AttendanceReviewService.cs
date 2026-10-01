@@ -446,7 +446,7 @@ namespace AmpmHrmsPro.Services
             if (string.IsNullOrWhiteSpace(s)) return false;
             string[] fmts = { "HH:mm", "H:mm", "HH:mm:ss", "h:mm tt", "h:mm:ss tt" };
             foreach (var f in fmts)
-                if (TimeOnly.TryParseExact(s.Trim(), f, CultureInfo.InvariantCulture, out t)) return true;
+                if (TimeOnly.TryParseExact(s.Trim(), f, CultureInfo.InvariantCulture, DateTimeStyles.None, out t)) return true;
             if (TimeOnly.TryParse(s.Trim(), out t)) return true;
             return false;
         }
