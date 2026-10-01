@@ -1,0 +1,63 @@
+@{
+    ViewData["Title"] = "Detailed Attendance Report";
+    ViewData["Subtitle"] = "Reports";
+    string fromDate = ViewBag.FromDate;
+    string toDate   = ViewBag.ToDate;
+    int? deptId = ViewBag.DepartmentId;
+    int? empId  = ViewBag.EmployeeId;
+}
+
+<div class="page-header">
+    <div>
+        <h1>Detailed Attendance Report</h1>
+        <p>Row-per-day format — Name | Date | In/Out | WFH/Store/Office | Late Buffer | Hours</p>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="get" class="row g-3 align-items-end">
+            <div class="col-md-2">
+                <label class="form-label fw-semibold">From Date</label>
+                <input type="date" name="fromDate" value="@fromDate" class="form-control" />
+            </div>
+            <div class="col-md-2">
+                <label class="form-label fw-semibold">To Date</label>
+                <input type="date" name="toDate" value="@toDate" class="form-control" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label fw-semibold">Department (optional)</label>
+                <select name="departmentId" class="form-select">
+                    <option value="">— All Departments —</option>
+                    @foreach (var d in (IEnumerable<AmpmHrmsPro.Models.Department>)ViewBag.DepartmentList)
+                    {
+                        <option value="@d.Id" @(deptId == d.Id ? "selected" : "")>@d.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label fw-semibold">Employee (optional)</label>
+                <select name="employeeId" class="form-select">
+                    <option value="">— All Employees —</option>
+                    @foreach (var e in (IEnumerable<AmpmHrmsPro.Models.Employee>)ViewBag.EmployeeList)
+                    {
+                        <option value="@e.Id" @(empId == e.Id ? "selected" : "")>@e.EmpCode — @e.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-2 d-flex gap-2">
+                <button type="submit" class="btn btn-primary">Filter</button>
+                <a class="btn btn-success"
+                   href="@Url.Action("ExportDetailedAttendanceReport", "Reports", new { fromDate, toDate, departmentId = deptId, employeeId = empId })">
+                    ⬇ Export Excel
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="alert alert-info">
+    <strong>Export kaise karein:</strong> Filters set karo aur <strong>Export Excel</strong> button click karo —
+    exact wahi format milega jaise company ke <em>Attendance Management.xlsx</em> mein hai.<br/>
+    <small>Columns: Name · Employee ID · Date · Holiday/Week Off/Leave/OD · In Time · Out Time · WFH/Store/Office · Late Buffer (min) · Working Hours · Special Remarks</small>
+</div>

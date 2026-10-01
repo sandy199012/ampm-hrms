@@ -689,5 +689,152 @@ namespace AmpmHrmsPro.Services
             foreach (var (code, meaning) in codes) { ws.Cell(row, 1).Value = code; ws.Cell(row, 2).Value = meaning; row++; }
             ws.Columns().AdjustToContents();
         }
+
+        // ═══ DETAILED DAILY ATTENDANCE REPORT ═══
+        // Row-per-day format matching the company's "Attendance Management" template:
+        // Name | Employee ID | Date | Holiday/WO/Leave/OD | In Time | Out Time |
+        // WFH/STORE/OFFICE | Late Coming Buffer (min) | Working Hours | Special Remarks
+        public static byte[] BuildDetailedAttendanceReport(
+            List<Employee> employees,
+            ILookup<int, AttendanceDaily> dailyByEmp,
+            DateTime from, DateTime to)
+        {
+            using var wb = new XLWorkbook();
+            var ws = wb.Worksheets.Add("Attendance");
+
+            // ── Title row ──
+            ws.Cell(1, 1).Value = $"Attendance Report  {from:dd-MMM-yyyy} to {to:dd-MMM-yyyy}  |  Generated: {DateTime.Now:dd-MMM-yyyy HH:mm}";
+            ws.Range(1, 1, 1, 10).Merge();
+            Fill(ws.Cell(1, 1), ClrNavy);
+            ws.Cell(1, 1).Style.Font.FontColor = XLColor.White;
+            ws.Cell(1, 1).Style.Font.Bold = true;
+            ws.Cell(1, 1).Style.Font.FontSize = 12;
+
+            // ── Header row ──
+            string[] headers = {
+                "Name", "Employee ID", "Date",
+                "Holiday/Week Off/Leave/Official Travel",
+                "In Time", "Out Time", "WFH/STORE/OFFICE",
+                "Late Coming Buffer - in Minutes", "Working Hours", "Special Remarks"
+            };
+            int hdrRow = 2;
+            for (int c = 0; c < headers.Length; c++)
+            {
+                var hCell = ws.Cell(hdrRow, c + 1);
+                hCell.Value = headers[c];
+                hCell.Style.Font.Bold = true;
+                hCell.Style.Font.FontColor = XLColor.White;
+                Fill(hCell, ClrNavy);
+                hCell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                hCell.Style.Alignment.WrapText = true;
+            }
+            ws.Row(hdrRow).Height = 30;
+
+            int row = 3;
+            for (var day = from.Date; day <= to.Date; day = day.AddDays(1))
+            {
+                string dayStr = day.ToString("yyyy-MM-dd");
+
+                foreach (var emp in employees)
+                {
+                    var d = dailyByEmp[emp.Id].FirstOrDefault(x => x.Date == dayStr);
+
+                    string status = d?.EffectiveStatus ?? "";
+
+                    // Column D — Holiday / Week Off / Leave / Official Travel
+                    string holidayWoLeave = "";
+                    if (d != null)
+                    {
+                        if (d.WasHoliday && (status == "WO" || !IsPresentFamily(status))) holidayWoLeave = "Holiday";
+                        else if (d.WasWeekOff && status == "WO") holidayWoLeave = "Week Off";
+                        else if (status.StartsWith("L (")) holidayWoLeave = "Leave";
+                        else if (status == "P (OD)") holidayWoLeave = "Official Travel";
+                    }
+
+                    // Column E/F — In / Out time
+                    string inTime = d?.InTime.HasValue == true ? (day + d.InTime!.Value).ToString("HH:mm") : "";
+                    string outTime = d?.OutTime.HasValue == true ? (day + d.OutTime!.Value).ToString("HH:mm") : "";
+
+                    // Column G — WFH / STORE / OFFICE
+                    string wfhStoreOffice = "";
+                    if (d != null && IsPresentFamily(status))
+                    {
+                        if (status == "P (WFH)") wfhStoreOffice = "WFH";
+                        else if (emp.Location?.Name?.Contains("store", StringComparison.OrdinalIgnoreCase) == true) wfhStoreOffice = "STORE";
+                        else wfhStoreOffice = "OFFICE";
+                    }
+
+                    // Column H — Late Coming Buffer in minutes
+                    int lateMinutes = 0;
+                    if (d?.InTime.HasValue == true && emp.Shift != null && !d.WasWeekOff && !d.WasHoliday)
+                    {
+                        var graceEnd = emp.Shift.StartTime + TimeSpan.FromMinutes(emp.Shift.GraceMinutes);
+                        if (d.InTime.Value > graceEnd)
+                            lateMinutes = (int)(d.InTime.Value - graceEnd).TotalMinutes;
+                    }
+
+                    // Column I — Working Hours as H:MM
+                    string workingHours = "";
+                    if (d?.WorkedMinutes.HasValue == true && d.WorkedMinutes > 0)
+                    {
+                        int wm = d.WorkedMinutes.Value;
+                        workingHours = $"{wm / 60}:{(wm % 60):D2}";
+                    }
+
+                    // Column J — Special Remarks (raw status for non-trivial values)
+                    string remarks = "";
+                    if (!string.IsNullOrEmpty(status) && status != "WO" && !status.StartsWith("L ("))
+                        remarks = status;
+
+                    // ── Row fill color ──
+                    string rowColor;
+                    if (d == null || status == "A") rowColor = ClrRed;
+                    else if (status == "WO" || d.WasHoliday) rowColor = ClrGrey;
+                    else if (IsMispunch(status)) rowColor = ClrYellow;
+                    else if (IsPresentFamily(status)) rowColor = ClrGreen;
+                    else rowColor = "FFFFFF";
+
+                    // ── Write cells ──
+                    ws.Cell(row, 1).Value = emp.Name;
+                    ws.Cell(row, 2).Value = emp.EmpCode;
+                    ws.Cell(row, 3).Value = day.ToString("dd-MMM-yyyy");
+                    ws.Cell(row, 4).Value = holidayWoLeave;
+                    ws.Cell(row, 5).Value = inTime;
+                    ws.Cell(row, 6).Value = outTime;
+                    ws.Cell(row, 7).Value = wfhStoreOffice;
+                    ws.Cell(row, 8).Value = lateMinutes > 0 ? lateMinutes.ToString() : "";
+                    ws.Cell(row, 9).Value = workingHours;
+                    ws.Cell(row, 10).Value = remarks;
+
+                    for (int c = 1; c <= 10; c++)
+                        Fill(ws.Cell(row, c), rowColor);
+
+                    row++;
+                }
+            }
+
+            // ── Borders + column widths ──
+            var dataRange = ws.Range(2, 1, row - 1, 10);
+            dataRange.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+            dataRange.Style.Border.InsideBorder = XLBorderStyleValues.Hair;
+            ws.Row(hdrRow).Style.Border.BottomBorder = XLBorderStyleValues.Medium;
+
+            ws.Column(1).Width = 22;  // Name
+            ws.Column(2).Width = 14;  // Employee ID
+            ws.Column(3).Width = 14;  // Date
+            ws.Column(4).Width = 28;  // Holiday/WO/Leave/OD
+            ws.Column(5).Width = 10;  // In Time
+            ws.Column(6).Width = 10;  // Out Time
+            ws.Column(7).Width = 16;  // WFH/STORE/OFFICE
+            ws.Column(8).Width = 20;  // Late Buffer
+            ws.Column(9).Width = 14;  // Working Hours
+            ws.Column(10).Width = 22; // Special Remarks
+
+            ws.SheetView.FreezeRows(2);
+
+            using var stream = new MemoryStream();
+            wb.SaveAs(stream);
+            return stream.ToArray();
+        }
     }
 }

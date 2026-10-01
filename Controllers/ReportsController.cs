@@ -56,6 +56,51 @@ namespace AmpmHrmsPro.Controllers
             return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", name);
         }
 
+        // ═══ DETAILED DAILY ATTENDANCE REPORT (row-per-day format) ═══
+        public IActionResult DetailedAttendanceReport(string? fromDate, string? toDate, int? departmentId, int? employeeId)
+        {
+            var from = DateTime.TryParse(fromDate, out var f) ? f.Date : DateTime.Today.AddDays(-6);
+            var to   = DateTime.TryParse(toDate,   out var t) ? t.Date : DateTime.Today;
+            if (from > to) from = to;
+
+            ViewBag.FromDate     = from.ToString("yyyy-MM-dd");
+            ViewBag.ToDate       = to.ToString("yyyy-MM-dd");
+            ViewBag.DepartmentId = departmentId;
+            ViewBag.EmployeeId   = employeeId;
+            ViewBag.DepartmentList = _db.Departments.Where(d => d.IsActive).OrderBy(d => d.Name).ToList();
+            ViewBag.EmployeeList   = _db.Employees.Where(e => e.IsActive).OrderBy(e => e.Name).ToList();
+
+            return View();
+        }
+
+        public IActionResult ExportDetailedAttendanceReport(string? fromDate, string? toDate, int? departmentId, int? employeeId)
+        {
+            var from = DateTime.TryParse(fromDate, out var f) ? f.Date : DateTime.Today.AddDays(-6);
+            var to   = DateTime.TryParse(toDate,   out var t) ? t.Date : DateTime.Today;
+            if (from > to) from = to;
+            if ((to - from).TotalDays > 366) to = from.AddDays(365);
+
+            string fromStr = from.ToString("yyyy-MM-dd"), toStr = to.ToString("yyyy-MM-dd");
+
+            var empQuery = _db.Employees
+                .Include(e => e.Shift).Include(e => e.Location)
+                .Where(e => e.IsActive).AsQueryable();
+            if (departmentId.HasValue) empQuery = empQuery.Where(e => e.DepartmentId == departmentId);
+            if (employeeId.HasValue)   empQuery = empQuery.Where(e => e.Id == employeeId);
+            var employees = empQuery.OrderBy(e => e.Name).ToList();
+
+            var empIds = employees.Select(e => e.Id).ToHashSet();
+            var dailyByEmp = _db.AttendanceDailies
+                .Where(d => empIds.Contains(d.EmployeeId)
+                         && string.Compare(d.Date, fromStr) >= 0
+                         && string.Compare(d.Date, toStr) <= 0)
+                .ToList().ToLookup(d => d.EmployeeId);
+
+            var bytes = ExcelReportBuilder.BuildDetailedAttendanceReport(employees, dailyByEmp, from, to);
+            var name = $"Attendance_{from:dd-MMM-yyyy}_to_{to:dd-MMM-yyyy}.xlsx";
+            return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", name);
+        }
+
         // ═══ DASHBOARD ═══
         public IActionResult Dashboard(int? year, int? month)
         {
