@@ -1,0 +1,162 @@
+@model List<AmpmHrmsPro.Models.AttendanceImport>
+@{
+    ViewData["Title"]    = "Attendance Review";
+    ViewData["Subtitle"] = "Upload daily Presence 360 report and review attendance gaps";
+}
+
+<div class="page-header">
+    <div>
+        <h1>Attendance Review</h1>
+        <p>Upload the Presence 360 daily CSV to detect gaps for your team.</p>
+    </div>
+</div>
+
+@if (TempData["Success"] != null)
+{
+    <div class="alert alert-success alert-dismissible fade show" role="alert">
+        <i class="bi bi-check-circle-fill me-2"></i>@TempData["Success"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+}
+@if (TempData["Error"] != null)
+{
+    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+        <i class="bi bi-exclamation-triangle-fill me-2"></i>@TempData["Error"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+}
+
+<div class="row g-3 mb-4">
+    <div class="col-lg-5">
+        <div class="card h-100">
+            <div class="card-header">
+                <i class="bi bi-upload me-1" style="color:var(--primary);"></i>
+                Upload Presence 360 CSV
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    Download the daily attendance report from Presence 360 and upload here.
+                    The system will auto-detect late comings, short hours, extra time, and unplanned absences.
+                </p>
+                <form asp-action="Upload" asp-controller="AttendanceReview" method="post" enctype="multipart/form-data">
+                    @Html.AntiForgeryToken()
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Select CSV File</label>
+                        <input type="file" name="csvFile" accept=".csv" class="form-control" required />
+                        <div class="form-text">Export from Presence 360 → Reports → Daily Attendance</div>
+                    </div>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-cloud-upload-fill me-1"></i> Upload & Detect Gaps
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-7">
+        <div class="card h-100">
+            <div class="card-header">
+                <i class="bi bi-info-circle me-1" style="color:var(--info);"></i>
+                Gap Detection Rules
+            </div>
+            <div class="card-body">
+                <div class="row g-2">
+                    <div class="col-6">
+                        <div class="p-3 rounded-3" style="background:var(--warning-light);">
+                            <div class="fw-semibold mb-1" style="color:var(--warning);font-size:13px;">
+                                <i class="bi bi-clock me-1"></i> Late Coming
+                            </div>
+                            <div class="text-muted" style="font-size:12px;">
+                                Arrived after roster In Time + late buffer (default 10 min)
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="p-3 rounded-3" style="background:var(--info-light);">
+                            <div class="fw-semibold mb-1" style="color:var(--info);font-size:13px;">
+                                <i class="bi bi-hourglass-bottom me-1"></i> Short Hours
+                            </div>
+                            <div class="text-muted" style="font-size:12px;">
+                                Worked less than planned hours (Roster Out − In)
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="p-3 rounded-3" style="background:var(--success-light);">
+                            <div class="fw-semibold mb-1" style="color:var(--success);font-size:13px;">
+                                <i class="bi bi-hourglass-top me-1"></i> Extra Time
+                            </div>
+                            <div class="text-muted" style="font-size:12px;">
+                                Worked 30+ min more than planned hours
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="p-3 rounded-3" style="background:var(--danger-light);">
+                            <div class="fw-semibold mb-1" style="color:var(--danger);font-size:13px;">
+                                <i class="bi bi-person-x me-1"></i> Absent / Unplanned
+                            </div>
+                            <div class="text-muted" style="font-size:12px;">
+                                Absent with no planned leave in roster
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <i class="bi bi-clock-history me-1" style="color:var(--primary);"></i>
+        Import History
+    </div>
+    <div class="card-body p-0">
+        @if (!Model.Any())
+        {
+            <p class="text-muted small p-3 mb-0">No imports yet. Upload your first CSV above.</p>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="table table-hover mb-0" style="font-size:13px;">
+                    <thead style="background:var(--bg-light);">
+                        <tr>
+                            <th>File</th>
+                            <th>Date Range</th>
+                            <th>Records</th>
+                            <th>Gaps</th>
+                            <th>Imported By</th>
+                            <th>Imported At</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var imp in Model)
+                        {
+                            <tr>
+                                <td><i class="bi bi-file-earmark-text me-1 text-muted"></i>@imp.FileName</td>
+                                <td>@imp.FromDate.ToString("dd MMM") – @imp.ToDate.ToString("dd MMM yyyy")</td>
+                                <td>@imp.RecordsProcessed</td>
+                                <td>
+                                    <span class="badge rounded-pill" style="background:var(--danger-light);color:var(--danger);">
+                                        @imp.GapsDetected
+                                    </span>
+                                </td>
+                                <td>@imp.ImportedBy</td>
+                                <td>@imp.ImportedAt.ToLocalTime().ToString("dd MMM yyyy, HH:mm")</td>
+                                <td>
+                                    <a href="@Url.Action("GapReport", "AttendanceReview", new { id = imp.Id })"
+                                       class="btn btn-sm" style="background:var(--primary-light);color:var(--primary-dark);">
+                                        <i class="bi bi-eye me-1"></i>View
+                                    </a>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</div>

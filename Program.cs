@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
@@ -150,6 +149,15 @@ builder.Services.AddHostedService<HrNotificationHostedService>();
 // Services/PayrollTaxEngine.cs. No background job here — computed live
 // on each page view (SalaryController / TaxController / MyTaxController). ──
 builder.Services.AddScoped<IPayrollTaxEngine, PayrollTaxEngine>();
+
+// ── Attendance Review (Presence 360 gap analysis) — parses the daily CSV,
+// detects 4 gap types vs the roster, and emails pilot managers each morning.
+// Pilot manager list and email schedule are in appsettings.json under
+// "AttendanceReview". ──
+builder.Services.Configure<AttendanceReviewOptions>(
+    builder.Configuration.GetSection("AttendanceReview"));
+builder.Services.AddScoped<IAttendanceReviewService, AttendanceReviewService>();
+builder.Services.AddHostedService<AttendanceReviewEmailHostedService>();
 
 var app = builder.Build();
 

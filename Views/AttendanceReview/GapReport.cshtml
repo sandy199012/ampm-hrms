@@ -1,0 +1,190 @@
+@model List<AmpmHrmsPro.Models.AttendanceGapLog>
+@{
+    ViewData["Title"]    = "Gap Report";
+    ViewData["Subtitle"] = "Detected attendance gaps";
+    int importId = ViewBag.ImportId;
+    var byManager = (IEnumerable<IGrouping<string, AmpmHrmsPro.Models.AttendanceGapLog>>)ViewBag.ByManager;
+
+    string BadgeClass(string gapType) => gapType switch {
+        "Late"       => "warning",
+        "ShortHours" => "info",
+        "ExtraTime"  => "success",
+        _            => "danger"
+    };
+    string GapLabel(string gapType) => gapType switch {
+        "Late"       => "Late Coming",
+        "ShortHours" => "Short Hours",
+        "ExtraTime"  => "Extra Time",
+        _            => "Absent"
+    };
+}
+
+<div class="page-header">
+    <div>
+        <h1>Gap Report <span class="text-muted fw-normal" style="font-size:16px;">— Import #@importId</span></h1>
+        <p>@Model.Count gap(s) detected</p>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="@Url.Action("Index", "AttendanceReview")" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left me-1"></i>Back
+        </a>
+        <a href="@Url.Action("DownloadExcel", "AttendanceReview", new { id = importId })"
+           class="btn btn-sm" style="background:var(--success-light);color:var(--success);">
+            <i class="bi bi-file-earmark-excel me-1"></i>Download Excel
+        </a>
+        <form asp-action="SendEmails" asp-controller="AttendanceReview" method="post" style="display:inline;">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="id" value="@importId" />
+            <button type="submit" class="btn btn-primary btn-sm"
+                    onclick="return confirm('Send attendance review emails to all pilot managers now?')">
+                <i class="bi bi-envelope-fill me-1"></i>Send Emails Now
+            </button>
+        </form>
+    </div>
+</div>
+
+@if (TempData["Success"] != null)
+{
+    <div class="alert alert-success alert-dismissible fade show mb-3">
+        <i class="bi bi-check-circle-fill me-2"></i>@TempData["Success"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+}
+@if (TempData["Error"] != null)
+{
+    <div class="alert alert-danger alert-dismissible fade show mb-3">
+        <i class="bi bi-exclamation-triangle-fill me-2"></i>@TempData["Error"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+}
+
+@* Summary cards *@
+<div class="row g-3 mb-4">
+    @{
+        var lateCount  = Model.Count(g => g.GapType == "Late");
+        var shortCount = Model.Count(g => g.GapType == "ShortHours");
+        var extraCount = Model.Count(g => g.GapType == "ExtraTime");
+        var absCount   = Model.Count(g => g.GapType == "Absent");
+    }
+    <div class="col-6 col-xl-3">
+        <div class="stat-card">
+            <div class="stat-icon" style="background:var(--warning-light);color:var(--warning);"><i class="bi bi-clock"></i></div>
+            <div><div class="stat-value">@lateCount</div><div class="stat-label">Late Coming</div></div>
+        </div>
+    </div>
+    <div class="col-6 col-xl-3">
+        <div class="stat-card">
+            <div class="stat-icon" style="background:var(--info-light);color:var(--info);"><i class="bi bi-hourglass-bottom"></i></div>
+            <div><div class="stat-value">@shortCount</div><div class="stat-label">Short Hours</div></div>
+        </div>
+    </div>
+    <div class="col-6 col-xl-3">
+        <div class="stat-card">
+            <div class="stat-icon" style="background:var(--success-light);color:var(--success);"><i class="bi bi-hourglass-top"></i></div>
+            <div><div class="stat-value">@extraCount</div><div class="stat-label">Extra Time</div></div>
+        </div>
+    </div>
+    <div class="col-6 col-xl-3">
+        <div class="stat-card">
+            <div class="stat-icon" style="background:var(--danger-light);color:var(--danger);"><i class="bi bi-person-x"></i></div>
+            <div><div class="stat-value">@absCount</div><div class="stat-label">Absent/Unplanned</div></div>
+        </div>
+    </div>
+</div>
+
+@* Per-manager sections *@
+@if (!Model.Any())
+{
+    <div class="card">
+        <div class="card-body">
+            <p class="text-muted text-center py-4 mb-0">
+                <i class="bi bi-check-circle-fill text-success me-2" style="font-size:20px;"></i>
+                No gaps detected in this import. Great job!
+            </p>
+        </div>
+    </div>
+}
+else
+{
+    foreach (var grp in byManager)
+    {
+        var mgrGaps = grp.ToList();
+        var emailSent = mgrGaps.Any(g => g.EmailSent);
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div>
+                    <i class="bi bi-person-badge me-1" style="color:var(--primary);"></i>
+                    <strong>@grp.Key</strong>
+                    @if (!string.IsNullOrEmpty(mgrGaps.First().ManagerEmail))
+                    {
+                        <span class="text-muted ms-2" style="font-size:12px;">@mgrGaps.First().ManagerEmail</span>
+                    }
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    @if (emailSent)
+                    {
+                        <span class="badge bg-success rounded-pill"><i class="bi bi-check2 me-1"></i>Email Sent</span>
+                    }
+                    else if (!string.IsNullOrEmpty(mgrGaps.First().ManagerEmail))
+                    {
+                        <span class="badge rounded-pill" style="background:var(--warning-light);color:var(--warning);">Email Pending</span>
+                    }
+                    else
+                    {
+                        <span class="badge rounded-pill" style="background:#eee;color:#888;">Not in Pilot</span>
+                    }
+                    <a href="@Url.Action("DownloadExcel","AttendanceReview",new{id=importId,managerEmail=mgrGaps.First().ManagerEmail})"
+                       class="btn btn-sm" style="background:var(--success-light);color:var(--success);">
+                        <i class="bi bi-file-earmark-excel"></i>
+                    </a>
+                    <span class="badge rounded-pill" style="background:var(--danger-light);color:var(--danger);">
+                        @mgrGaps.Count gap(s)
+                    </span>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0" style="font-size:12.5px;">
+                        <thead style="background:var(--bg-light);">
+                            <tr>
+                                <th>Employee</th><th>Date</th><th>Gap</th>
+                                <th>Actual In</th><th>Actual Out</th><th>Actual Hrs</th>
+                                <th>Planned In</th><th>Planned Out</th><th>Details</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var g in mgrGaps.OrderBy(g => g.Date).ThenBy(g => g.EmployeeName))
+                            {
+                                var bc = BadgeClass(g.GapType);
+                                <tr>
+                                    <td>
+                                        <div class="fw-semibold">@g.EmployeeName</div>
+                                        <div class="text-muted" style="font-size:11px;">@g.EmployeeCode · @g.Department</div>
+                                    </td>
+                                    <td>
+                                        @g.Date.ToString("dd MMM yyyy")
+                                        <div class="text-muted" style="font-size:11px;">@g.Date.DayOfWeek</div>
+                                    </td>
+                                    <td>
+                                        <span class="badge rounded-pill text-bg-@bc">@GapLabel(g.GapType)</span>
+                                    </td>
+                                    <td>@(g.ActualInTime.HasValue  ? g.ActualInTime.Value.ToString("HH:mm")  : "—")</td>
+                                    <td>@(g.ActualOutTime.HasValue ? g.ActualOutTime.Value.ToString("HH:mm") : "—")</td>
+                                    <td>@(g.ActualHours.HasValue   ? g.ActualHours.Value.ToString("0.00")    : "—")</td>
+                                    <td>@(g.PlannedInTime.HasValue  ? g.PlannedInTime.Value.ToString("HH:mm")  : "—")</td>
+                                    <td>@(g.PlannedOutTime.HasValue ? g.PlannedOutTime.Value.ToString("HH:mm") : "—")</td>
+                                    <td class="text-muted">
+                                        @if (g.GapType == "Late"       && g.LateByMinutes.HasValue)  { @($"Late by {g.LateByMinutes} min") }
+                                        @if (g.GapType == "ShortHours" && g.ShortByMinutes.HasValue) { @($"Short by {g.ShortByMinutes} min") }
+                                        @if (g.GapType == "ExtraTime"  && g.ExtraByMinutes.HasValue) { @($"Extra {g.ExtraByMinutes} min") }
+                                        @if (g.GapType == "Absent") { <span>No planned leave</span> }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+}

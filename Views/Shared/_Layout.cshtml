@@ -100,6 +100,11 @@
                     <i class="bi bi-envelope-fill"></i> Email Notifications
                 </a>
 
+                <div class="nav-section-label">Attendance Review</div>
+                <a class="sidebar-link @(IsActiveAny("AttendanceReview","Index","GapReport") ? "active" : "")" asp-controller="AttendanceReview" asp-action="Index">
+                    <i class="bi bi-clipboard2-data-fill"></i> Gap Analysis
+                </a>
+
                 <div class="nav-section-label">Salary Structure</div>
                 <a class="sidebar-link @(IsActive("Salary","Components") ? "active" : "")" asp-controller="Salary" asp-action="Components">
                     <i class="bi bi-cash-coin"></i> Components

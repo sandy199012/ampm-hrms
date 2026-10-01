@@ -65,6 +65,11 @@ namespace AmpmHrmsPro.Data
         // ── Leave Balance (EL / CL) ──
         public DbSet<LeaveBalance> LeaveBalances { get; set; }
 
+        // ── Attendance Review (Presence 360 gap analysis) ──
+        public DbSet<RosterEntry>      RosterEntries      { get; set; }
+        public DbSet<AttendanceImport> AttendanceImports  { get; set; }
+        public DbSet<AttendanceGapLog> AttendanceGapLogs  { get; set; }
+
         protected override void OnModelCreating(ModelBuilder mb)
         {
             // Unique indexes
@@ -303,6 +308,26 @@ namespace AmpmHrmsPro.Data
                 .IsUnique();
             mb.Entity<LeaveBalance>().HasOne(b => b.Employee).WithMany()
                 .HasForeignKey(b => b.EmployeeId).OnDelete(DeleteBehavior.NoAction);
+
+            // ── Attendance Review (Presence 360 gap analysis) ─────────────────
+            // RosterEntry: fast lookup by employee + date (the most common
+            // query during gap detection).
+            mb.Entity<RosterEntry>().HasIndex(r => new { r.EmployeeCode, r.Date });
+            mb.Entity<RosterEntry>().HasIndex(r => new { r.Month });
+
+            // AttendanceImport: each upload batch is independent — no unique
+            // constraint so the same file can be re-imported if needed.
+            mb.Entity<AttendanceImport>().HasIndex(i => i.ImportedAt);
+
+            // AttendanceGapLog: gaps owned by their import batch; deleting
+            // an import batch cascades to its gaps (same owned-rows pattern
+            // as WeekOffRule / LeavePolicyRule above).
+            mb.Entity<AttendanceGapLog>().HasOne(g => g.Import).WithMany(i => i.Gaps)
+                .HasForeignKey(g => g.ImportId).OnDelete(DeleteBehavior.Cascade);
+            mb.Entity<AttendanceGapLog>().HasIndex(g => new { g.ImportId, g.EmployeeCode, g.Date });
+            mb.Entity<AttendanceGapLog>().HasIndex(g => new { g.ManagerEmail, g.EmailSent });
+            mb.Entity<AttendanceGapLog>().Property(g => g.ActualHours).HasPrecision(5, 2);
+            mb.Entity<AttendanceGapLog>().Property(g => g.PlannedHours).HasPrecision(5, 2);
         }
     }
 }
