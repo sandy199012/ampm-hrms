@@ -71,8 +71,10 @@ namespace AmpmHrmsPro.Controllers
             ViewBag.ImportId = id;
 
             // Group summary for display
+            // Group by HoD (falls back to direct manager for older imports
+            // created before HoD roll-up existed).
             ViewBag.ByManager = gaps
-                .GroupBy(g => g.ManagerName ?? "Unknown")
+                .GroupBy(g => g.HodName ?? g.ManagerName ?? "Unassigned")
                 .OrderBy(g => g.Key)
                 .ToList();
 
@@ -97,15 +99,21 @@ namespace AmpmHrmsPro.Controllers
         }
 
         // GET /AttendanceReview/DownloadExcel/5  [?managerEmail=...]
-        public async Task<IActionResult> DownloadExcel(int id, string? managerEmail = null)
+        // ?hod=Manish Rana → only that HoD's department; no filter → all HoDs
+        // (Summary sheet + one sheet per HoD).
+        public async Task<IActionResult> DownloadExcel(int id, string? managerEmail = null, string? hod = null)
         {
             var gaps = await _svc.GetGapsAsync(id);
-            var filtered = string.IsNullOrEmpty(managerEmail)
-                ? gaps
-                : gaps.Where(g => g.ManagerEmail == managerEmail).ToList();
+            var filtered = gaps;
+            if (!string.IsNullOrEmpty(hod))
+                filtered = gaps.Where(g => string.Equals(g.HodName ?? g.ManagerName, hod,
+                                           StringComparison.OrdinalIgnoreCase)).ToList();
+            else if (!string.IsNullOrEmpty(managerEmail))
+                filtered = gaps.Where(g => g.ManagerEmail == managerEmail).ToList();
 
             var bytes = await _svc.GenerateExcelAsync(managerEmail ?? "all", filtered);
-            var name  = $"AttendanceGaps_{id}_{DateTime.Today:yyyyMMdd}.xlsx";
+            var label = string.IsNullOrEmpty(hod) ? "AllHoDs" : hod.Replace(" ", "_");
+            var name  = $"AttendanceGaps_{label}_{id}_{DateTime.Today:yyyyMMdd}.xlsx";
             return File(bytes,
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", name);
         }

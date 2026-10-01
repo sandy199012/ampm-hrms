@@ -99,9 +99,16 @@ namespace AmpmHrmsPro.Models
         [MaxLength(80)]
         public string? Department   { get; set; }
 
+        // Direct reporting manager (from Presence 360 "Manager Name").
         [MaxLength(120)]
         public string? ManagerName  { get; set; }
 
+        // HoD = first manager up the reporting chain who is in the HoD /
+        // pilot list (e.g. Shivam → Sunny Malik → MANISH RANA).
+        [MaxLength(120)]
+        public string? HodName      { get; set; }
+
+        // Email of the HoD who receives this gap (pilot HoDs only).
         [MaxLength(200)]
         public string? ManagerEmail { get; set; }
 

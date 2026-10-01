@@ -33,6 +33,10 @@ namespace AmpmHrmsPro.Services
     public class AttendanceReviewOptions
     {
         public List<PilotManager> PilotManagers { get; set; } = new();
+        // HoDs ("Final Emailer List = Yes" in the master sheet). A gap rolls up
+        // the reporting chain to the first person found in this list or in
+        // PilotManagers. Pilot managers are always treated as HoDs.
+        public List<string> HodNames { get; set; } = new();
         // Hour (24h) at which the daily auto-email fires — default 7:30
         public int EmailScheduleHour   { get; set; } = 7;
         public int EmailScheduleMinute { get; set; } = 30;
@@ -70,6 +74,8 @@ namespace AmpmHrmsPro.Services
         // Pilot manager lookup: normalize name → PilotManager config
         private Dictionary<string, PilotManager> _pilotByName = new(StringComparer.OrdinalIgnoreCase);
         private HashSet<string>                  _pilotEmails  = new(StringComparer.OrdinalIgnoreCase);
+        // normalized HoD name → display name ("Manish Rana")
+        private Dictionary<string, string>       _hodByName    = new(StringComparer.OrdinalIgnoreCase);
 
         public AttendanceReviewService(
             AppDbContext db,
@@ -80,10 +86,14 @@ namespace AmpmHrmsPro.Services
             _opts = opts.Value;
             _log  = log;
 
+            foreach (var h in _opts.HodNames)
+                if (!string.IsNullOrWhiteSpace(h)) _hodByName[NormName(h)] = Pretty(h);
+
             foreach (var pm in _opts.PilotManagers)
             {
                 _pilotByName[NormName(pm.Name)] = pm;
                 _pilotEmails.Add(pm.Email);
+                _hodByName[NormName(pm.Name)] = Pretty(pm.Name);
             }
         }
 
@@ -92,6 +102,26 @@ namespace AmpmHrmsPro.Services
         private static string NormName(string? s) =>
             System.Text.RegularExpressions.Regex.Replace(s ?? "", @"\s+", " ")
                 .Trim().TrimEnd('.').Trim();
+
+        // "FAZEL  MIRZA" → "Fazel Mirza"
+        private static string Pretty(string? s) =>
+            CultureInfo.InvariantCulture.TextInfo.ToTitleCase(NormName(s).ToLowerInvariant());
+
+        // Walk up the reporting chain (employee → manager → manager's manager…)
+        // until we hit a HoD. Falls back to the direct manager.
+        private string ResolveHod(string? directManager, Dictionary<string, string> managerOf)
+        {
+            var m    = NormName(directManager);
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            while (m.Length > 0 && seen.Add(m))
+            {
+                if (_hodByName.TryGetValue(m, out var hod)) return hod;
+                if (!managerOf.TryGetValue(m, out var up)) break;
+                m = up;
+            }
+            var direct = Pretty(directManager);
+            return direct.Length > 0 ? direct : "Unassigned";
+        }
 
         // ── 1. CSV Import ─────────────────────────────────────────────────────
         public async Task<int> ImportCsvAsync(
@@ -134,12 +164,31 @@ namespace AmpmHrmsPro.Services
                 gaps.AddRange(gapsForRow);
             }
 
-            // Populate manager emails from pilot config
+            // Reporting chain from the CSV itself: employee name → manager name
+            // (managers are employees too, so their own manager is in the file).
+            var managerOf = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var rw in rows)
+            {
+                var emp = NormName(rw.EmpName);
+                var mgr = NormName(rw.ManagerName);
+                if (emp.Length > 0 && mgr.Length > 0 && !managerOf.ContainsKey(emp))
+                    managerOf[emp] = mgr;
+            }
+
+            // Resolve HoD for each gap; email goes to the HoD if they're a pilot.
+            var hodCache = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var g in gaps)
             {
-                if (_pilotByName.TryGetValue(NormName(g.ManagerName), out var pm))
+                var key = NormName(g.ManagerName);
+                if (!hodCache.TryGetValue(key, out var hod))
+                    hodCache[key] = hod = ResolveHod(g.ManagerName, managerOf);
+
+                g.HodName     = hod;
+                g.ManagerName = string.IsNullOrEmpty(key) ? "Unassigned" : Pretty(g.ManagerName);
+
+                if (_pilotByName.TryGetValue(NormName(hod), out var pm))
                     g.ManagerEmail = pm.Email;
-                // else: manager not in pilot list — gap saved but no email sent
+                // else: HoD not in pilot list — gap saved but no email sent
             }
 
             import.GapsDetected = gaps.Count;
@@ -156,7 +205,8 @@ namespace AmpmHrmsPro.Services
         public Task<List<AttendanceGapLog>> GetGapsAsync(int importId, CancellationToken ct = default) =>
             _db.AttendanceGapLogs
                .Where(g => g.ImportId == importId)
-               .OrderBy(g => g.ManagerName).ThenBy(g => g.EmployeeName).ThenBy(g => g.Date)
+               .OrderBy(g => g.HodName).ThenBy(g => g.ManagerName)
+               .ThenBy(g => g.EmployeeName).ThenBy(g => g.Date)
                .ToListAsync(ct);
 
         public Task<List<AttendanceImport>> GetImportsAsync(CancellationToken ct = default) =>
@@ -165,61 +215,141 @@ namespace AmpmHrmsPro.Services
                .ToListAsync(ct);
 
         // ── 3. Excel generation ───────────────────────────────────────────────
+        // Sheet 1 "Summary": HoD → Reporting Manager gap counts (with HoD totals).
+        // Then one detail sheet per HoD (or a single "Gap Details" sheet when
+        // the workbook is for one HoD).
         public Task<byte[]> GenerateExcelAsync(string managerEmail, IEnumerable<AttendanceGapLog> gaps)
         {
+            var list = gaps.ToList();
             using var wb = new XLWorkbook();
-            var ws = wb.Worksheets.Add("Attendance Gaps");
+            var headerFill = XLColor.FromHtml("#1e3a5f");
 
-            // Header row
-            string[] headers = {
-                "Emp Code", "Employee Name", "Department",
-                "Date", "Day", "Gap Type",
-                "Actual In", "Actual Out", "Actual Hours",
-                "Planned In", "Planned Out", "Planned Hours",
-                "Late By (min)", "Short By (min)", "Extra By (min)"
-            };
-            for (int c = 0; c < headers.Length; c++)
+            void StyleHeader(IXLWorksheet ws, int row, int cols)
             {
-                var cell = ws.Cell(1, c + 1);
-                cell.Value = headers[c];
-                cell.Style.Font.Bold = true;
-                cell.Style.Fill.BackgroundColor = XLColor.FromHtml("#1e3a5f");
-                cell.Style.Font.FontColor       = XLColor.White;
+                var rng = ws.Range(row, 1, row, cols);
+                rng.Style.Font.Bold = true;
+                rng.Style.Font.FontColor = XLColor.White;
+                rng.Style.Fill.BackgroundColor = headerFill;
             }
 
-            // Data rows
-            int row = 2;
-            foreach (var g in gaps.OrderBy(g => g.Date).ThenBy(g => g.EmployeeName))
+            // ── Summary sheet ──
+            var sum = wb.Worksheets.Add("Summary");
+            string[] sh = { "HoD", "Reporting Manager", "Employees", "Late Coming",
+                            "Short Hours", "Extra Time", "Absent / Unplanned", "Total Gaps" };
+            for (int c = 0; c < sh.Length; c++) sum.Cell(1, c + 1).Value = sh[c];
+            StyleHeader(sum, 1, sh.Length);
+
+            int sr = 2;
+            var byHod = list.GroupBy(g => g.HodName ?? g.ManagerName ?? "Unassigned")
+                            .OrderBy(g => g.Key).ToList();
+            foreach (var hod in byHod)
             {
-                ws.Cell(row, 1).Value  = g.EmployeeCode;
-                ws.Cell(row, 2).Value  = g.EmployeeName;
-                ws.Cell(row, 3).Value  = g.Department ?? "";
-                ws.Cell(row, 4).Value  = g.Date.ToString("dd-MMM-yyyy");
-                ws.Cell(row, 5).Value  = g.Date.DayOfWeek.ToString();
-                ws.Cell(row, 6).Value  = g.GapType;
-                ws.Cell(row, 7).Value  = g.ActualInTime.HasValue  ? g.ActualInTime.Value.ToString("HH:mm")  : "-";
-                ws.Cell(row, 8).Value  = g.ActualOutTime.HasValue ? g.ActualOutTime.Value.ToString("HH:mm") : "-";
-                ws.Cell(row, 9).Value  = g.ActualHours.HasValue    ? g.ActualHours.Value.ToString("0.00")    : "-";
-                ws.Cell(row, 10).Value = g.PlannedInTime.HasValue  ? g.PlannedInTime.Value.ToString("HH:mm")  : "-";
-                ws.Cell(row, 11).Value = g.PlannedOutTime.HasValue ? g.PlannedOutTime.Value.ToString("HH:mm") : "-";
-                ws.Cell(row, 12).Value = g.PlannedHours.HasValue   ? g.PlannedHours.Value.ToString("0.00")   : "-";
-                ws.Cell(row, 13).Value = g.LateByMinutes.HasValue  ? g.LateByMinutes.Value.ToString()  : "";
-                ws.Cell(row, 14).Value = g.ShortByMinutes.HasValue ? g.ShortByMinutes.Value.ToString() : "";
-                ws.Cell(row, 15).Value = g.ExtraByMinutes.HasValue ? g.ExtraByMinutes.Value.ToString() : "";
-
-                // Highlight Absent rows
-                if (g.GapType == "Absent")
-                    ws.Row(row).Style.Fill.BackgroundColor = XLColor.FromHtml("#fff0f0");
-
-                row++;
+                foreach (var mg in hod.GroupBy(g => g.ManagerName ?? "Unassigned").OrderBy(g => g.Key))
+                {
+                    WriteSummaryRow(sum, sr++, hod.Key, mg.Key, mg.ToList(), bold: false);
+                }
+                WriteSummaryRow(sum, sr, hod.Key, "HoD Total", hod.ToList(), bold: true);
+                sum.Range(sr, 1, sr, sh.Length).Style.Fill.BackgroundColor = XLColor.FromHtml("#eef2f7");
+                sr++;
             }
+            WriteSummaryRow(sum, sr, "GRAND TOTAL", "", list, bold: true);
+            sum.Range(sr, 1, sr, sh.Length).Style.Fill.BackgroundColor = XLColor.FromHtml("#dbe4f0");
+            sum.SheetView.FreezeRows(1);
+            sum.Columns().AdjustToContents();
 
-            ws.Columns().AdjustToContents();
+            // ── Detail sheet(s) ──
+            if (byHod.Count <= 1)
+                WriteDetailSheet(wb, "Gap Details", list, StyleHeader);
+            else
+            {
+                var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Summary" };
+                foreach (var hod in byHod)
+                {
+                    var name = SafeSheetName(hod.Key);
+                    var baseName = name; int n = 2;
+                    while (!used.Add(name)) name = SafeSheetName($"{baseName} {n++}");
+                    WriteDetailSheet(wb, name, hod.ToList(), StyleHeader);
+                }
+            }
 
             using var ms = new MemoryStream();
             wb.SaveAs(ms);
             return Task.FromResult(ms.ToArray());
         }
+
+        private static void WriteSummaryRow(IXLWorksheet ws, int row, string hod, string mgr,
+                                            List<AttendanceGapLog> g, bool bold)
+        {
+            ws.Cell(row, 1).Value = hod;
+            ws.Cell(row, 2).Value = mgr;
+            ws.Cell(row, 3).Value = (double)g.Select(x => x.EmployeeCode).Distinct().Count();
+            ws.Cell(row, 4).Value = (double)g.Count(x => x.GapType == "Late");
+            ws.Cell(row, 5).Value = (double)g.Count(x => x.GapType == "ShortHours");
+            ws.Cell(row, 6).Value = (double)g.Count(x => x.GapType == "ExtraTime");
+            ws.Cell(row, 7).Value = (double)g.Count(x => x.GapType == "Absent");
+            ws.Cell(row, 8).Value = (double)g.Count;
+            if (bold) ws.Range(row, 1, row, 8).Style.Font.Bold = true;
+        }
+
+        private static void WriteDetailSheet(XLWorkbook wb, string sheetName,
+            List<AttendanceGapLog> gaps, Action<IXLWorksheet, int, int> styleHeader)
+        {
+            var ws = wb.Worksheets.Add(sheetName);
+            string[] headers = {
+                "HoD", "Reporting Manager", "Emp Code", "Employee Name", "Department",
+                "Date", "Day", "Gap Type",
+                "Actual In", "Actual Out", "Actual Hours",
+                "Planned In", "Planned Out", "Planned Hours",
+                "Late By (min)", "Short By (min)", "Extra By (min)"
+            };
+            for (int c = 0; c < headers.Length; c++) ws.Cell(1, c + 1).Value = headers[c];
+            styleHeader(ws, 1, headers.Length);
+
+            int row = 2;
+            foreach (var g in gaps.OrderBy(x => x.ManagerName).ThenBy(x => x.EmployeeName).ThenBy(x => x.Date))
+            {
+                ws.Cell(row, 1).Value  = g.HodName ?? "";
+                ws.Cell(row, 2).Value  = g.ManagerName ?? "";
+                ws.Cell(row, 3).Value  = g.EmployeeCode;
+                ws.Cell(row, 4).Value  = g.EmployeeName;
+                ws.Cell(row, 5).Value  = g.Department ?? "";
+                ws.Cell(row, 6).Value  = g.Date.ToString("dd-MMM-yyyy");
+                ws.Cell(row, 7).Value  = g.Date.DayOfWeek.ToString();
+                ws.Cell(row, 8).Value  = GapLabel(g.GapType);
+                ws.Cell(row, 9).Value  = g.ActualInTime.HasValue   ? g.ActualInTime.Value.ToString("HH:mm")   : "-";
+                ws.Cell(row, 10).Value = g.ActualOutTime.HasValue  ? g.ActualOutTime.Value.ToString("HH:mm")  : "-";
+                ws.Cell(row, 11).Value = g.ActualHours.HasValue    ? g.ActualHours.Value.ToString("0.00")     : "-";
+                ws.Cell(row, 12).Value = g.PlannedInTime.HasValue  ? g.PlannedInTime.Value.ToString("HH:mm")  : "-";
+                ws.Cell(row, 13).Value = g.PlannedOutTime.HasValue ? g.PlannedOutTime.Value.ToString("HH:mm") : "-";
+                ws.Cell(row, 14).Value = g.PlannedHours.HasValue   ? g.PlannedHours.Value.ToString("0.00")    : "-";
+                ws.Cell(row, 15).Value = g.LateByMinutes.HasValue  ? g.LateByMinutes.Value.ToString()  : "";
+                ws.Cell(row, 16).Value = g.ShortByMinutes.HasValue ? g.ShortByMinutes.Value.ToString() : "";
+                ws.Cell(row, 17).Value = g.ExtraByMinutes.HasValue ? g.ExtraByMinutes.Value.ToString() : "";
+
+                if (g.GapType == "Absent")
+                    ws.Range(row, 1, row, headers.Length).Style.Fill.BackgroundColor = XLColor.FromHtml("#fff0f0");
+                row++;
+            }
+            ws.SheetView.FreezeRows(1);
+            ws.RangeUsed()?.SetAutoFilter();
+            ws.Columns().AdjustToContents();
+        }
+
+        // Excel sheet names: max 31 chars, no : \ / ? * [ ]
+        private static string SafeSheetName(string s)
+        {
+            var clean = new string((s ?? "Sheet").Where(ch => ":\\/?*[]".IndexOf(ch) < 0).ToArray()).Trim();
+            if (clean.Length == 0) clean = "Sheet";
+            return clean.Length > 31 ? clean[..31] : clean;
+        }
+
+        private static string GapLabel(string gapType) => gapType switch
+        {
+            "Late"       => "Late Coming",
+            "ShortHours" => "Short Hours",
+            "ExtraTime"  => "Extra Time",
+            _            => "Absent / Unplanned"
+        };
 
         // ── 4. Send emails for a specific import ──────────────────────────────
         public async Task<(int Sent, int Failed)> SendEmailsForImportAsync(int importId, CancellationToken ct = default)
@@ -274,7 +404,7 @@ namespace AmpmHrmsPro.Services
                     continue;
 
                 var mgGaps = grp.ToList();
-                var managerName = mgGaps.First().ManagerName ?? managerEmail;
+                var managerName = mgGaps.First().HodName ?? mgGaps.First().ManagerName ?? managerEmail;
 
                 // Pilot config gives the clean display name + CC list
                 var pm = _opts.PilotManagers.FirstOrDefault(p =>
@@ -631,15 +761,39 @@ namespace AmpmHrmsPro.Services
 <body>
 <h2>Attendance Review — {dateRange}</h2>
 <p>Hi {managerName},</p>
-<p>Below is the attendance gap summary for your team. The detailed Excel is attached.</p>
+<p>Below is the attendance gap summary for your department (all reporting managers under you). The detailed Excel is attached.</p>
+<h3 style='color:#1e3a5f;margin-bottom:0;'>Summary by Reporting Manager</h3>
 <table>
 <tr>
-  <th>Employee</th><th>Date</th><th>Gap</th>
+  <th>Reporting Manager</th><th>Employees</th><th>Late Coming</th><th>Short Hours</th>
+  <th>Extra Time</th><th>Absent / Unplanned</th><th>Total</th>
+</tr>");
+
+            foreach (var mg in gaps.GroupBy(x => x.ManagerName ?? "Unassigned").OrderBy(x => x.Key))
+            {
+                sb.Append($@"
+<tr>
+  <td>{mg.Key}</td>
+  <td>{mg.Select(x => x.EmployeeCode).Distinct().Count()}</td>
+  <td>{mg.Count(x => x.GapType == "Late")}</td>
+  <td>{mg.Count(x => x.GapType == "ShortHours")}</td>
+  <td>{mg.Count(x => x.GapType == "ExtraTime")}</td>
+  <td>{mg.Count(x => x.GapType == "Absent")}</td>
+  <td><b>{mg.Count()}</b></td>
+</tr>");
+            }
+
+            sb.Append(@"
+</table>
+<h3 style='color:#1e3a5f;margin:24px 0 0;'>Gap Details</h3>
+<table>
+<tr>
+  <th>Reporting Manager</th><th>Employee</th><th>Date</th><th>Gap</th>
   <th>Actual In</th><th>Actual Out</th><th>Actual Hrs</th>
   <th>Planned In</th><th>Planned Out</th><th>Details</th>
 </tr>");
 
-            foreach (var g in gaps.OrderBy(g => g.Date).ThenBy(g => g.EmployeeName))
+            foreach (var g in gaps.OrderBy(x => x.ManagerName).ThenBy(x => x.Date).ThenBy(x => x.EmployeeName))
             {
                 var badgeClass = g.GapType switch
                 {
@@ -665,6 +819,7 @@ namespace AmpmHrmsPro.Services
 
                 sb.Append($@"
 <tr>
+  <td>{g.ManagerName}</td>
   <td>{g.EmployeeName} <span style='color:#888;font-size:11px;'>({g.EmployeeCode})</span></td>
   <td>{g.Date:dd MMM yyyy}</td>
   <td><span class='{badgeClass}'>{gapLabel}</span></td>

@@ -92,7 +92,66 @@
     </div>
 </div>
 
-@* Per-manager sections *@
+@* HoD-wise summary *@
+@if (Model.Any())
+{
+    <div class="card mb-4">
+        <div class="card-header">
+            <i class="bi bi-diagram-3-fill me-1" style="color:var(--primary);"></i>
+            HoD-wise Summary
+            <span class="text-muted ms-2" style="font-size:12px;">Click a HoD to see their team's gaps</span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0" style="font-size:13px;">
+                    <thead style="background:var(--bg-light);">
+                        <tr>
+                            <th>HoD</th><th>Reporting Managers</th><th class="text-end">Employees</th>
+                            <th class="text-end">Late</th><th class="text-end">Short Hrs</th>
+                            <th class="text-end">Extra Time</th><th class="text-end">Absent</th>
+                            <th class="text-end">Total</th><th>Email</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @{ int hi = 0; }
+                        @foreach (var grp in byManager)
+                        {
+                            var hg = grp.ToList();
+                            var hodEmail = hg.FirstOrDefault(x => !string.IsNullOrEmpty(x.ManagerEmail))?.ManagerEmail;
+                            <tr style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#hod-@hi">
+                                <td class="fw-semibold"><i class="bi bi-chevron-down me-1 text-muted"></i>@grp.Key</td>
+                                <td>@(hg.Select(x => x.ManagerName).Distinct().Count())</td>
+                                <td class="text-end">@(hg.Select(x => x.EmployeeCode).Distinct().Count())</td>
+                                <td class="text-end">@(hg.Count(x => x.GapType == "Late"))</td>
+                                <td class="text-end">@(hg.Count(x => x.GapType == "ShortHours"))</td>
+                                <td class="text-end">@(hg.Count(x => x.GapType == "ExtraTime"))</td>
+                                <td class="text-end">@(hg.Count(x => x.GapType == "Absent"))</td>
+                                <td class="text-end fw-semibold">@hg.Count</td>
+                                <td>
+                                    @if (hg.Any(x => x.EmailSent))
+                                    {
+                                        <span class="badge bg-success rounded-pill">Sent</span>
+                                    }
+                                    else if (!string.IsNullOrEmpty(hodEmail))
+                                    {
+                                        <span class="badge rounded-pill" style="background:var(--warning-light);color:var(--warning);">Pilot · Pending</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge rounded-pill" style="background:#eee;color:#888;">Not in Pilot</span>
+                                    }
+                                </td>
+                            </tr>
+                            hi++;
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+}
+
+@* Per-HoD sections, broken down by reporting manager *@
 @if (!Model.Any())
 {
     <div class="card">
@@ -106,85 +165,93 @@
 }
 else
 {
+    int si = 0;
     foreach (var grp in byManager)
     {
-        var mgrGaps = grp.ToList();
-        var emailSent = mgrGaps.Any(g => g.EmailSent);
+        var hodGaps = grp.ToList();
+        var hodEmail = hodGaps.FirstOrDefault(x => !string.IsNullOrEmpty(x.ManagerEmail))?.ManagerEmail;
+        var byRm = hodGaps.GroupBy(x => x.ManagerName ?? "Unassigned").OrderBy(x => x.Key).ToList();
         <div class="card mb-3">
-            <div class="card-header d-flex justify-content-between align-items-center">
+            <div class="card-header d-flex justify-content-between align-items-center"
+                 style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#hod-@si">
                 <div>
-                    <i class="bi bi-person-badge me-1" style="color:var(--primary);"></i>
+                    <i class="bi bi-person-badge-fill me-1" style="color:var(--primary);"></i>
+                    <span class="text-muted" style="font-size:12px;">HoD:</span>
                     <strong>@grp.Key</strong>
-                    @if (!string.IsNullOrEmpty(mgrGaps.First().ManagerEmail))
+                    @if (!string.IsNullOrEmpty(hodEmail))
                     {
-                        <span class="text-muted ms-2" style="font-size:12px;">@mgrGaps.First().ManagerEmail</span>
+                        <span class="text-muted ms-2" style="font-size:12px;">@hodEmail</span>
                     }
                 </div>
                 <div class="d-flex align-items-center gap-2">
-                    @if (emailSent)
-                    {
-                        <span class="badge bg-success rounded-pill"><i class="bi bi-check2 me-1"></i>Email Sent</span>
-                    }
-                    else if (!string.IsNullOrEmpty(mgrGaps.First().ManagerEmail))
-                    {
-                        <span class="badge rounded-pill" style="background:var(--warning-light);color:var(--warning);">Email Pending</span>
-                    }
-                    else
-                    {
-                        <span class="badge rounded-pill" style="background:#eee;color:#888;">Not in Pilot</span>
-                    }
-                    <a href="@Url.Action("DownloadExcel","AttendanceReview",new{id=importId,managerEmail=mgrGaps.First().ManagerEmail})"
-                       class="btn btn-sm" style="background:var(--success-light);color:var(--success);">
+                    <a href="@Url.Action("DownloadExcel","AttendanceReview",new{id=importId,hod=grp.Key})"
+                       class="btn btn-sm" style="background:var(--success-light);color:var(--success);"
+                       title="Download Excel for this HoD" onclick="event.stopPropagation();">
                         <i class="bi bi-file-earmark-excel"></i>
                     </a>
                     <span class="badge rounded-pill" style="background:var(--danger-light);color:var(--danger);">
-                        @mgrGaps.Count gap(s)
+                        @hodGaps.Count gap(s)
                     </span>
+                    <i class="bi bi-chevron-down text-muted"></i>
                 </div>
             </div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table table-hover mb-0" style="font-size:12.5px;">
-                        <thead style="background:var(--bg-light);">
-                            <tr>
-                                <th>Employee</th><th>Date</th><th>Gap</th>
-                                <th>Actual In</th><th>Actual Out</th><th>Actual Hrs</th>
-                                <th>Planned In</th><th>Planned Out</th><th>Details</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var g in mgrGaps.OrderBy(g => g.Date).ThenBy(g => g.EmployeeName))
-                            {
-                                var bc = BadgeClass(g.GapType);
-                                <tr>
-                                    <td>
-                                        <div class="fw-semibold">@g.EmployeeName</div>
-                                        <div class="text-muted" style="font-size:11px;">@g.EmployeeCode · @g.Department</div>
-                                    </td>
-                                    <td>
-                                        @g.Date.ToString("dd MMM yyyy")
-                                        <div class="text-muted" style="font-size:11px;">@g.Date.DayOfWeek</div>
-                                    </td>
-                                    <td>
-                                        <span class="badge rounded-pill text-bg-@bc">@GapLabel(g.GapType)</span>
-                                    </td>
-                                    <td>@(g.ActualInTime.HasValue  ? g.ActualInTime.Value.ToString("HH:mm")  : "—")</td>
-                                    <td>@(g.ActualOutTime.HasValue ? g.ActualOutTime.Value.ToString("HH:mm") : "—")</td>
-                                    <td>@(g.ActualHours.HasValue   ? g.ActualHours.Value.ToString("0.00")    : "—")</td>
-                                    <td>@(g.PlannedInTime.HasValue  ? g.PlannedInTime.Value.ToString("HH:mm")  : "—")</td>
-                                    <td>@(g.PlannedOutTime.HasValue ? g.PlannedOutTime.Value.ToString("HH:mm") : "—")</td>
-                                    <td class="text-muted">
-                                        @if (g.GapType == "Late"       && g.LateByMinutes.HasValue)  { @($"Late by {g.LateByMinutes} min") }
-                                        @if (g.GapType == "ShortHours" && g.ShortByMinutes.HasValue) { @($"Short by {g.ShortByMinutes} min") }
-                                        @if (g.GapType == "ExtraTime"  && g.ExtraByMinutes.HasValue) { @($"Extra {g.ExtraByMinutes} min") }
-                                        @if (g.GapType == "Absent") { <span>No planned leave</span> }
-                                    </td>
-                                </tr>
-                            }
-                        </tbody>
-                    </table>
+            <div id="hod-@si" class="collapse">
+                <div class="card-body p-0">
+                    @foreach (var rm in byRm)
+                    {
+                        var rmGaps = rm.ToList();
+                        <div class="px-3 py-2 d-flex flex-wrap align-items-center gap-2" style="background:var(--bg-light);border-top:1px solid #e5e7eb;">
+                            <i class="bi bi-person-fill text-muted"></i>
+                            <span class="text-muted" style="font-size:12px;">Reporting Manager:</span>
+                            <strong style="font-size:13px;">@rm.Key</strong>
+                            <span class="badge rounded-pill text-bg-warning">Late @(rmGaps.Count(x => x.GapType == "Late"))</span>
+                            <span class="badge rounded-pill text-bg-info">Short @(rmGaps.Count(x => x.GapType == "ShortHours"))</span>
+                            <span class="badge rounded-pill text-bg-success">Extra @(rmGaps.Count(x => x.GapType == "ExtraTime"))</span>
+                            <span class="badge rounded-pill text-bg-danger">Absent @(rmGaps.Count(x => x.GapType == "Absent"))</span>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0" style="font-size:12.5px;">
+                                <thead>
+                                    <tr>
+                                        <th>Employee</th><th>Date</th><th>Gap</th>
+                                        <th>Actual In</th><th>Actual Out</th><th>Actual Hrs</th>
+                                        <th>Planned In</th><th>Planned Out</th><th>Details</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var g in rmGaps.OrderBy(x => x.EmployeeName).ThenBy(x => x.Date))
+                                    {
+                                        var bc = BadgeClass(g.GapType);
+                                        <tr>
+                                            <td>
+                                                <div class="fw-semibold">@g.EmployeeName</div>
+                                                <div class="text-muted" style="font-size:11px;">@g.EmployeeCode · @g.Department</div>
+                                            </td>
+                                            <td>
+                                                @g.Date.ToString("dd MMM yyyy")
+                                                <div class="text-muted" style="font-size:11px;">@g.Date.DayOfWeek</div>
+                                            </td>
+                                            <td><span class="badge rounded-pill text-bg-@bc">@GapLabel(g.GapType)</span></td>
+                                            <td>@(g.ActualInTime.HasValue  ? g.ActualInTime.Value.ToString("HH:mm")  : "—")</td>
+                                            <td>@(g.ActualOutTime.HasValue ? g.ActualOutTime.Value.ToString("HH:mm") : "—")</td>
+                                            <td>@(g.ActualHours.HasValue   ? g.ActualHours.Value.ToString("0.00")    : "—")</td>
+                                            <td>@(g.PlannedInTime.HasValue  ? g.PlannedInTime.Value.ToString("HH:mm")  : "—")</td>
+                                            <td>@(g.PlannedOutTime.HasValue ? g.PlannedOutTime.Value.ToString("HH:mm") : "—")</td>
+                                            <td class="text-muted">
+                                                @if (g.GapType == "Late"       && g.LateByMinutes.HasValue)  { @($"Late by {g.LateByMinutes} min") }
+                                                @if (g.GapType == "ShortHours" && g.ShortByMinutes.HasValue) { @($"Short by {g.ShortByMinutes} min") }
+                                                @if (g.GapType == "ExtraTime"  && g.ExtraByMinutes.HasValue) { @($"Extra {g.ExtraByMinutes} min") }
+                                                @if (g.GapType == "Absent") { <span>No planned leave</span> }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
                 </div>
             </div>
         </div>
+        si++;
     }
 }

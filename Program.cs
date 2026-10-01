@@ -256,6 +256,25 @@ using (var scope = app.Services.CreateScope())
             }
         }
         Console.WriteLine($"✅ Schema: {ok} applied, {skipped} already existed");
+
+        // Columns added after a table already exists — CREATE TABLE IF NOT
+        // EXISTS won't add them, so add them here (errors = already there).
+        string[] addColumns =
+        {
+            db.Database.IsNpgsql()
+                ? "ALTER TABLE \"AttendanceGapLogs\" ADD COLUMN IF NOT EXISTS \"HodName\" character varying(120) NULL"
+                : "ALTER TABLE \"AttendanceGapLogs\" ADD COLUMN \"HodName\" TEXT NULL"
+        };
+        foreach (var sql in addColumns)
+        {
+            try
+            {
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = sql;
+                cmd.ExecuteNonQuery();
+            }
+            catch { /* column already exists */ }
+        }
     }
     catch (Exception ex)
     {
