@@ -173,6 +173,9 @@
                 <a class="sidebar-link @(IsActive("Reports","AttendanceReports") ? "active" : "")" asp-controller="Reports" asp-action="AttendanceReports">
                     <i class="bi bi-clipboard-data-fill"></i> Attendance Reports
                 </a>
+                <a class="sidebar-link @(IsActive("Reports","DetailedAttendanceReport") ? "active" : "")" asp-controller="Reports" asp-action="DetailedAttendanceReport">
+                    <i class="bi bi-file-earmark-spreadsheet-fill"></i> Daily Detail Report
+                </a>
                 <a class="sidebar-link @(IsActive("Reports","LeaveReports") ? "active" : "")" asp-controller="Reports" asp-action="LeaveReports">
                     <i class="bi bi-wallet2"></i> Leave Reports
                 </a>
