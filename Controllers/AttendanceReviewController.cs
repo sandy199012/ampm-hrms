@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace AmpmHrmsPro.Controllers
 {
-    [Authorize(Roles = "Admin,HR")]
+    [Authorize(Roles = "admin,hr")]
     public class AttendanceReviewController : Controller
     {
         private readonly IAttendanceReviewService _svc;
