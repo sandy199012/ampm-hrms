@@ -17,6 +17,7 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection.EntityFrameworkCore" Version="8.0.4" />
     <PackageReference Include="ClosedXML" Version="0.105.1" />
     <!-- Mobile app auth — the web app keeps using its Cookie scheme (see
          Program.cs); the React Native app authenticates against the same

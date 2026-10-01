@@ -30,6 +30,14 @@ if (!string.IsNullOrEmpty(renderPort))
 // ── Services ──
 builder.Services.AddControllersWithViews();
 
+// ── DataProtection — persist encryption keys to Postgres so they survive
+// container restarts on Render free tier. Without this, every restart
+// invalidates all browser cookies and anti-forgery tokens, forcing
+// every user to log in again and throwing AntiforgeryValidationException. ──
+builder.Services.AddDataProtection()
+    .SetApplicationName("AmpmHrmsPro")
+    .PersistKeysToDbContext<AmpmHrmsPro.Data.AppDbContext>();
+
 // DATABASE: cloud (Render) → PostgreSQL via DATABASE_URL env var
 //           local dev      → SQLite (ampm_hrms.db in project folder)
 var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");

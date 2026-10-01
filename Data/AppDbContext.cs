@@ -1,11 +1,17 @@
+using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using AmpmHrmsPro.Models;
 
 namespace AmpmHrmsPro.Data
 {
-    public class AppDbContext : DbContext
+    public class AppDbContext : DbContext, IDataProtectionKeyContext
     {
         public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
+
+        // ── DataProtection keys — persisted to DB so keys survive container
+        // restarts on Render free tier (otherwise every restart invalidates
+        // all browser cookies / anti-forgery tokens and forces re-login). ──
+        public DbSet<DataProtectionKey> DataProtectionKeys { get; set; }
 
         public DbSet<Employee>       Employees       { get; set; }
         public DbSet<Department>     Departments     { get; set; }
@@ -258,7 +264,7 @@ namespace AmpmHrmsPro.Data
             // Manual entries are exempt (an admin may legitimately log more
             // than one manual credit for the same date, e.g. a correction).
             mb.Entity<CompOffLedger>().HasIndex(l => new { l.EmployeeId, l.EarnedDate, l.Source })
-                .IsUnique().HasFilter("[Source] = 'Auto'");
+                .IsUnique().HasFilter("\"Source\" = 'Auto'");  // double-quotes = PostgreSQL + SQLite compatible
             mb.Entity<CompOffLedger>().HasOne(l => l.Employee).WithMany()
                 .HasForeignKey(l => l.EmployeeId).OnDelete(DeleteBehavior.NoAction); // same multiple-cascade-paths reasoning as every other Employees FK above
             mb.Entity<CompOffLedger>().HasOne(l => l.CreatedByEmployee).WithMany()
@@ -288,7 +294,7 @@ namespace AmpmHrmsPro.Data
 
             // One Auto OT row per employee per date (same idempotency guard as CompOff).
             mb.Entity<OTLedger>().HasIndex(l => new { l.EmployeeId, l.Date, l.Source })
-                .IsUnique().HasFilter("[Source] = 'Auto'");
+                .IsUnique().HasFilter("\"Source\" = 'Auto'");  // double-quotes = PostgreSQL + SQLite compatible
 
             // ── Leave Balance ────────────────────────────────────────────────
             // One row per employee per leave-type per year — upsert pattern
