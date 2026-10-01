@@ -31,7 +31,7 @@
                     <option value="">— All Departments —</option>
                     @foreach (var d in (IEnumerable<AmpmHrmsPro.Models.Department>)ViewBag.DepartmentList)
                     {
-                        <option value="@d.Id" @(deptId == d.Id ? "selected" : "")>@d.Name</option>
+                        <option value="@d.Id" selected="@(deptId == d.Id ? "selected" : null)">@d.Name</option>
                     }
                 </select>
             </div>
@@ -41,7 +41,7 @@
                     <option value="">— All Employees —</option>
                     @foreach (var e in (IEnumerable<AmpmHrmsPro.Models.Employee>)ViewBag.EmployeeList)
                     {
-                        <option value="@e.Id" @(empId == e.Id ? "selected" : "")>@e.EmpCode — @e.Name</option>
+                        <option value="@e.Id" selected="@(empId == e.Id ? "selected" : null)">@e.EmpCode — @e.Name</option>
                     }
                 </select>
             </div>
