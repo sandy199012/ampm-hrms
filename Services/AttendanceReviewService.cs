@@ -82,10 +82,16 @@ namespace AmpmHrmsPro.Services
 
             foreach (var pm in _opts.PilotManagers)
             {
-                _pilotByName[pm.Name]  = pm;
+                _pilotByName[NormName(pm.Name)] = pm;
                 _pilotEmails.Add(pm.Email);
             }
         }
+
+        // Presence 360 names carry double spaces / trailing dots
+        // ("JAIDEEP  SINGH", "MD SAFIQ  .") — collapse to a single clean form.
+        private static string NormName(string? s) =>
+            System.Text.RegularExpressions.Regex.Replace(s ?? "", @"\s+", " ")
+                .Trim().TrimEnd('.').Trim();
 
         // ── 1. CSV Import ─────────────────────────────────────────────────────
         public async Task<int> ImportCsvAsync(
@@ -131,7 +137,7 @@ namespace AmpmHrmsPro.Services
             // Populate manager emails from pilot config
             foreach (var g in gaps)
             {
-                if (_pilotByName.TryGetValue(g.ManagerName ?? "", out var pm))
+                if (_pilotByName.TryGetValue(NormName(g.ManagerName), out var pm))
                     g.ManagerEmail = pm.Email;
                 // else: manager not in pilot list — gap saved but no email sent
             }
@@ -219,7 +225,7 @@ namespace AmpmHrmsPro.Services
         public async Task<(int Sent, int Failed)> SendEmailsForImportAsync(int importId, CancellationToken ct = default)
         {
             var gaps = await _db.AttendanceGapLogs
-                .Where(g => g.ImportId == importId && !string.IsNullOrEmpty(g.ManagerEmail))
+                .Where(g => g.ImportId == importId && !g.EmailSent && !string.IsNullOrEmpty(g.ManagerEmail))
                 .ToListAsync(ct);
             return await SendGapsEmailAsync(gaps, ct);
         }
@@ -270,6 +276,12 @@ namespace AmpmHrmsPro.Services
                 var mgGaps = grp.ToList();
                 var managerName = mgGaps.First().ManagerName ?? managerEmail;
 
+                // Pilot config gives the clean display name + CC list
+                var pm = _opts.PilotManagers.FirstOrDefault(p =>
+                    string.Equals(p.Email, managerEmail, StringComparison.OrdinalIgnoreCase));
+                if (pm != null) managerName = pm.Name;
+                var ccList = pm?.CcEmails ?? new List<string>();
+
                 // Get date range for subject
                 var dateMin = mgGaps.Min(g => g.Date);
                 var dateMax = mgGaps.Max(g => g.Date);
@@ -280,10 +292,6 @@ namespace AmpmHrmsPro.Services
                 var subject = $"Attendance Review — {dateRange} | Your Team Gaps";
                 var body    = BuildEmailHtml(managerName, mgGaps, dateRange);
                 var excel   = await GenerateExcelAsync(managerEmail, mgGaps);
-
-                // CC list
-                _pilotByName.TryGetValue(managerName, out var pm);
-                var ccList = pm?.CcEmails ?? new List<string>();
 
                 try
                 {
@@ -352,11 +360,17 @@ namespace AmpmHrmsPro.Services
             var rows = new List<AttendanceRow>();
             using var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true);
 
-            // Row 1: org header — skip
-            reader.ReadLine();
-
-            // Row 2: column headers
-            var headerLine = reader.ReadLine();
+            // Presence 360 puts an "Organization: ..." line and a blank line
+            // before the real header — scan ahead for the header row.
+            string? headerLine = null;
+            for (int i = 0; i < 10; i++)
+            {
+                var l = reader.ReadLine();
+                if (l == null) break;
+                if (l.Contains("Employee Code", StringComparison.OrdinalIgnoreCase) &&
+                    l.Contains("Attendance Date", StringComparison.OrdinalIgnoreCase))
+                { headerLine = l.TrimStart('﻿'); break; }
+            }
             if (headerLine == null) return rows;
             var headers = SplitCsvLine(headerLine);
             var idx = BuildHeaderIndex(headers);
@@ -570,10 +584,10 @@ namespace AmpmHrmsPro.Services
             return new AttendanceGapLog
             {
                 ImportId       = importId,
-                EmployeeName   = row.EmpName,
+                EmployeeName   = NormName(row.EmpName),
                 EmployeeCode   = row.EmpCode,
                 Department     = row.Department,
-                ManagerName    = row.ManagerName,
+                ManagerName    = NormName(row.ManagerName),
                 ManagerEmail   = null,  // set by caller after pilot-manager lookup
                 Date           = row.Date,
                 GapType        = gapType,
