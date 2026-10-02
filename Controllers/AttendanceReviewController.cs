@@ -88,7 +88,12 @@ namespace AmpmHrmsPro.Controllers
             try
             {
                 var (sent, failed) = await _svc.SendEmailsForImportAsync(id);
-                TempData["Success"] = $"Emails sent to {sent} manager(s). Failed: {failed}.";
+                if (failed > 0)
+                    TempData["Error"] = $"Emails sent: {sent}, failed: {failed}. Reason: {_svc.LastSendError}";
+                else if (sent == 0)
+                    TempData["Error"] = "No emails to send — either already sent, or no gaps belong to a pilot HoD.";
+                else
+                    TempData["Success"] = $"Emails sent to {sent} HoD(s).";
             }
             catch (Exception ex)
             {

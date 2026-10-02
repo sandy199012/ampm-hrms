@@ -1,0 +1,90 @@
+@* Views/Shared/_OutlookMailCard.cshtml — "Connect Outlook" status card *@
+@inject AmpmHrmsPro.Services.IOutlookMailService Outlook
+@{
+    var acct = await Outlook.GetAccountAsync();
+    var host = Context.Request.Host.Host;
+    var isLocal = host == "localhost" || host == "127.0.0.1";
+    var callbackUrl = Url.Action("Callback", "OutlookMail", null, isLocal ? Context.Request.Scheme : "https");
+}
+
+<div class="card mb-3" style="border-left:4px solid @(acct != null ? "var(--success)" : "var(--primary)");">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-microsoft me-1" style="color:#0078d4;"></i> Send emails from Outlook</span>
+        @if (acct != null)
+        {
+            <span class="badge bg-success rounded-pill"><i class="bi bi-check2 me-1"></i>Connected</span>
+        }
+        else
+        {
+            <span class="badge rounded-pill" style="background:#eee;color:#666;">Not connected</span>
+        }
+    </div>
+    <div class="card-body">
+        @if (!Outlook.IsConfigured)
+        {
+            <p class="mb-2">
+                Sign in once with your Outlook / Microsoft 365 account and every HRMS email
+                (Attendance Review, Daily Alert, Birthday, Weekly Report) is sent from that mailbox — no SMTP needed.
+            </p>
+            <div class="alert alert-warning small mb-0">
+                <strong>One-time setup pending on the server.</strong> A Microsoft app registration is required
+                (Azure Portal → Microsoft Entra ID → App registrations). Use this Redirect URI:
+                <div class="mt-1"><code>@callbackUrl</code></div>
+                Then add <code>MicrosoftGraph__ClientId</code> and <code>MicrosoftGraph__ClientSecret</code>
+                as environment variables on Render and redeploy.
+            </div>
+        }
+        else if (acct == null)
+        {
+            <p class="mb-3">
+                Sign in with your Outlook / Microsoft 365 account. After that, every HRMS email is sent from
+                that mailbox (and shows in its Sent Items) — the SMTP section below is not needed.
+            </p>
+            <a asp-controller="OutlookMail" asp-action="Connect" class="btn btn-primary">
+                <i class="bi bi-microsoft me-1"></i> Connect Outlook
+            </a>
+        }
+        else
+        {
+            <div class="mb-2">
+                <div class="fw-semibold">@acct.DisplayName</div>
+                <div class="text-muted small">@acct.Email</div>
+            </div>
+            <div class="text-muted small mb-3">
+                Connected @acct.ConnectedAt.ToLocalTime().ToString("dd-MMM-yyyy hh:mm tt") by @acct.ConnectedBy
+                @if (acct.LastSentAt.HasValue)
+                {
+                    <span> · Last email sent @acct.LastSentAt.Value.ToLocalTime().ToString("dd-MMM-yyyy hh:mm tt")</span>
+                }
+            </div>
+            @if (!string.IsNullOrEmpty(acct.LastError))
+            {
+                <div class="alert alert-danger small py-2">
+                    <strong>Last error:</strong> @acct.LastError
+                    <div>If it says the token expired or was revoked, click Disconnect and connect again.</div>
+                </div>
+            }
+            <div class="d-flex flex-wrap gap-2 align-items-center">
+                <form asp-controller="OutlookMail" asp-action="SendTest" method="post" class="d-flex gap-2">
+                    @Html.AntiForgeryToken()
+                    <input type="email" name="to" class="form-control form-control-sm" style="min-width:220px;"
+                           placeholder="Send a test email to…" value="@acct.Email" required />
+                    <button type="submit" class="btn btn-sm btn-outline-primary text-nowrap">
+                        <i class="bi bi-send me-1"></i>Send test
+                    </button>
+                </form>
+                <form asp-controller="OutlookMail" asp-action="Disconnect" method="post"
+                      onsubmit="return confirm('Disconnect Outlook? HRMS will fall back to SMTP settings.');">
+                    @Html.AntiForgeryToken()
+                    <button type="submit" class="btn btn-sm btn-outline-danger">
+                        <i class="bi bi-x-circle me-1"></i>Disconnect
+                    </button>
+                </form>
+            </div>
+            <p class="text-muted small mt-3 mb-0">
+                Schedules and on/off switches below still apply — keep <strong>Enabled</strong> switched on for the
+                scheduled emails. SMTP fields can be left blank.
+            </p>
+        }
+    </div>
+</div>

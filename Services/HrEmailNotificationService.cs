@@ -28,18 +28,38 @@ namespace AmpmHrmsPro.Services
     public interface IEmailSender
     {
         Task<(bool Success, string Message)> SendAsync(EmailSettings settings, IEnumerable<string> to, string subject, string htmlBody, IEnumerable<string>? bcc = null);
+
+        // Full form — To/CC/BCC + attachments (used by Attendance Review).
+        Task<(bool Success, string Message)> SendAsync(EmailSettings? settings, MailRequest req);
     }
 
+    // SMTP fallback — only used when no Outlook account is connected
+    // (see SmartEmailSender in OutlookMailService.cs, which is the
+    // registered IEmailSender).
     public class SmtpEmailSender : IEmailSender
     {
-        public async Task<(bool, string)> SendAsync(EmailSettings settings, IEnumerable<string> to, string subject, string htmlBody, IEnumerable<string>? bcc = null)
-        {
-            if (string.IsNullOrWhiteSpace(settings.SmtpHost) || string.IsNullOrWhiteSpace(settings.FromEmail))
-                return (false, "SMTP host / From address not configured.");
+        public Task<(bool Success, string Message)> SendAsync(EmailSettings settings, IEnumerable<string> to, string subject, string htmlBody, IEnumerable<string>? bcc = null) =>
+            SendAsync(settings, new MailRequest
+            {
+                To       = to.ToList(),
+                Bcc      = (bcc ?? Enumerable.Empty<string>()).ToList(),
+                Subject  = subject,
+                HtmlBody = htmlBody,
+            });
 
-            var toList = to.Where(t => !string.IsNullOrWhiteSpace(t)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-            var bccList = (bcc ?? Enumerable.Empty<string>()).Where(t => !string.IsNullOrWhiteSpace(t)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-            if (!toList.Any() && !bccList.Any()) return (false, "No recipients.");
+        public async Task<(bool Success, string Message)> SendAsync(EmailSettings? settings, MailRequest req)
+        {
+            if (settings == null || string.IsNullOrWhiteSpace(settings.SmtpHost) || string.IsNullOrWhiteSpace(settings.FromEmail))
+                return (false, "No email account: connect Outlook, or set SMTP host / From address.");
+
+            static List<string> Clean(IEnumerable<string> xs) =>
+                xs.Where(t => !string.IsNullOrWhiteSpace(t)).Select(t => t.Trim())
+                  .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+            var toList  = Clean(req.To);
+            var ccList  = Clean(req.Cc);
+            var bccList = Clean(req.Bcc);
+            if (!toList.Any() && !ccList.Any() && !bccList.Any()) return (false, "No recipients.");
 
             try
             {
@@ -50,8 +70,8 @@ namespace AmpmHrmsPro.Services
                 using var msg = new MailMessage
                 {
                     From = new MailAddress(settings.FromEmail!, string.IsNullOrWhiteSpace(settings.FromName) ? "AMPM HRMS" : settings.FromName),
-                    Subject = subject,
-                    Body = htmlBody,
+                    Subject = req.Subject,
+                    Body = req.HtmlBody,
                     IsBodyHtml = true,
                 };
                 // A single visible "To" address is used even for a BCC-only
@@ -63,10 +83,13 @@ namespace AmpmHrmsPro.Services
                 else
                     msg.To.Add(settings.FromEmail!);
 
+                foreach (var c in ccList)  msg.CC.Add(c);
                 foreach (var b in bccList) msg.Bcc.Add(b);
+                foreach (var a in req.Attachments)
+                    msg.Attachments.Add(new Attachment(new MemoryStream(a.Content), a.FileName, a.ContentType));
 
                 await client.SendMailAsync(msg);
-                return (true, $"Sent to {toList.Count + bccList.Count} recipient(s).");
+                return (true, $"Sent to {toList.Count + ccList.Count + bccList.Count} recipient(s).");
             }
             catch (Exception ex)
             {

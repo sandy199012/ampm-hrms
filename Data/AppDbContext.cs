@@ -69,6 +69,7 @@ namespace AmpmHrmsPro.Data
         public DbSet<RosterEntry>      RosterEntries      { get; set; }
         public DbSet<AttendanceImport> AttendanceImports  { get; set; }
         public DbSet<AttendanceGapLog> AttendanceGapLogs  { get; set; }
+        public DbSet<OutlookMailAccount> OutlookMailAccounts { get; set; }
 
         protected override void OnModelCreating(ModelBuilder mb)
         {

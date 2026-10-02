@@ -140,7 +140,13 @@ builder.Services.AddScoped<IFaceMatchService, FaceMatchService>();
 // department's Head. Configured from Admin > Attendance > Email
 // Notifications (EmailSettings) and fired by a background poller, same
 // pattern as the biometric sync above (see HrEmailNotificationService.cs). ──
-builder.Services.AddScoped<IEmailSender, SmtpEmailSender>();
+// Email: SmartEmailSender sends via the connected Outlook account
+// (Microsoft Graph — "Connect Outlook" on the Email Notifications page),
+// falling back to SMTP when no Outlook account is connected.
+builder.Services.Configure<MicrosoftGraphOptions>(builder.Configuration.GetSection("MicrosoftGraph"));
+builder.Services.AddScoped<IOutlookMailService, OutlookMailService>();
+builder.Services.AddScoped<SmtpEmailSender>();
+builder.Services.AddScoped<IEmailSender, SmartEmailSender>();
 builder.Services.AddScoped<IHrEmailNotificationService, HrEmailNotificationService>();
 builder.Services.AddHostedService<HrNotificationHostedService>();
 

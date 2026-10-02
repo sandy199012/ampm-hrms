@@ -9,7 +9,6 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
-using System.Net.Mail;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -62,6 +61,9 @@ namespace AmpmHrmsPro.Services
 
         /// <summary>Called by the daily background service: finds yesterday's unsent gaps and sends.</summary>
         Task<(int Sent, int Failed)> SendDailyEmailsAsync(CancellationToken ct = default);
+
+        /// <summary>Reason the last failed email failed, if any.</summary>
+        string? LastSendError { get; }
     }
 
     // ─── Implementation ───────────────────────────────────────────────────────
@@ -70,6 +72,10 @@ namespace AmpmHrmsPro.Services
         private readonly AppDbContext                   _db;
         private readonly AttendanceReviewOptions        _opts;
         private readonly ILogger<AttendanceReviewService> _log;
+        private readonly IEmailSender                   _email;
+
+        /// <summary>Reason the last failed email failed (shown on the Gap Report page).</summary>
+        public string? LastSendError { get; private set; }
 
         // Pilot manager lookup: normalize name → PilotManager config
         private Dictionary<string, PilotManager> _pilotByName = new(StringComparer.OrdinalIgnoreCase);
@@ -80,11 +86,13 @@ namespace AmpmHrmsPro.Services
         public AttendanceReviewService(
             AppDbContext db,
             IOptions<AttendanceReviewOptions> opts,
-            ILogger<AttendanceReviewService> log)
+            ILogger<AttendanceReviewService> log,
+            IEmailSender email)
         {
             _db   = db;
             _opts = opts.Value;
             _log  = log;
+            _email = email;
 
             foreach (var h in _opts.HodNames)
                 if (!string.IsNullOrWhiteSpace(h)) _hodByName[NormName(h)] = Pretty(h);
@@ -380,13 +388,10 @@ namespace AmpmHrmsPro.Services
         {
             if (gaps.Count == 0) return (0, 0);
 
-            // Load SMTP settings from DB
-            var smtp = await _db.EmailSettingsList.FirstOrDefaultAsync(ct);
-            if (smtp == null)
-            {
-                _log.LogWarning("AttendanceReview: no EmailSettings found — cannot send emails.");
-                return (0, 0);
-            }
+            // SMTP settings are only a fallback — SmartEmailSender sends via the
+            // connected Outlook account when there is one.
+            var settings = await _db.EmailSettingsList.FirstOrDefaultAsync(ct);
+            LastSendError = null;
 
             // Group by manager email
             var byManager = gaps
@@ -423,58 +428,38 @@ namespace AmpmHrmsPro.Services
                 var body    = BuildEmailHtml(managerName, mgGaps, dateRange);
                 var excel   = await GenerateExcelAsync(managerEmail, mgGaps);
 
-                try
+                var req = new MailRequest
                 {
-                    await SendSmtpAsync(smtp, managerEmail, ccList, subject, body, excel,
-                        $"AttendanceGaps_{dateRange.Replace(" ", "_").Replace("–", "to")}.xlsx", ct);
+                    To       = new List<string> { managerEmail },
+                    Cc       = ccList.ToList(),
+                    Subject  = subject,
+                    HtmlBody = body,
+                    Attachments =
+                    {
+                        new MailAttachment(
+                            $"AttendanceGaps_{dateRange.Replace(" ", "_").Replace("–", "to")}.xlsx",
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            excel)
+                    }
+                };
 
-                    // Mark as sent
+                var (ok, message) = await _email.SendAsync(settings, req);
+                if (ok)
+                {
                     var now = DateTime.UtcNow;
                     foreach (var g in mgGaps) { g.EmailSent = true; g.EmailSentAt = now; }
                     sent++;
                 }
-                catch (Exception ex)
+                else
                 {
-                    _log.LogError(ex, "AttendanceReview: failed to send email to {Email}", managerEmail);
+                    _log.LogError("AttendanceReview: failed to send email to {Email}: {Msg}", managerEmail, message);
+                    LastSendError = message;
                     failed++;
                 }
             }
 
             await _db.SaveChangesAsync(ct);
             return (sent, failed);
-        }
-
-        private async Task SendSmtpAsync(
-            EmailSettings smtp,
-            string toEmail,
-            IEnumerable<string> ccEmails,
-            string subject,
-            string htmlBody,
-            byte[] attachment,
-            string attachmentName,
-            CancellationToken ct)
-        {
-            using var msg = new MailMessage();
-            msg.From    = new MailAddress(smtp.FromEmail!, smtp.FromName ?? "AMPM HRMS");
-            msg.To.Add(toEmail);
-            foreach (var cc in ccEmails) msg.CC.Add(cc);
-            msg.Subject    = subject;
-            msg.Body       = htmlBody;
-            msg.IsBodyHtml = true;
-
-            // Excel attachment
-            var ms = new MemoryStream(attachment);
-            msg.Attachments.Add(new Attachment(ms, attachmentName,
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"));
-
-            using var client = new SmtpClient(smtp.SmtpHost, smtp.SmtpPort)
-            {
-                EnableSsl = smtp.SmtpUseSsl
-            };
-            if (!string.IsNullOrWhiteSpace(smtp.SmtpUsername))
-                client.Credentials = new NetworkCredential(smtp.SmtpUsername, smtp.SmtpPassword);
-
-            await client.SendMailAsync(msg, ct);
         }
 
         // ── CSV Parsing ───────────────────────────────────────────────────────
