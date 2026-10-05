@@ -307,6 +307,55 @@ namespace AmpmHrmsPro.Controllers
         }
 
         // ═══════════════════════════════════════════
+        // DELETE EMPLOYEE — permanently removes the employee and ALL their
+        // data (attendance, punches, applications, balances, comp-off, OT,
+        // salary, tax, face profile, notifications, roster, review gaps).
+        // Admin only; the admin must type the employee code to confirm.
+        // See Services/EmployeeDeletionService.cs for the exact order.
+        // ═══════════════════════════════════════════
+        [Authorize(Roles = "admin")]
+        public async Task<IActionResult> DeleteEmployeePreview(int id, [FromServices] IEmployeeDeletionService deleter)
+        {
+            var p = await deleter.PreviewAsync(id);
+            if (p == null) return Json(new { success = false, message = "Employee not found." });
+            return Json(new
+            {
+                success  = true,
+                isSelf   = id == CurrentEmpId,
+                name     = p.Name,
+                code     = p.EmpCode,
+                owned    = p.Owned.Select(o => new { label = o.Label, count = o.Count }),
+                unlinked = p.Unlinked.Select(u => new { label = u.Label, count = u.Count }),
+            });
+        }
+
+        [HttpPost, ValidateAntiForgeryToken, Authorize(Roles = "admin")]
+        public async Task<IActionResult> DeleteEmployee(int id, string? confirmCode, [FromServices] IEmployeeDeletionService deleter)
+        {
+            if (id == CurrentEmpId)
+            {
+                TempData["Error"] = "You cannot delete your own account while logged in.";
+                return RedirectToAction("Employees");
+            }
+
+            var emp = await _db.Employees.AsNoTracking().FirstOrDefaultAsync(e => e.Id == id);
+            if (emp == null)
+            {
+                TempData["Error"] = "Employee not found — it may already have been deleted.";
+                return RedirectToAction("Employees");
+            }
+            if (!string.Equals((confirmCode ?? "").Trim(), emp.EmpCode.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                TempData["Error"] = $"Employee code did not match — {emp.Name} was NOT deleted.";
+                return RedirectToAction("Employees");
+            }
+
+            var (ok, msg) = await deleter.DeleteAsync(id);
+            TempData[ok ? "Success" : "Error"] = msg;
+            return RedirectToAction("Employees");
+        }
+
+        // ═══════════════════════════════════════════
         // BULK POLICY ASSIGNMENT — assign Leave Policy / Shift / Week-Off /
         // Manager in one shot to a whole department, category, HOD-team, or
         // individual employees. Only the fields the admin actually fills in

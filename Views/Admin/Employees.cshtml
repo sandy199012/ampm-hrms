@@ -2,6 +2,7 @@
 @{
     ViewData["Title"] = "Employees";
     ViewData["Subtitle"] = "Employee Master";
+    var canDelete = User.IsInRole("admin");
 }
 
 <div class="page-header">
@@ -71,6 +72,11 @@
                 <td class="text-end">
                     <a href="@Url.Action("EditEmployee", new { id = e.Id })" class="btn btn-sm btn-light"><i class="bi bi-pencil-fill"></i> Edit</a>
                     <button type="button" class="btn btn-sm btn-light" onclick="resetPwd(@e.Id, '@e.Name')"><i class="bi bi-key-fill"></i></button>
+                    @if (canDelete)
+                    {
+                        <button type="button" class="btn btn-sm btn-light text-danger" title="Delete employee permanently"
+                                onclick="openDeleteEmp(@e.Id)"><i class="bi bi-trash3-fill"></i></button>
+                    }
                 </td>
             </tr>
         }
@@ -78,8 +84,98 @@
     </table>
 </div>
 
+@if (canDelete)
+{
+    <div class="modal fade" id="deleteEmpModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <form method="post" asp-action="DeleteEmployee">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="id" id="delEmpId" />
+                    <div class="modal-header" style="background:var(--danger-light);">
+                        <h5 class="modal-title" style="color:var(--danger);">
+                            <i class="bi bi-exclamation-triangle-fill me-1"></i> Delete employee permanently
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div id="delEmpLoading" class="text-muted small">Checking this employee's data…</div>
+                        <div id="delEmpBody" style="display:none;">
+                            <p class="mb-2">
+                                <strong id="delEmpName"></strong> (<span id="delEmpCodeLabel"></span>)
+                                and <strong>all their data</strong> will be deleted. <strong>This cannot be undone.</strong>
+                            </p>
+                            <div id="delEmpOwnedWrap">
+                                <div class="small fw-semibold mb-1">Will be deleted:</div>
+                                <ul class="small mb-2" id="delEmpOwned"></ul>
+                            </div>
+                            <div id="delEmpUnlinkedWrap">
+                                <div class="small fw-semibold mb-1">Will be un-linked (left blank) for other employees:</div>
+                                <ul class="small mb-2" id="delEmpUnlinked"></ul>
+                            </div>
+                            <div class="alert alert-light border small py-2 mb-3">
+                                Only need to stop someone from logging in or showing in reports?
+                                Use <strong>Edit → Status = Resigned / Inactive</strong> instead — it keeps their history.
+                            </div>
+                            <label class="form-label small">Type the employee code <strong id="delEmpCodeHint"></strong> to confirm</label>
+                            <input type="text" name="confirmCode" id="delEmpConfirm" class="form-control" autocomplete="off" />
+                        </div>
+                        <div id="delEmpSelf" class="alert alert-warning small mb-0" style="display:none;">
+                            This is your own account — you can't delete yourself while logged in.
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-danger" id="delEmpSubmit" disabled>
+                            <i class="bi bi-trash3-fill me-1"></i> Delete permanently
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+}
+
 @section Scripts {
 <script>
+let delEmpCode = '';
+function openDeleteEmp(id) {
+    const el = id => document.getElementById(id);
+    el('delEmpId').value = id;
+    el('delEmpConfirm').value = '';
+    el('delEmpSubmit').disabled = true;
+    el('delEmpLoading').style.display = '';
+    el('delEmpBody').style.display = 'none';
+    el('delEmpSelf').style.display = 'none';
+    bootstrap.Modal.getOrCreateInstance(el('deleteEmpModal')).show();
+
+    fetch('@Url.Action("DeleteEmployeePreview")?id=' + id)
+        .then(r => r.json())
+        .then(d => {
+            el('delEmpLoading').style.display = 'none';
+            if (!d.success) { el('delEmpLoading').textContent = d.message; el('delEmpLoading').style.display = ''; return; }
+            if (d.isSelf) { el('delEmpSelf').style.display = ''; return; }
+            delEmpCode = (d.code || '').trim().toLowerCase();
+            el('delEmpName').textContent = d.name;
+            el('delEmpCodeLabel').textContent = d.code;
+            el('delEmpCodeHint').textContent = d.code;
+            const fill = (listId, wrapId, rows) => {
+                const ul = el(listId); ul.innerHTML = '';
+                rows.forEach(r => { const li = document.createElement('li'); li.textContent = `${r.label}: ${r.count}`; ul.appendChild(li); });
+                el(wrapId).style.display = rows.length ? '' : 'none';
+            };
+            fill('delEmpOwned', 'delEmpOwnedWrap', [{ label: 'Employee record', count: 1 }, ...d.owned]);
+            fill('delEmpUnlinked', 'delEmpUnlinkedWrap', d.unlinked);
+            el('delEmpBody').style.display = '';
+            el('delEmpConfirm').focus();
+        })
+        .catch(() => { el('delEmpLoading').textContent = 'Could not load employee details. Please try again.'; });
+}
+document.addEventListener('input', e => {
+    if (e.target && e.target.id === 'delEmpConfirm')
+        document.getElementById('delEmpSubmit').disabled = e.target.value.trim().toLowerCase() !== delEmpCode || !delEmpCode;
+});
+
 function resetPwd(id, name) {
     if (!confirm(`Reset password for ${name}? A new default password will be generated.`)) return;
     fetch('@Url.Action("ResetPassword")', {

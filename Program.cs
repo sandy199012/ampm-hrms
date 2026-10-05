@@ -148,6 +148,9 @@ builder.Services.Configure<GoogleMailOptions>(builder.Configuration.GetSection("
 builder.Services.AddScoped<IConnectedMailService, ConnectedMailService>();
 builder.Services.AddScoped<SmtpEmailSender>();
 builder.Services.AddScoped<IEmailSender, SmartEmailSender>();
+
+// Permanent employee delete (Admin > All Employees > trash icon).
+builder.Services.AddScoped<IEmployeeDeletionService, EmployeeDeletionService>();
 builder.Services.AddScoped<IHrEmailNotificationService, HrEmailNotificationService>();
 builder.Services.AddHostedService<HrNotificationHostedService>();
 
