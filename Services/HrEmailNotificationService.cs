@@ -421,14 +421,14 @@ namespace AmpmHrmsPro.Services
             var settings = await db.EmailSettingsList.FirstOrDefaultAsync(stoppingToken);
             if (settings == null || !settings.IsEnabled) return;
 
-            var now = DateTime.Now;
+            var now = IndiaTime.Now;
             string today = now.ToString("yyyy-MM-dd");
 
             if (settings.DailyAttendanceAlertEnabled
                 && now.TimeOfDay >= settings.DailyAttendanceAlertTime
                 && settings.LastDailyAlertRunDate != today)
             {
-                var msg = await notifier.SendDailyAttendanceAlertsAsync(db, settings, DateTime.Today.AddDays(-1));
+                var msg = await notifier.SendDailyAttendanceAlertsAsync(db, settings, IndiaTime.Today.AddDays(-1));
                 settings.LastDailyAlertRunDate = today;
                 settings.LastActivityAt = now;
                 settings.LastActivityMessage = msg;
@@ -439,7 +439,7 @@ namespace AmpmHrmsPro.Services
                 && now.TimeOfDay >= settings.BirthdayTime
                 && settings.LastBirthdayRunDate != today)
             {
-                var msg = await notifier.SendBirthdayEmailsAsync(db, settings, DateTime.Today);
+                var msg = await notifier.SendBirthdayEmailsAsync(db, settings, IndiaTime.Today);
                 settings.LastBirthdayRunDate = today;
                 settings.LastActivityAt = now;
                 settings.LastActivityMessage = msg;
@@ -451,7 +451,7 @@ namespace AmpmHrmsPro.Services
                 && now.TimeOfDay >= settings.WeeklyReportTime
                 && settings.LastWeeklyRunDate != today)
             {
-                var weekEnd = DateTime.Today.AddDays(-1);   // the day before this run — the just-completed week's last day
+                var weekEnd = IndiaTime.Today.AddDays(-1);   // the day before this run — the just-completed week's last day
                 var weekStart = weekEnd.AddDays(-6);        // 7 days total ending there
                 var msg = await notifier.SendWeeklyAttendanceReportsAsync(db, settings, weekStart, weekEnd);
                 settings.LastWeeklyRunDate = today;

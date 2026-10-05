@@ -111,6 +111,24 @@ namespace AmpmHrmsPro.Controllers
             return BackToSettings();
         }
 
+        // POST /MailAccount/ConnectGmailScript — "Gmail Quick Connect":
+        // the admin pastes the Web app URL of the Apps Script they deployed.
+        [HttpPost, ValidateAntiForgeryToken]
+        public async Task<IActionResult> ConnectGmailScript(string? scriptUrl)
+        {
+            try
+            {
+                var acct = await _mail.ConnectGmailScriptAsync(scriptUrl ?? "", User.Identity?.Name ?? "admin");
+                TempData["Success"] = $"Gmail connected — HRMS emails will now be sent from {acct.Email}. Click 'Send test' to check.";
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "Gmail Quick Connect failed");
+                TempData["Error"] = $"Could not connect Gmail: {ex.Message}";
+            }
+            return BackToSettings();
+        }
+
         [HttpPost, ValidateAntiForgeryToken]
         public async Task<IActionResult> Disconnect()
         {

@@ -41,5 +41,14 @@ namespace AmpmHrmsPro.Models
     {
         public const string Outlook = "Outlook";
         public const string Gmail   = "Gmail";
+        // "Gmail Quick Connect": a small Google Apps Script the user deploys
+        // in their own Gmail account; HRMS posts emails to its web-app URL
+        // over HTTPS (works on Render's free plan, which blocks SMTP).
+        // For this provider RefreshTokenProtected holds the encrypted script
+        // URL — there are no OAuth tokens.
+        public const string GmailScript = "GmailScript";
+
+        public static string Label(string provider) =>
+            provider == GmailScript ? "Gmail" : provider;
     }
 }

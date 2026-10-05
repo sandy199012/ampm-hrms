@@ -21,6 +21,7 @@
 //   Optional fixed redirect URIs: MicrosoftGraph__RedirectUri, GoogleMail__RedirectUri
 // ─────────────────────────────────────────────────────────────────────────────
 using System.Net.Http.Headers;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using AmpmHrmsPro.Data;
@@ -68,6 +69,11 @@ namespace AmpmHrmsPro.Services
         Task<ConnectedMailAccount> CompleteSignInAsync(string provider, string code, string redirectUri, string connectedBy, CancellationToken ct = default);
         Task DisconnectAsync(CancellationToken ct = default);
         Task<(bool Success, string Message)> SendAsync(MailRequest req, CancellationToken ct = default);
+
+        // Gmail Quick Connect (Apps Script relay)
+        string GetGmailScriptKey();
+        string BuildGmailScript(string hrmsBaseUrl);
+        Task<ConnectedMailAccount> ConnectGmailScriptAsync(string scriptUrl, string connectedBy, CancellationToken ct = default);
     }
 
     public class ConnectedMailService : IConnectedMailService
@@ -98,6 +104,7 @@ namespace AmpmHrmsPro.Services
         private readonly MicrosoftGraphOptions _ms;
         private readonly GoogleMailOptions     _google;
         private readonly IDataProtector        _protector;
+        private readonly IConfiguration        _config;
         private readonly ILogger<ConnectedMailService> _log;
 
         public ConnectedMailService(
@@ -106,6 +113,7 @@ namespace AmpmHrmsPro.Services
             IOptions<MicrosoftGraphOptions> ms,
             IOptions<GoogleMailOptions> google,
             IDataProtectionProvider dp,
+            IConfiguration config,
             ILogger<ConnectedMailService> log)
         {
             _db        = db;
@@ -115,6 +123,7 @@ namespace AmpmHrmsPro.Services
             // Same purpose string as the original Outlook-only version, so an
             // already-connected Outlook account keeps working after upgrade.
             _protector = dp.CreateProtector("AmpmHrmsPro.OutlookMail.Tokens.v1");
+            _config    = config;
             _log       = log;
         }
 
@@ -122,6 +131,7 @@ namespace AmpmHrmsPro.Services
         {
             MailProviders.Outlook => !string.IsNullOrWhiteSpace(_ms.ClientId) && !string.IsNullOrWhiteSpace(_ms.ClientSecret),
             MailProviders.Gmail   => !string.IsNullOrWhiteSpace(_google.ClientId) && !string.IsNullOrWhiteSpace(_google.ClientSecret),
+            MailProviders.GmailScript => true,   // nothing to configure on the server
             _ => false
         };
 
@@ -245,7 +255,7 @@ namespace AmpmHrmsPro.Services
             if (!to.Any() && !cc.Any() && !bcc.Any()) return (false, "No recipients.");
             if (!to.Any()) to.Add(acct.Email);   // BCC-only blast: visible To = sender
 
-            if (acct.Provider == MailProviders.Gmail)
+            if (acct.Provider == MailProviders.Gmail || acct.Provider == MailProviders.GmailScript)
             {
                 var total = req.Attachments.Sum(a => (long)a.Content.Length);
                 if (total > GmailMaxTotalBytes)
@@ -257,6 +267,9 @@ namespace AmpmHrmsPro.Services
                     if (a.Content.Length > MsMaxAttachmentBytes)
                         return (false, $"Attachment '{a.FileName}' is {a.Content.Length / 1024 / 1024.0:0.0} MB — Outlook send limit is 3 MB per file.");
             }
+
+            if (acct.Provider == MailProviders.GmailScript)
+                return await SendViaGmailScriptAsync(acct, to, cc, bcc, req, ct);
 
             try
             {
@@ -291,6 +304,191 @@ namespace AmpmHrmsPro.Services
                 acct.LastError = Truncate(ex.Message, 500);
                 try { await _db.SaveChangesAsync(ct); } catch { /* best effort */ }
                 return (false, $"{acct.Provider} send failed — {ex.Message}");
+            }
+        }
+
+        // ── Gmail Quick Connect (Apps Script relay) ─────────────────────────
+        // Shared secret baked into the script the user copies from HRMS, so
+        // only this HRMS can send through their script. Derived (not random)
+        // so it stays the same across page reloads and restarts.
+        public string GetGmailScriptKey()
+        {
+            var secret = _config["Jwt:Key"] ?? "ampm-hrms";
+            using var h = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
+            return Convert.ToHexString(h.ComputeHash(Encoding.UTF8.GetBytes("ampm-gmail-relay-v1")))[..32].ToLowerInvariant();
+        }
+
+        // The Apps Script the user pastes into script.google.com (shown on the
+        // Email Notifications page with this HRMS's key and URL filled in).
+        public string BuildGmailScript(string hrmsBaseUrl) =>
+            GmailScriptTemplate
+                .Replace("__KEY__", GetGmailScriptKey())
+                .Replace("__HRMS__", hrmsBaseUrl.TrimEnd('/'));
+
+        private const string GmailScriptTemplate = @"// AMPM HRMS — Gmail Quick Connect
+// Sends HRMS emails from THIS Gmail account, and keeps HRMS awake so
+// scheduled emails go out on time. Paste as-is; don't change anything.
+const KEY = '__KEY__';
+const HRMS_URL = '__HRMS__';
+
+function doPost(e) {
+  var req;
+  try { req = JSON.parse(e.postData.contents); } catch (err) { return reply({ ok: false, error: 'Bad request' }); }
+  if (req.key !== KEY) return reply({ ok: false, error: 'Key mismatch - copy the script again from HRMS and redeploy.' });
+
+  if (req.action === 'ping') {
+    ensureKeepAwake();
+    return reply({ ok: true, email: Session.getEffectiveUser().getEmail(), quota: MailApp.getRemainingDailyQuota() });
+  }
+
+  try {
+    var msg = {
+      to: (req.to || []).join(','),
+      subject: req.subject || '(no subject)',
+      body: 'Please open this email in an HTML-capable email client.',
+      htmlBody: req.html || '',
+      name: req.fromName || 'AMPM HRMS'
+    };
+    if (req.cc && req.cc.length) msg.cc = req.cc.join(',');
+    if (req.bcc && req.bcc.length) msg.bcc = req.bcc.join(',');
+    if (req.attachments && req.attachments.length) {
+      msg.attachments = req.attachments.map(function (a) {
+        return Utilities.newBlob(Utilities.base64Decode(a.data), a.type, a.name);
+      });
+    }
+    MailApp.sendEmail(msg);
+    return reply({ ok: true, email: Session.getEffectiveUser().getEmail(), quota: MailApp.getRemainingDailyQuota() });
+  } catch (err) {
+    return reply({ ok: false, error: String((err && err.message) || err) });
+  }
+}
+
+function doGet() { return reply({ ok: true, service: 'AMPM HRMS Gmail Quick Connect' }); }
+
+function reply(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}
+
+// Render's free plan sleeps after 15 idle minutes. Wake HRMS every 30 minutes
+// from 6 AM to 11 PM India time so its scheduled emails can run.
+function keepAwake() {
+  var hour = Number(Utilities.formatDate(new Date(), 'Asia/Kolkata', 'H'));
+  if (hour < 6 || hour >= 23) return;
+  try { UrlFetchApp.fetch(HRMS_URL + '/api/health', { muteHttpExceptions: true }); } catch (e) {}
+}
+
+function ensureKeepAwake() {
+  var exists = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'keepAwake'; });
+  if (!exists) ScriptApp.newTrigger('keepAwake').timeBased().everyMinutes(30).create();
+}
+";
+
+        public async Task<ConnectedMailAccount> ConnectGmailScriptAsync(string scriptUrl, string connectedBy, CancellationToken ct = default)
+        {
+            scriptUrl = (scriptUrl ?? "").Trim();
+            if (!scriptUrl.StartsWith("https://script.google.com/", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("That doesn't look like an Apps Script web-app URL — it should start with https://script.google.com/macros/s/ and end with /exec.");
+
+            var (ok, json, error) = await CallGmailScriptAsync(scriptUrl,
+                new Dictionary<string, object> { ["key"] = GetGmailScriptKey(), ["action"] = "ping" }, ct);
+            if (!ok) throw new InvalidOperationException(error);
+
+            var email = json.TryGetProperty("email", out var e) && e.ValueKind == JsonValueKind.String ? e.GetString() ?? "" : "";
+
+            _db.MailAccounts.RemoveRange(_db.MailAccounts);
+            var acct = new ConnectedMailAccount
+            {
+                Provider              = MailProviders.GmailScript,
+                Email                 = email,
+                DisplayName           = string.IsNullOrEmpty(email) ? "Gmail" : email,
+                RefreshTokenProtected = _protector.Protect(scriptUrl),
+                ConnectedAt           = DateTime.UtcNow,
+                ConnectedBy           = connectedBy,
+            };
+            _db.MailAccounts.Add(acct);
+            await _db.SaveChangesAsync(ct);
+            _log.LogInformation("Gmail Quick Connect connected: {Email} by {User}", email, connectedBy);
+            return acct;
+        }
+
+        private async Task<(bool Success, string Message)> SendViaGmailScriptAsync(
+            ConnectedMailAccount acct, List<string> to, List<string> cc, List<string> bcc, MailRequest req, CancellationToken ct)
+        {
+            var payload = new Dictionary<string, object>
+            {
+                ["key"]      = GetGmailScriptKey(),
+                ["action"]   = "send",
+                ["to"]       = to,
+                ["cc"]       = cc,
+                ["bcc"]      = bcc,
+                ["subject"]  = req.Subject,
+                ["html"]     = req.HtmlBody,
+                ["fromName"] = "AMPM HRMS",
+                ["attachments"] = req.Attachments.Select(a => new Dictionary<string, string>
+                {
+                    ["name"] = a.FileName,
+                    ["type"] = a.ContentType,
+                    ["data"] = Convert.ToBase64String(a.Content),
+                }).ToList(),
+            };
+
+            string url;
+            try { url = _protector.Unprotect(acct.RefreshTokenProtected); }
+            catch { return (false, "Gmail connection is damaged — please Disconnect and connect Gmail again."); }
+
+            var (ok, json, error) = await CallGmailScriptAsync(url, payload, ct);
+            if (ok)
+            {
+                acct.LastSentAt = DateTime.UtcNow;
+                acct.LastError  = null;
+                await _db.SaveChangesAsync(ct);
+                var quota = json.TryGetProperty("quota", out var q) && q.TryGetInt32(out var n) ? $" ({n} sends left today)" : "";
+                return (true, $"Sent from {acct.Email} to {to.Count + cc.Count + bcc.Count} recipient(s).{quota}");
+            }
+
+            acct.LastError = Truncate(error, 500);
+            try { await _db.SaveChangesAsync(ct); } catch { /* best effort */ }
+            return (false, $"Gmail send failed — {error}");
+        }
+
+        // POSTs JSON to the Apps Script web app. Google answers with a 302 to
+        // script.googleusercontent.com; HttpClient follows it (as a GET) to
+        // read the script's JSON reply.
+        private async Task<(bool Ok, JsonElement Json, string Error)> CallGmailScriptAsync(
+            string url, Dictionary<string, object> payload, CancellationToken ct)
+        {
+            try
+            {
+                var client = _http.CreateClient();
+                client.Timeout = TimeSpan.FromSeconds(90);
+                using var resp = await client.PostAsync(url,
+                    new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json"), ct);
+                var body = await resp.Content.ReadAsStringAsync(ct);
+
+                JsonElement root;
+                try { using var doc = JsonDocument.Parse(body); root = doc.RootElement.Clone(); }
+                catch
+                {
+                    var hint = body.Contains("<html", StringComparison.OrdinalIgnoreCase)
+                        ? "Google returned a web page instead of the script's reply. In the deployment, set 'Who has access' to 'Anyone', and use the Web app URL ending in /exec."
+                        : Truncate(body, 200);
+                    return (false, default, hint);
+                }
+
+                if (root.TryGetProperty("ok", out var okEl) && okEl.ValueKind == JsonValueKind.True)
+                    return (true, root, "");
+
+                var err = root.TryGetProperty("error", out var e) && e.ValueKind == JsonValueKind.String
+                    ? e.GetString() ?? "Unknown error" : "Unknown error";
+                return (false, root, err);
+            }
+            catch (TaskCanceledException)
+            {
+                return (false, default, "Google didn't answer in time — please try again.");
+            }
+            catch (Exception ex)
+            {
+                return (false, default, ex.Message);
             }
         }
 

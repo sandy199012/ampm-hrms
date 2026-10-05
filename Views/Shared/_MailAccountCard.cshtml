@@ -1,4 +1,4 @@
-@* Views/Shared/_MailAccountCard.cshtml — "Connect Outlook / Connect Gmail" card *@
+@* Views/Shared/_MailAccountCard.cshtml — email sending account (Gmail Quick Connect / Outlook / Gmail) *@
 @using AmpmHrmsPro.Models
 @inject AmpmHrmsPro.Services.IConnectedMailService Mail
 @{
@@ -9,10 +9,11 @@
     var host = Context.Request.Host.Host;
     var isLocal = host == "localhost" || host == "127.0.0.1";
     var scheme = isLocal ? Context.Request.Scheme : "https";
+    var baseUrl = $"{scheme}://{Context.Request.Host}";
     var outlookCallback = Url.Action("OutlookCallback", "MailAccount", null, scheme);
     var googleCallback  = Url.Action("GoogleCallback",  "MailAccount", null, scheme);
 
-    var isGmail = acct?.Provider == MailProviders.Gmail;
+    var isGmail = acct != null && (acct.Provider == MailProviders.Gmail || acct.Provider == MailProviders.GmailScript);
 }
 
 <div class="card mb-3" style="border-left:4px solid @(acct != null ? "var(--success)" : "var(--primary)");">
@@ -20,7 +21,7 @@
         <span><i class="bi bi-envelope-at-fill me-1" style="color:var(--primary);"></i> Email sending account</span>
         @if (acct != null)
         {
-            <span class="badge bg-success rounded-pill"><i class="bi bi-check2 me-1"></i>@acct.Provider connected</span>
+            <span class="badge bg-success rounded-pill"><i class="bi bi-check2 me-1"></i>@MailProviders.Label(acct.Provider) connected</span>
         }
         else
         {
@@ -55,7 +56,7 @@
             {
                 <div class="alert alert-danger small py-2">
                     <strong>Last error:</strong> @acct.LastError
-                    <div>If it says the token expired or was revoked, click Disconnect and connect again.</div>
+                    <div>If it keeps failing, click Disconnect and connect again.</div>
                 </div>
             }
             <div class="d-flex flex-wrap gap-2 align-items-center">
@@ -75,69 +76,114 @@
                     </button>
                 </form>
             </div>
-            <p class="text-muted small mt-3 mb-0">
-                To switch, click Disconnect and connect the other account. Schedules and on/off switches below still
-                apply — keep <strong>Enabled</strong> on for the scheduled emails. SMTP fields can be left blank.
-            </p>
+            <div class="alert alert-light border small mt-3 mb-0">
+                <i class="bi bi-clock me-1"></i>
+                Scheduled emails below run on <strong>India time</strong>. Keep <strong>Enabled</strong> switched on and set
+                times between <strong>6 AM and 11 PM</strong>.
+                @if (acct.Provider == MailProviders.GmailScript)
+                {
+                    <span>Your Gmail script wakes HRMS every 30 minutes in that window, so emails go out within about 30 minutes of the set time.</span>
+                }
+            </div>
         }
         else
         {
-            <p class="mb-3">
-                Sign in once with Outlook or Gmail — every HRMS email (Attendance Review, Daily Alert, Birthday,
-                Weekly Report) is then sent from that mailbox and shows in its Sent folder. No SMTP needed.
-            </p>
-            <div class="d-flex flex-wrap gap-2 mb-2">
-                @if (outlookReady)
-                {
-                    <a asp-controller="MailAccount" asp-action="Connect" asp-route-provider="Outlook" class="btn btn-outline-primary">
-                        <i class="bi bi-microsoft me-1" style="color:#0078d4;"></i> Connect Outlook
-                    </a>
-                }
-                else
-                {
-                    <button type="button" class="btn btn-outline-secondary" disabled title="Server setup pending">
-                        <i class="bi bi-microsoft me-1"></i> Connect Outlook
+            @* ── Gmail Quick Connect (recommended) ── *@
+            <div class="p-3 rounded-3 mb-3" style="background:#fdf3f2;">
+                <div class="fw-semibold mb-1"><i class="bi bi-google me-1" style="color:#ea4335;"></i> Gmail — Quick Connect <span class="badge bg-success ms-1">Recommended</span></div>
+                <div class="text-muted small mb-3">Works with any normal Gmail account. One time, about 3 minutes. No Google Cloud or Render settings.</div>
+
+                <ol class="small mb-3 ps-3">
+                    <li class="mb-2">
+                        <button type="button" class="btn btn-sm btn-dark" onclick="copyGmailScript(this)">
+                            <i class="bi bi-clipboard me-1"></i> Copy script
+                        </button>
+                    </li>
+                    <li class="mb-2">
+                        Open <a href="https://script.google.com/home/projects/create" target="_blank" rel="noopener"><strong>script.google.com → New project</strong></a>
+                        (signed in to the Gmail you want to send from). Select all the code there, delete it, <strong>paste</strong>, and press <strong>Ctrl + S</strong>.
+                    </li>
+                    <li class="mb-2">
+                        Click <strong>Deploy → New deployment</strong> → gear icon → <strong>Web app</strong>.<br />
+                        Execute as: <strong>Me</strong> · Who has access: <strong>Anyone</strong> → <strong>Deploy</strong>.
+                    </li>
+                    <li class="mb-2">
+                        <strong>Authorize access</strong> → pick your Gmail → if it says <em>"Google hasn't verified this app"</em>,
+                        click <strong>Advanced → Go to … (unsafe)</strong> → <strong>Allow</strong>. (It's your own script — this is normal.)
+                    </li>
+                    <li>Copy the <strong>Web app URL</strong> and paste it here:</li>
+                </ol>
+
+                <form asp-controller="MailAccount" asp-action="ConnectGmailScript" method="post" class="d-flex flex-wrap gap-2">
+                    @Html.AntiForgeryToken()
+                    <input type="url" name="scriptUrl" class="form-control" style="min-width:280px;flex:1;"
+                           placeholder="https://script.google.com/macros/s/…/exec" required />
+                    <button type="submit" class="btn btn-danger text-nowrap">
+                        <i class="bi bi-plug-fill me-1"></i> Connect Gmail
                     </button>
-                }
-                @if (gmailReady)
-                {
-                    <a asp-controller="MailAccount" asp-action="Connect" asp-route-provider="Gmail" class="btn btn-outline-danger">
-                        <i class="bi bi-google me-1"></i> Connect Gmail
-                    </a>
-                }
-                else
-                {
-                    <button type="button" class="btn btn-outline-secondary" disabled title="Server setup pending">
-                        <i class="bi bi-google me-1"></i> Connect Gmail
-                    </button>
-                }
+                </form>
+                <textarea id="gmailScriptText" class="d-none" readonly>@Mail.BuildGmailScript(baseUrl)</textarea>
+                <div class="text-muted small mt-2">Normal Gmail can send to about 100 recipients a day this way.</div>
             </div>
 
-            @if (!outlookReady || !gmailReady)
-            {
-                <details class="small mt-2">
-                    <summary class="text-muted">Grey button? One-time server setup for that provider</summary>
-                    @if (!outlookReady)
+            @* ── Advanced: OAuth sign-in (needs app registration on the server) ── *@
+            <details class="small">
+                <summary class="text-muted">Other options: Outlook / Microsoft 365, or Gmail via Google Cloud (advanced)</summary>
+                <div class="d-flex flex-wrap gap-2 my-2">
+                    @if (outlookReady)
                     {
-                        <div class="alert alert-light border mt-2 mb-2">
-                            <strong>Outlook:</strong> Azure Portal → Microsoft Entra ID → App registrations → New
-                            registration. Redirect URI (Web): <code>@outlookCallback</code><br />
-                            API permissions (Delegated): Mail.Send, User.Read, offline_access.<br />
-                            On Render add <code>MicrosoftGraph__ClientId</code>, <code>MicrosoftGraph__ClientSecret</code>,
-                            <code>MicrosoftGraph__TenantId</code>.
-                        </div>
+                        <a asp-controller="MailAccount" asp-action="Connect" asp-route-provider="Outlook" class="btn btn-sm btn-outline-primary">
+                            <i class="bi bi-microsoft me-1" style="color:#0078d4;"></i> Connect Outlook
+                        </a>
                     }
-                    @if (!gmailReady)
+                    else
                     {
-                        <div class="alert alert-light border mt-2 mb-0">
-                            <strong>Gmail:</strong> Google Cloud Console → enable Gmail API → OAuth consent screen →
-                            Credentials → OAuth client ID (Web application). Authorized redirect URI:
-                            <code>@googleCallback</code><br />
-                            On Render add <code>GoogleMail__ClientId</code> and <code>GoogleMail__ClientSecret</code>.
-                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" disabled title="Server setup pending">
+                            <i class="bi bi-microsoft me-1"></i> Connect Outlook
+                        </button>
                     }
-                </details>
-            }
+                    @if (gmailReady)
+                    {
+                        <a asp-controller="MailAccount" asp-action="Connect" asp-route-provider="Gmail" class="btn btn-sm btn-outline-danger">
+                            <i class="bi bi-google me-1"></i> Connect Gmail (Google Cloud)
+                        </a>
+                    }
+                </div>
+                @if (!outlookReady)
+                {
+                    <div class="alert alert-light border mb-2">
+                        <strong>Outlook setup:</strong> Azure Portal → Microsoft Entra ID → App registrations. Redirect URI (Web):
+                        <code>@outlookCallback</code>. Permissions (Delegated): Mail.Send, User.Read, offline_access.
+                        On Render add <code>MicrosoftGraph__ClientId</code>, <code>MicrosoftGraph__ClientSecret</code>, <code>MicrosoftGraph__TenantId</code>.
+                    </div>
+                }
+                @if (!gmailReady)
+                {
+                    <div class="alert alert-light border mb-0">
+                        <strong>Gmail via Google Cloud:</strong> OAuth client (Web) with redirect URI <code>@googleCallback</code>;
+                        on Render add <code>GoogleMail__ClientId</code> and <code>GoogleMail__ClientSecret</code>.
+                    </div>
+                }
+            </details>
         }
     </div>
 </div>
+
+<script>
+function copyGmailScript(btn) {
+    const text = document.getElementById('gmailScriptText').value;
+    const done = () => { btn.innerHTML = '<i class="bi bi-check2 me-1"></i> Copied!'; setTimeout(() => btn.innerHTML = '<i class="bi bi-clipboard me-1"></i> Copy script', 2500); };
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(done, () => fallbackCopy(text, done));
+    } else {
+        fallbackCopy(text, done);
+    }
+}
+function fallbackCopy(text, done) {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); done(); } catch (e) { alert('Copy failed — please try again.'); }
+    document.body.removeChild(ta);
+}
+</script>

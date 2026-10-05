@@ -371,7 +371,7 @@ namespace AmpmHrmsPro.Services
         // ── 5. Daily auto-send: yesterday's unsent gaps ───────────────────────
         public async Task<(int Sent, int Failed)> SendDailyEmailsAsync(CancellationToken ct = default)
         {
-            var yesterday = DateOnly.FromDateTime(DateTime.Today.AddDays(-1));
+            var yesterday = DateOnly.FromDateTime(IndiaTime.Today.AddDays(-1));
             var gaps = await _db.AttendanceGapLogs
                 .Where(g => g.Date == yesterday && !g.EmailSent && !string.IsNullOrEmpty(g.ManagerEmail))
                 .ToListAsync(ct);
