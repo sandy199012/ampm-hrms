@@ -69,7 +69,7 @@ namespace AmpmHrmsPro.Data
         public DbSet<RosterEntry>      RosterEntries      { get; set; }
         public DbSet<AttendanceImport> AttendanceImports  { get; set; }
         public DbSet<AttendanceGapLog> AttendanceGapLogs  { get; set; }
-        public DbSet<OutlookMailAccount> OutlookMailAccounts { get; set; }
+        public DbSet<ConnectedMailAccount> MailAccounts { get; set; }
 
         protected override void OnModelCreating(ModelBuilder mb)
         {
@@ -329,6 +329,10 @@ namespace AmpmHrmsPro.Data
             mb.Entity<AttendanceGapLog>().HasIndex(g => new { g.ManagerEmail, g.EmailSent });
             mb.Entity<AttendanceGapLog>().Property(g => g.ActualHours).HasPrecision(5, 2);
             mb.Entity<AttendanceGapLog>().Property(g => g.PlannedHours).HasPrecision(5, 2);
+
+            // Connected Outlook/Gmail sender — keeps its original table name
+            // from the Outlook-only version so existing connections survive.
+            mb.Entity<ConnectedMailAccount>().ToTable("OutlookMailAccounts");
         }
     }
 }

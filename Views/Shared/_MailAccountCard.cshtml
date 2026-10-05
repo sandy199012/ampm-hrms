@@ -1,0 +1,143 @@
+@* Views/Shared/_MailAccountCard.cshtml — "Connect Outlook / Connect Gmail" card *@
+@using AmpmHrmsPro.Models
+@inject AmpmHrmsPro.Services.IConnectedMailService Mail
+@{
+    var acct = await Mail.GetAccountAsync();
+    var outlookReady = Mail.IsConfigured(MailProviders.Outlook);
+    var gmailReady   = Mail.IsConfigured(MailProviders.Gmail);
+
+    var host = Context.Request.Host.Host;
+    var isLocal = host == "localhost" || host == "127.0.0.1";
+    var scheme = isLocal ? Context.Request.Scheme : "https";
+    var outlookCallback = Url.Action("OutlookCallback", "MailAccount", null, scheme);
+    var googleCallback  = Url.Action("GoogleCallback",  "MailAccount", null, scheme);
+
+    var isGmail = acct?.Provider == MailProviders.Gmail;
+}
+
+<div class="card mb-3" style="border-left:4px solid @(acct != null ? "var(--success)" : "var(--primary)");">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-envelope-at-fill me-1" style="color:var(--primary);"></i> Email sending account</span>
+        @if (acct != null)
+        {
+            <span class="badge bg-success rounded-pill"><i class="bi bi-check2 me-1"></i>@acct.Provider connected</span>
+        }
+        else
+        {
+            <span class="badge rounded-pill" style="background:#eee;color:#666;">Not connected</span>
+        }
+    </div>
+    <div class="card-body">
+        @if (acct != null)
+        {
+            <div class="d-flex align-items-center gap-3 mb-2">
+                @if (isGmail)
+                {
+                    <i class="bi bi-google" style="font-size:28px;color:#ea4335;"></i>
+                }
+                else
+                {
+                    <i class="bi bi-microsoft" style="font-size:28px;color:#0078d4;"></i>
+                }
+                <div>
+                    <div class="fw-semibold">@acct.DisplayName</div>
+                    <div class="text-muted small">@acct.Email</div>
+                </div>
+            </div>
+            <div class="text-muted small mb-3">
+                Connected @acct.ConnectedAt.ToLocalTime().ToString("dd-MMM-yyyy hh:mm tt") by @acct.ConnectedBy
+                @if (acct.LastSentAt.HasValue)
+                {
+                    <span> · Last email sent @acct.LastSentAt.Value.ToLocalTime().ToString("dd-MMM-yyyy hh:mm tt")</span>
+                }
+            </div>
+            @if (!string.IsNullOrEmpty(acct.LastError))
+            {
+                <div class="alert alert-danger small py-2">
+                    <strong>Last error:</strong> @acct.LastError
+                    <div>If it says the token expired or was revoked, click Disconnect and connect again.</div>
+                </div>
+            }
+            <div class="d-flex flex-wrap gap-2 align-items-center">
+                <form asp-controller="MailAccount" asp-action="SendTest" method="post" class="d-flex gap-2">
+                    @Html.AntiForgeryToken()
+                    <input type="email" name="to" class="form-control form-control-sm" style="min-width:220px;"
+                           placeholder="Send a test email to…" value="@acct.Email" required />
+                    <button type="submit" class="btn btn-sm btn-outline-primary text-nowrap">
+                        <i class="bi bi-send me-1"></i>Send test
+                    </button>
+                </form>
+                <form asp-controller="MailAccount" asp-action="Disconnect" method="post"
+                      onsubmit="return confirm('Disconnect this email account? HRMS will fall back to SMTP settings.');">
+                    @Html.AntiForgeryToken()
+                    <button type="submit" class="btn btn-sm btn-outline-danger">
+                        <i class="bi bi-x-circle me-1"></i>Disconnect
+                    </button>
+                </form>
+            </div>
+            <p class="text-muted small mt-3 mb-0">
+                To switch, click Disconnect and connect the other account. Schedules and on/off switches below still
+                apply — keep <strong>Enabled</strong> on for the scheduled emails. SMTP fields can be left blank.
+            </p>
+        }
+        else
+        {
+            <p class="mb-3">
+                Sign in once with Outlook or Gmail — every HRMS email (Attendance Review, Daily Alert, Birthday,
+                Weekly Report) is then sent from that mailbox and shows in its Sent folder. No SMTP needed.
+            </p>
+            <div class="d-flex flex-wrap gap-2 mb-2">
+                @if (outlookReady)
+                {
+                    <a asp-controller="MailAccount" asp-action="Connect" asp-route-provider="Outlook" class="btn btn-outline-primary">
+                        <i class="bi bi-microsoft me-1" style="color:#0078d4;"></i> Connect Outlook
+                    </a>
+                }
+                else
+                {
+                    <button type="button" class="btn btn-outline-secondary" disabled title="Server setup pending">
+                        <i class="bi bi-microsoft me-1"></i> Connect Outlook
+                    </button>
+                }
+                @if (gmailReady)
+                {
+                    <a asp-controller="MailAccount" asp-action="Connect" asp-route-provider="Gmail" class="btn btn-outline-danger">
+                        <i class="bi bi-google me-1"></i> Connect Gmail
+                    </a>
+                }
+                else
+                {
+                    <button type="button" class="btn btn-outline-secondary" disabled title="Server setup pending">
+                        <i class="bi bi-google me-1"></i> Connect Gmail
+                    </button>
+                }
+            </div>
+
+            @if (!outlookReady || !gmailReady)
+            {
+                <details class="small mt-2">
+                    <summary class="text-muted">Grey button? One-time server setup for that provider</summary>
+                    @if (!outlookReady)
+                    {
+                        <div class="alert alert-light border mt-2 mb-2">
+                            <strong>Outlook:</strong> Azure Portal → Microsoft Entra ID → App registrations → New
+                            registration. Redirect URI (Web): <code>@outlookCallback</code><br />
+                            API permissions (Delegated): Mail.Send, User.Read, offline_access.<br />
+                            On Render add <code>MicrosoftGraph__ClientId</code>, <code>MicrosoftGraph__ClientSecret</code>,
+                            <code>MicrosoftGraph__TenantId</code>.
+                        </div>
+                    }
+                    @if (!gmailReady)
+                    {
+                        <div class="alert alert-light border mt-2 mb-0">
+                            <strong>Gmail:</strong> Google Cloud Console → enable Gmail API → OAuth consent screen →
+                            Credentials → OAuth client ID (Web application). Authorized redirect URI:
+                            <code>@googleCallback</code><br />
+                            On Render add <code>GoogleMail__ClientId</code> and <code>GoogleMail__ClientSecret</code>.
+                        </div>
+                    }
+                </details>
+            }
+        }
+    </div>
+</div>

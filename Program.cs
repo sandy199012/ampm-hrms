@@ -140,11 +140,12 @@ builder.Services.AddScoped<IFaceMatchService, FaceMatchService>();
 // department's Head. Configured from Admin > Attendance > Email
 // Notifications (EmailSettings) and fired by a background poller, same
 // pattern as the biometric sync above (see HrEmailNotificationService.cs). ──
-// Email: SmartEmailSender sends via the connected Outlook account
-// (Microsoft Graph — "Connect Outlook" on the Email Notifications page),
-// falling back to SMTP when no Outlook account is connected.
+// Email: SmartEmailSender sends via the connected Outlook or Gmail account
+// ("Connect Outlook" / "Connect Gmail" on the Email Notifications page),
+// falling back to SMTP when no account is connected.
 builder.Services.Configure<MicrosoftGraphOptions>(builder.Configuration.GetSection("MicrosoftGraph"));
-builder.Services.AddScoped<IOutlookMailService, OutlookMailService>();
+builder.Services.Configure<GoogleMailOptions>(builder.Configuration.GetSection("GoogleMail"));
+builder.Services.AddScoped<IConnectedMailService, ConnectedMailService>();
 builder.Services.AddScoped<SmtpEmailSender>();
 builder.Services.AddScoped<IEmailSender, SmartEmailSender>();
 builder.Services.AddScoped<IHrEmailNotificationService, HrEmailNotificationService>();
@@ -269,7 +270,10 @@ using (var scope = app.Services.CreateScope())
         {
             db.Database.IsNpgsql()
                 ? "ALTER TABLE \"AttendanceGapLogs\" ADD COLUMN IF NOT EXISTS \"HodName\" character varying(120) NULL"
-                : "ALTER TABLE \"AttendanceGapLogs\" ADD COLUMN \"HodName\" TEXT NULL"
+                : "ALTER TABLE \"AttendanceGapLogs\" ADD COLUMN \"HodName\" TEXT NULL",
+            db.Database.IsNpgsql()
+                ? "ALTER TABLE \"OutlookMailAccounts\" ADD COLUMN IF NOT EXISTS \"Provider\" character varying(20) NOT NULL DEFAULT 'Outlook'"
+                : "ALTER TABLE \"OutlookMailAccounts\" ADD COLUMN \"Provider\" TEXT NOT NULL DEFAULT 'Outlook'"
         };
         foreach (var sql in addColumns)
         {
