@@ -22,10 +22,22 @@ namespace AmpmHrmsPro.Services
         List<(string Label, int Count)> Owned,     // deleted with the employee
         List<(string Label, int Count)> Unlinked); // other people's rows → set to blank
 
+    public record BulkDeletePreview(
+        List<(int Id, string Name, string EmpCode)> Employees,
+        List<(string Label, int Count)> Owned,
+        List<(string Label, int Count)> Unlinked);
+
+    public record BulkDeleteResult(int Deleted, List<string> Failures);
+
     public interface IEmployeeDeletionService
     {
         Task<EmployeeDeletePreview?> PreviewAsync(int employeeId, CancellationToken ct = default);
         Task<(bool Success, string Message)> DeleteAsync(int employeeId, CancellationToken ct = default);
+
+        // Bulk: one combined preview, and one transaction PER employee — a
+        // failure on one person doesn't undo the others; it's reported back.
+        Task<BulkDeletePreview> PreviewManyAsync(IReadOnlyCollection<int> employeeIds, CancellationToken ct = default);
+        Task<BulkDeleteResult> DeleteManyAsync(IReadOnlyCollection<int> employeeIds, CancellationToken ct = default);
     }
 
     public class EmployeeDeletionService : IEmployeeDeletionService
@@ -73,6 +85,72 @@ namespace AmpmHrmsPro.Services
             return new EmployeeDeletePreview(id, emp.Name, emp.EmpCode,
                 owned.Where(o => o.Item2 > 0).ToList(),
                 unlinked.Where(u => u.Item2 > 0).ToList());
+        }
+
+        public async Task<BulkDeletePreview> PreviewManyAsync(IReadOnlyCollection<int> ids, CancellationToken ct = default)
+        {
+            var idList = ids.Distinct().ToList();
+            var emps = await _db.Employees.AsNoTracking()
+                .Where(e => idList.Contains(e.Id))
+                .OrderBy(e => e.EmpCode)
+                .Select(e => new { e.Id, e.Name, e.EmpCode })
+                .ToListAsync(ct);
+            idList = emps.Select(e => e.Id).ToList();
+            var codes = emps.Select(e => e.EmpCode).Where(c => !string.IsNullOrWhiteSpace(c)).ToList();
+
+            var owned = new List<(string, int)>
+            {
+                ("Employee records",           idList.Count),
+                ("Attendance days",            await _db.AttendanceDailies.CountAsync(x => idList.Contains(x.EmployeeId), ct)),
+                ("Attendance punches",         await _db.AttendancePunches.CountAsync(x => idList.Contains(x.EmployeeId), ct)),
+                ("Leave / OD / other applications", await _db.Applications.CountAsync(x => idList.Contains(x.EmployeeId), ct)),
+                ("Leave balances",             await _db.LeaveBalances.CountAsync(x => idList.Contains(x.EmployeeId), ct)),
+                ("Comp-off ledger entries",    await _db.CompOffLedgers.CountAsync(x => idList.Contains(x.EmployeeId), ct)),
+                ("OT ledger entries",          await _db.OTLedgers.CountAsync(x => idList.Contains(x.EmployeeId), ct)),
+                ("Salary structures",          await _db.EmployeeSalaryStructures.CountAsync(x => idList.Contains(x.EmployeeId), ct)),
+                ("Tax declarations",           await _db.TaxDeclarationHeaders.CountAsync(x => idList.Contains(x.EmployeeId), ct)),
+                ("Face profiles",              await _db.FaceProfiles.CountAsync(x => idList.Contains(x.EmployeeId), ct)),
+                ("Notifications",              await _db.Notifications.CountAsync(x => idList.Contains(x.EmployeeId), ct)),
+                ("Roster entries",             await _db.RosterEntries.CountAsync(x => codes.Contains(x.EmployeeCode), ct)),
+                ("Attendance Review gaps",     await _db.AttendanceGapLogs.CountAsync(x => codes.Contains(x.EmployeeCode), ct)),
+            };
+
+            // Only count links from people who are NOT also being deleted.
+            var unlinked = new List<(string, int)>
+            {
+                ("Employees reporting to them",
+                    await _db.Employees.CountAsync(x => x.ReportingManagerId != null &&
+                        idList.Contains(x.ReportingManagerId.Value) && !idList.Contains(x.Id), ct)),
+                ("Departments they head",
+                    await _db.Departments.CountAsync(x => x.HeadEmployeeId != null && idList.Contains(x.HeadEmployeeId.Value), ct)),
+                ("Applications they approved / decided",
+                    await _db.Applications.CountAsync(x => !idList.Contains(x.EmployeeId) &&
+                        ((x.ApproverEmployeeId != null && idList.Contains(x.ApproverEmployeeId.Value)) ||
+                         (x.DecisionByEmployeeId != null && idList.Contains(x.DecisionByEmployeeId.Value))), ct)),
+            };
+
+            return new BulkDeletePreview(
+                emps.Select(e => (e.Id, e.Name, e.EmpCode)).ToList(),
+                owned.Where(o => o.Item2 > 0).ToList(),
+                unlinked.Where(u => u.Item2 > 0).ToList());
+        }
+
+        public async Task<BulkDeleteResult> DeleteManyAsync(IReadOnlyCollection<int> ids, CancellationToken ct = default)
+        {
+            int deleted = 0;
+            var failures = new List<string>();
+            var idList = ids.Distinct().ToList();
+            var labels = await _db.Employees.AsNoTracking()
+                .Where(e => idList.Contains(e.Id))
+                .ToDictionaryAsync(e => e.Id, e => $"{e.Name} ({e.EmpCode})", ct);
+
+            foreach (var id in idList)
+            {
+                var (ok, msg) = await DeleteAsync(id, ct);
+                if (ok) deleted++;
+                else failures.Add($"{(labels.TryGetValue(id, out var l) ? l : $"#{id}")}: {msg}");
+            }
+            return new BulkDeleteResult(deleted, failures);
         }
 
         public async Task<(bool Success, string Message)> DeleteAsync(int id, CancellationToken ct = default)

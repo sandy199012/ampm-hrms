@@ -20,10 +20,30 @@
     </div>
 </div>
 
+@if (canDelete)
+{
+    <div id="bulkBar" class="d-flex align-items-center justify-content-between gap-2 mb-2 px-3 py-2 rounded-3"
+         style="display:none !important;background:var(--danger-light);">
+        <div style="color:var(--danger);" class="fw-semibold">
+            <i class="bi bi-check2-square me-1"></i><span id="bulkCount">0</span> selected
+            <button type="button" class="btn btn-link btn-sm p-0 ms-2" onclick="clearSelection()">Clear</button>
+        </div>
+        <button type="button" class="btn btn-danger btn-sm" onclick="openBulkDelete()">
+            <i class="bi bi-trash3-fill me-1"></i> Delete selected
+        </button>
+    </div>
+}
+
 <div class="table-wrap">
     <table class="table">
         <thead>
             <tr>
+                @if (canDelete)
+                {
+                    <th style="width:36px;">
+                        <input type="checkbox" class="form-check-input" id="selAll" title="Select all on this page" onchange="toggleAll(this.checked)" />
+                    </th>
+                }
                 <th>Employee</th>
                 <th>Code</th>
                 <th>Department</th>
@@ -38,12 +58,16 @@
         <tbody>
         @if (!Model.Any())
         {
-            <tr><td colspan="9"><div class="empty-state"><i class="bi bi-people"></i>No employees found.</div></td></tr>
+            <tr><td colspan="@(canDelete ? 10 : 9)"><div class="empty-state"><i class="bi bi-people"></i>No employees found.</div></td></tr>
         }
         @foreach (var e in Model)
         {
             var initials = string.Join("", e.Name.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(w => w[0])).ToUpper();
             <tr>
+                @if (canDelete)
+                {
+                    <td><input type="checkbox" class="form-check-input emp-sel" value="@e.Id" onchange="updateBulkBar()" /></td>
+                }
                 <td>
                     <div class="d-flex align-items-center gap-2">
                         <div class="avatar-sm">@initials</div>
@@ -136,8 +160,122 @@
     </div>
 }
 
+@if (canDelete)
+{
+    <div class="modal fade" id="bulkDeleteModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content">
+                <form method="post" asp-action="BulkDeleteEmployees" id="bulkDeleteForm">
+                    @Html.AntiForgeryToken()
+                    <div id="bulkIds"></div>
+                    <div class="modal-header" style="background:var(--danger-light);">
+                        <h5 class="modal-title" style="color:var(--danger);">
+                            <i class="bi bi-exclamation-triangle-fill me-1"></i> Delete <span id="bulkTitleCount"></span> employees permanently
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div id="bulkLoading" class="text-muted small">Checking selected employees' data…</div>
+                        <div id="bulkBody" style="display:none;">
+                            <div id="bulkSelfNote" class="alert alert-warning small py-2" style="display:none;">
+                                Your own account was selected — it will be skipped.
+                            </div>
+                            <p class="mb-2">These employees and <strong>all their data</strong> will be deleted.
+                                <strong>This cannot be undone.</strong></p>
+                            <div class="border rounded-2 p-2 mb-2 small" style="max-height:140px;overflow:auto;" id="bulkEmpList"></div>
+                            <div id="bulkOwnedWrap">
+                                <div class="small fw-semibold mb-1">Will be deleted (total):</div>
+                                <ul class="small mb-2" id="bulkOwned"></ul>
+                            </div>
+                            <div id="bulkUnlinkedWrap">
+                                <div class="small fw-semibold mb-1">Will be un-linked (left blank) for other employees:</div>
+                                <ul class="small mb-2" id="bulkUnlinked"></ul>
+                            </div>
+                            <div class="alert alert-light border small py-2 mb-3">
+                                Only need to stop people from logging in or showing in reports?
+                                Set their <strong>Status = Resigned / Inactive</strong> instead — it keeps their history.
+                            </div>
+                            <label class="form-label small">Type <strong id="bulkPhrase"></strong> to confirm</label>
+                            <input type="text" name="confirmText" id="bulkConfirm" class="form-control" autocomplete="off" />
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-danger" id="bulkSubmit" disabled
+                                onclick="this.innerHTML='Deleting… please wait'; setTimeout(() => this.disabled = true, 0);">
+                            <i class="bi bi-trash3-fill me-1"></i> Delete permanently
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+}
+
 @section Scripts {
 <script>
+// ── Bulk selection ──
+let bulkPhrase = '';
+const selectedIds = () => [...document.querySelectorAll('.emp-sel:checked')].map(c => c.value);
+function updateBulkBar() {
+    const n = selectedIds().length, bar = document.getElementById('bulkBar');
+    if (!bar) return;
+    document.getElementById('bulkCount').textContent = n;
+    bar.style.setProperty('display', n ? 'flex' : 'none', 'important');
+    const all = document.querySelectorAll('.emp-sel'), selAll = document.getElementById('selAll');
+    if (selAll) { selAll.checked = n > 0 && n === all.length; selAll.indeterminate = n > 0 && n < all.length; }
+}
+function toggleAll(on) { document.querySelectorAll('.emp-sel').forEach(c => c.checked = on); updateBulkBar(); }
+function clearSelection() { toggleAll(false); }
+function openBulkDelete() {
+    const ids = selectedIds();
+    if (!ids.length) return;
+    const el = id => document.getElementById(id);
+    el('bulkConfirm').value = '';
+    el('bulkSubmit').disabled = true;
+    el('bulkLoading').textContent = "Checking selected employees' data…";
+    el('bulkLoading').style.display = '';
+    el('bulkBody').style.display = 'none';
+    el('bulkTitleCount').textContent = ids.length;
+    bootstrap.Modal.getOrCreateInstance(el('bulkDeleteModal')).show();
+
+    fetch('@Url.Action("BulkDeleteEmployeesPreview")?' + ids.map(i => 'ids=' + encodeURIComponent(i)).join('&'))
+        .then(r => r.json())
+        .then(d => {
+            if (!d.success) { el('bulkLoading').textContent = d.message; return; }
+            el('bulkLoading').style.display = 'none';
+            el('bulkTitleCount').textContent = d.count;
+            el('bulkSelfNote').style.display = d.selfSkipped ? '' : 'none';
+
+            const hidden = el('bulkIds'); hidden.innerHTML = '';
+            const list = el('bulkEmpList'); list.innerHTML = '';
+            d.employees.forEach(e => {
+                const inp = document.createElement('input');
+                inp.type = 'hidden'; inp.name = 'ids'; inp.value = e.id; hidden.appendChild(inp);
+                const row = document.createElement('div'); row.textContent = `${e.code} — ${e.name}`; list.appendChild(row);
+            });
+            const fill = (listId, wrapId, rows) => {
+                const ul = el(listId); ul.innerHTML = '';
+                rows.forEach(r => { const li = document.createElement('li'); li.textContent = `${r.label}: ${r.count}`; ul.appendChild(li); });
+                el(wrapId).style.display = rows.length ? '' : 'none';
+            };
+            fill('bulkOwned', 'bulkOwnedWrap', d.owned);
+            fill('bulkUnlinked', 'bulkUnlinkedWrap', d.unlinked);
+
+            bulkPhrase = 'DELETE ' + d.count;
+            el('bulkPhrase').textContent = bulkPhrase;
+            el('bulkBody').style.display = '';
+            el('bulkConfirm').focus();
+        })
+        .catch(() => { el('bulkLoading').textContent = 'Could not load details. Please try again.'; });
+}
+document.addEventListener('input', e => {
+    if (e.target && e.target.id === 'bulkConfirm')
+        document.getElementById('bulkSubmit').disabled =
+            !bulkPhrase || e.target.value.trim().toUpperCase() !== bulkPhrase;
+});
+
+// ── Single delete ──
 let delEmpCode = '';
 function openDeleteEmp(id) {
     const el = id => document.getElementById(id);

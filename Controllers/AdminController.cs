@@ -355,6 +355,57 @@ namespace AmpmHrmsPro.Controllers
             return RedirectToAction("Employees");
         }
 
+        // ── Bulk delete: tick employees on All Employees → "Delete selected".
+        // The admin confirms by typing  DELETE <count>  (e.g. "DELETE 12").
+        [Authorize(Roles = "admin")]
+        public async Task<IActionResult> BulkDeleteEmployeesPreview([FromQuery] int[] ids, [FromServices] IEmployeeDeletionService deleter)
+        {
+            var selfSelected = ids.Contains(CurrentEmpId);
+            var targetIds = ids.Where(i => i != CurrentEmpId).Distinct().ToList();
+            if (targetIds.Count == 0)
+                return Json(new { success = false, message = selfSelected
+                    ? "You selected only your own account — you can't delete yourself while logged in."
+                    : "No employees selected." });
+
+            var p = await deleter.PreviewManyAsync(targetIds);
+            return Json(new
+            {
+                success      = true,
+                selfSkipped  = selfSelected,
+                count        = p.Employees.Count,
+                employees    = p.Employees.Select(e => new { id = e.Id, name = e.Name, code = e.EmpCode }),
+                owned        = p.Owned.Select(o => new { label = o.Label, count = o.Count }),
+                unlinked     = p.Unlinked.Select(u => new { label = u.Label, count = u.Count }),
+            });
+        }
+
+        [HttpPost, ValidateAntiForgeryToken, Authorize(Roles = "admin")]
+        public async Task<IActionResult> BulkDeleteEmployees(int[] ids, string? confirmText, [FromServices] IEmployeeDeletionService deleter)
+        {
+            var targetIds = (ids ?? Array.Empty<int>()).Where(i => i != CurrentEmpId).Distinct().ToList();
+            if (targetIds.Count == 0)
+            {
+                TempData["Error"] = "No employees selected (your own account is always skipped).";
+                return RedirectToAction("Employees");
+            }
+
+            var expected = $"DELETE {targetIds.Count}";
+            if (!string.Equals((confirmText ?? "").Trim(), expected, StringComparison.OrdinalIgnoreCase))
+            {
+                TempData["Error"] = $"Confirmation text did not match \"{expected}\" — nothing was deleted.";
+                return RedirectToAction("Employees");
+            }
+
+            var result = await deleter.DeleteManyAsync(targetIds);
+            if (result.Failures.Count == 0)
+                TempData["Success"] = $"{result.Deleted} employee(s) and all their data were permanently deleted.";
+            else
+                TempData["Error"] = $"Deleted {result.Deleted}, failed {result.Failures.Count}: " +
+                                    string.Join(" | ", result.Failures.Take(5)) +
+                                    (result.Failures.Count > 5 ? " …" : "");
+            return RedirectToAction("Employees");
+        }
+
         // ═══════════════════════════════════════════
         // BULK POLICY ASSIGNMENT — assign Leave Policy / Shift / Week-Off /
         // Manager in one shot to a whole department, category, HOD-team, or
