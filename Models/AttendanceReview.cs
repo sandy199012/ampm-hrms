@@ -142,4 +142,21 @@ namespace AmpmHrmsPro.Models
 
         public DateTime  CreatedAt   { get; set; } = DateTime.UtcNow;
     }
+
+    // ── GapReportRecipient ─────────────────────────────────────────────────────
+    // Who receives the Gap Analysis email: one row per HoD, maintained by the
+    // admin on Attendance Review → HoD Emails. A HoD without a row here gets
+    // NO email.
+    public class GapReportRecipient
+    {
+        public int Id { get; set; }
+
+        [Required, MaxLength(120)]
+        public string HodName { get; set; } = "";
+
+        [Required, MaxLength(200)]
+        public string Email { get; set; } = "";
+
+        public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    }
 }

@@ -1,0 +1,112 @@
+@model List<AmpmHrmsPro.Services.HodRecipientRow>
+@{
+    ViewData["Title"]    = "HoD Emails";
+    ViewData["Subtitle"] = "Who receives the Gap Analysis email";
+    var anySuggested = Model.Any(r => r.Suggested);
+}
+
+<div class="page-header">
+    <div>
+        <h1>HoD Emails — Gap Analysis</h1>
+        <p>The Gap Analysis email (Excel attached) goes <strong>only</strong> to the HoDs you give an email here. Leave a box blank = that HoD gets nothing.</p>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="@Url.Action("Index", "AttendanceReview")" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left me-1"></i>Back
+        </a>
+    </div>
+</div>
+
+@if (anySuggested)
+{
+    <div class="alert alert-warning">
+        <i class="bi bi-info-circle-fill me-1"></i>
+        Emails from the earlier pilot list are pre-filled below as a suggestion. <strong>Nothing is sent to them until you click Save.</strong>
+        Clear any you don't want first.
+    </div>
+}
+
+<form method="post" asp-action="Recipients" onsubmit="renumberRows()">
+    @Html.AntiForgeryToken()
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-envelope-paper-fill me-1" style="color:var(--primary);"></i> HoD → email</span>
+            <span class="text-muted small">@Model.Count(r => !string.IsNullOrEmpty(r.Email)) with email · @Model.Count(r => string.IsNullOrEmpty(r.Email)) without</span>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table mb-0 align-middle" style="font-size:13px;" id="recipTable">
+                    <thead style="background:var(--bg-light);">
+                        <tr>
+                            <th style="width:40%;">HoD</th>
+                            <th>Email (Gap Analysis goes here)</th>
+                            <th style="width:48px;"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @for (int i = 0; i < Model.Count; i++)
+                        {
+                            var r = Model[i];
+                            <tr>
+                                <td>
+                                    <input type="hidden" name="hodNames[@i]" value="@r.HodName" />
+                                    <span class="fw-semibold">@r.HodName</span>
+                                    @if (r.Suggested)
+                                    {
+                                        <span class="badge rounded-pill ms-1" style="background:var(--warning-light);color:var(--warning);">suggested</span>
+                                    }
+                                </td>
+                                <td>
+                                    <input type="email" name="emails[@i]" value="@r.Email" class="form-control form-control-sm"
+                                           placeholder="No email — this HoD gets no Gap Analysis" />
+                                </td>
+                                <td>
+                                    <button type="button" class="btn btn-sm btn-light text-danger" title="Clear email"
+                                            onclick="this.closest('tr').querySelector('input[type=email]').value='';">
+                                        <i class="bi bi-x-lg"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="card-footer d-flex flex-wrap gap-2 justify-content-between align-items-center">
+            <button type="button" class="btn btn-sm btn-light" onclick="addHodRow()">
+                <i class="bi bi-plus-lg me-1"></i> Add another HoD
+            </button>
+            <button type="submit" class="btn btn-primary">
+                <i class="bi bi-save me-1"></i> Save
+            </button>
+        </div>
+    </div>
+</form>
+
+<p class="text-muted small mt-3">
+    What each HoD receives: subject <em>"Gap Analysis — &lt;HoD&gt; — &lt;date&gt;"</em>, a two-line message, and the Excel
+    <em>"Gap Analysis - &lt;HoD&gt; - &lt;date&gt;.xlsx"</em> covering everyone in their reporting line. No CC.
+</p>
+
+@section Scripts {
+<script>
+// Keep hodNames[i] / emails[i] indexes gap-free after rows are added/removed.
+function renumberRows() {
+    document.querySelectorAll('#recipTable tbody tr').forEach((tr, i) => {
+        tr.querySelectorAll('input[name^="hodNames["]').forEach(x => x.name = 'hodNames[' + i + ']');
+        tr.querySelectorAll('input[name^="emails["]').forEach(x => x.name = 'emails[' + i + ']');
+    });
+}
+function addHodRow() {
+    const tbody = document.querySelector('#recipTable tbody');
+    const i = tbody.querySelectorAll('tr').length;
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+        '<td><input type="text" name="hodNames[' + i + ']" class="form-control form-control-sm" placeholder="HoD name (as in Presence 360 Manager Name)" required /></td>' +
+        '<td><input type="email" name="emails[' + i + ']" class="form-control form-control-sm" placeholder="email@ampm.in" required /></td>' +
+        '<td><button type="button" class="btn btn-sm btn-light text-danger" onclick="this.closest(\'tr\').remove()"><i class="bi bi-x-lg"></i></button></td>';
+    tbody.appendChild(tr);
+    tr.querySelector('input').focus();
+}
+</script>
+}

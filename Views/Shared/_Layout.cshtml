@@ -104,6 +104,9 @@
                 <a class="sidebar-link @(IsActiveAny("AttendanceReview","Index","GapReport") ? "active" : "")" asp-controller="AttendanceReview" asp-action="Index">
                     <i class="bi bi-clipboard2-data-fill"></i> Gap Analysis
                 </a>
+                <a class="sidebar-link @(IsActive("AttendanceReview","Recipients") ? "active" : "")" asp-controller="AttendanceReview" asp-action="Recipients">
+                    <i class="bi bi-envelope-paper-fill"></i> HoD Emails
+                </a>
 
                 <div class="nav-section-label">Salary Structure</div>
                 <a class="sidebar-link @(IsActive("Salary","Components") ? "active" : "")" asp-controller="Salary" asp-action="Components">

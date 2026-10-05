@@ -41,6 +41,10 @@ namespace AmpmHrmsPro.Services
         public int EmailScheduleMinute { get; set; } = 30;
     }
 
+    // One line on the HoD Emails page. Suggested = pre-filled from the old
+    // pilot config and NOT active until the admin clicks Save.
+    public record HodRecipientRow(string HodName, string? Email, bool Suggested);
+
     // ─── Service interface ────────────────────────────────────────────────────
     public interface IAttendanceReviewService
     {
@@ -62,6 +66,15 @@ namespace AmpmHrmsPro.Services
         /// <summary>Called by the daily background service: finds yesterday's unsent gaps and sends.</summary>
         Task<(int Sent, int Failed)> SendDailyEmailsAsync(CancellationToken ct = default);
 
+        /// <summary>HoD → email map used for Gap Analysis emails (admin-maintained).</summary>
+        Task<Dictionary<string, string>> GetRecipientMapAsync(CancellationToken ct = default);
+
+        /// <summary>Every known HoD with their saved email (for the HoD Emails page).</summary>
+        Task<List<HodRecipientRow>> GetRecipientRowsAsync(CancellationToken ct = default);
+
+        /// <summary>Replace the HoD email list. Rows with a blank email are removed.</summary>
+        Task SaveRecipientsAsync(IEnumerable<(string HodName, string? Email)> rows, CancellationToken ct = default);
+
         /// <summary>Reason the last failed email failed, if any.</summary>
         string? LastSendError { get; }
     }
@@ -79,7 +92,6 @@ namespace AmpmHrmsPro.Services
 
         // Pilot manager lookup: normalize name → PilotManager config
         private Dictionary<string, PilotManager> _pilotByName = new(StringComparer.OrdinalIgnoreCase);
-        private HashSet<string>                  _pilotEmails  = new(StringComparer.OrdinalIgnoreCase);
         // normalized HoD name → display name ("Manish Rana")
         private Dictionary<string, string>       _hodByName    = new(StringComparer.OrdinalIgnoreCase);
 
@@ -100,7 +112,6 @@ namespace AmpmHrmsPro.Services
             foreach (var pm in _opts.PilotManagers)
             {
                 _pilotByName[NormName(pm.Name)] = pm;
-                _pilotEmails.Add(pm.Email);
                 _hodByName[NormName(pm.Name)] = Pretty(pm.Name);
             }
         }
@@ -183,7 +194,9 @@ namespace AmpmHrmsPro.Services
                     managerOf[emp] = mgr;
             }
 
-            // Resolve HoD for each gap; email goes to the HoD if they're a pilot.
+            // Resolve HoD for each gap; email goes to the HoD only if the admin
+            // added their address on Attendance Review → HoD Emails.
+            var recipients = await GetRecipientMapAsync(ct);
             var hodCache = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var g in gaps)
             {
@@ -194,9 +207,8 @@ namespace AmpmHrmsPro.Services
                 g.HodName     = hod;
                 g.ManagerName = string.IsNullOrEmpty(key) ? "Unassigned" : Pretty(g.ManagerName);
 
-                if (_pilotByName.TryGetValue(NormName(hod), out var pm))
-                    g.ManagerEmail = pm.Email;
-                // else: HoD not in pilot list — gap saved but no email sent
+                g.ManagerEmail = recipients.TryGetValue(NormName(hod), out var to) ? to : null;
+                // no address → gap saved, no email (until one is added)
             }
 
             import.GapsDetected = gaps.Count;
@@ -363,7 +375,7 @@ namespace AmpmHrmsPro.Services
         public async Task<(int Sent, int Failed)> SendEmailsForImportAsync(int importId, CancellationToken ct = default)
         {
             var gaps = await _db.AttendanceGapLogs
-                .Where(g => g.ImportId == importId && !g.EmailSent && !string.IsNullOrEmpty(g.ManagerEmail))
+                .Where(g => g.ImportId == importId && !g.EmailSent)
                 .ToListAsync(ct);
             return await SendGapsEmailAsync(gaps, ct);
         }
@@ -373,7 +385,7 @@ namespace AmpmHrmsPro.Services
         {
             var yesterday = DateOnly.FromDateTime(IndiaTime.Today.AddDays(-1));
             var gaps = await _db.AttendanceGapLogs
-                .Where(g => g.Date == yesterday && !g.EmailSent && !string.IsNullOrEmpty(g.ManagerEmail))
+                .Where(g => g.Date == yesterday && !g.EmailSent)
                 .ToListAsync(ct);
 
             return await SendGapsEmailAsync(gaps, ct);
@@ -383,61 +395,44 @@ namespace AmpmHrmsPro.Services
         // Private helpers
         // ─────────────────────────────────────────────────────────────────────
 
+        // Gap Analysis email: ONE email per HoD, ONLY to the address saved on
+        // the HoD Emails page (no CC), short body + "Gap Analysis" Excel.
         private async Task<(int Sent, int Failed)> SendGapsEmailAsync(
             List<AttendanceGapLog> gaps, CancellationToken ct)
         {
             if (gaps.Count == 0) return (0, 0);
 
             // SMTP settings are only a fallback — SmartEmailSender sends via the
-            // connected Outlook account when there is one.
-            var settings = await _db.EmailSettingsList.FirstOrDefaultAsync(ct);
+            // connected Gmail/Outlook account when there is one.
+            var settings   = await _db.EmailSettingsList.FirstOrDefaultAsync(ct);
+            var recipients = await GetRecipientMapAsync(ct);
             LastSendError = null;
 
-            // Group by manager email
-            var byManager = gaps
-                .GroupBy(g => g.ManagerEmail!)
-                .ToList();
-
             int sent = 0, failed = 0;
-
-            foreach (var grp in byManager)
+            foreach (var grp in gaps.GroupBy(g => NormName(g.HodName ?? g.ManagerName), StringComparer.OrdinalIgnoreCase))
             {
-                var managerEmail = grp.Key;
+                if (!recipients.TryGetValue(grp.Key, out var toEmail))
+                    continue;   // no email added for this HoD → nothing is sent
 
-                // Only send to pilot managers
-                if (!_pilotEmails.Contains(managerEmail))
-                    continue;
+                var hodGaps = grp.ToList();
+                var hodName = hodGaps.First().HodName ?? hodGaps.First().ManagerName ?? toEmail;
 
-                var mgGaps = grp.ToList();
-                var managerName = mgGaps.First().HodName ?? mgGaps.First().ManagerName ?? managerEmail;
-
-                // Pilot config gives the clean display name + CC list
-                var pm = _opts.PilotManagers.FirstOrDefault(p =>
-                    string.Equals(p.Email, managerEmail, StringComparison.OrdinalIgnoreCase));
-                if (pm != null) managerName = pm.Name;
-                var ccList = pm?.CcEmails ?? new List<string>();
-
-                // Get date range for subject
-                var dateMin = mgGaps.Min(g => g.Date);
-                var dateMax = mgGaps.Max(g => g.Date);
+                var dateMin = hodGaps.Min(g => g.Date);
+                var dateMax = hodGaps.Max(g => g.Date);
                 var dateRange = dateMin == dateMax
-                    ? dateMin.ToString("dd MMM yyyy")
-                    : $"{dateMin:dd MMM} – {dateMax:dd MMM yyyy}";
+                    ? dateMin.ToString("dd-MMM-yyyy")
+                    : $"{dateMin:dd-MMM-yyyy} to {dateMax:dd-MMM-yyyy}";
 
-                var subject = $"Attendance Review — {dateRange} | Your Team Gaps";
-                var body    = BuildEmailHtml(managerName, mgGaps, dateRange);
-                var excel   = await GenerateExcelAsync(managerEmail, mgGaps);
-
+                var excel = await GenerateExcelAsync(toEmail, hodGaps);
                 var req = new MailRequest
                 {
-                    To       = new List<string> { managerEmail },
-                    Cc       = ccList.ToList(),
-                    Subject  = subject,
-                    HtmlBody = body,
+                    To       = new List<string> { toEmail },
+                    Subject  = $"Gap Analysis — {hodName} — {dateRange}",
+                    HtmlBody = BuildGapAnalysisEmailHtml(hodName, dateRange),
                     Attachments =
                     {
                         new MailAttachment(
-                            $"AttendanceGaps_{dateRange.Replace(" ", "_").Replace("–", "to")}.xlsx",
+                            SafeFileName($"Gap Analysis - {hodName} - {dateRange}.xlsx"),
                             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             excel)
                     }
@@ -447,12 +442,12 @@ namespace AmpmHrmsPro.Services
                 if (ok)
                 {
                     var now = DateTime.UtcNow;
-                    foreach (var g in mgGaps) { g.EmailSent = true; g.EmailSentAt = now; }
+                    foreach (var g in hodGaps) { g.EmailSent = true; g.EmailSentAt = now; g.ManagerEmail = toEmail; }
                     sent++;
                 }
                 else
                 {
-                    _log.LogError("AttendanceReview: failed to send email to {Email}: {Msg}", managerEmail, message);
+                    _log.LogError("Gap Analysis: failed to send to {Email}: {Msg}", toEmail, message);
                     LastSendError = message;
                     failed++;
                 }
@@ -460,6 +455,86 @@ namespace AmpmHrmsPro.Services
 
             await _db.SaveChangesAsync(ct);
             return (sent, failed);
+        }
+
+        private static string BuildGapAnalysisEmailHtml(string hodName, string dateRange) => $@"
+<div style='font-family:Arial,sans-serif;font-size:14px;color:#222;'>
+  <p>Dear {System.Net.WebUtility.HtmlEncode(hodName)},</p>
+  <p>Please find attached the <b>Gap Analysis</b> for your team for <b>{dateRange}</b>.</p>
+  <p style='margin-top:24px;color:#888;font-size:11px;'>Automated email from AMPM HRMS. Please do not reply.</p>
+</div>";
+
+        private static string SafeFileName(string name)
+        {
+            foreach (var ch in Path.GetInvalidFileNameChars().Concat(new[] { '/', '\\', ':', '*', '?', '"', '<', '>', '|' }))
+                name = name.Replace(ch, '-');
+            return name;
+        }
+
+        // ── HoD email recipients (Attendance Review → HoD Emails) ───────────
+        public async Task<Dictionary<string, string>> GetRecipientMapAsync(CancellationToken ct = default)
+        {
+            var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var r in await _db.GapReportRecipients.AsNoTracking().ToListAsync(ct))
+                if (!string.IsNullOrWhiteSpace(r.Email))
+                    map[NormName(r.HodName)] = r.Email.Trim();
+            return map;
+        }
+
+        public async Task<List<HodRecipientRow>> GetRecipientRowsAsync(CancellationToken ct = default)
+        {
+            var saved = await _db.GapReportRecipients.AsNoTracking().ToListAsync(ct);
+
+            // Every HoD we know of: configured HoDs + anyone saved + HoDs seen in imports.
+            var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            void Add(string? n) { var k = NormName(n); if (k.Length > 0 && !names.ContainsKey(k)) names[k] = Pretty(n); }
+            foreach (var r in saved) Add(r.HodName);
+            foreach (var h in _opts.HodNames) Add(h);
+            foreach (var pm in _opts.PilotManagers) Add(pm.Name);
+            foreach (var h in await _db.AttendanceGapLogs.Where(g => g.HodName != null)
+                                          .Select(g => g.HodName!).Distinct().ToListAsync(ct)) Add(h);
+
+            // First visit (nothing saved yet): pre-fill the old pilot emails as
+            // suggestions — they only become active once the admin clicks Save.
+            var suggest = saved.Count == 0
+                ? _opts.PilotManagers.Where(p => !string.IsNullOrWhiteSpace(p.Email))
+                       .ToDictionary(p => NormName(p.Name), p => p.Email, StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            var savedMap = saved.Where(r => !string.IsNullOrWhiteSpace(r.Email))
+                                .GroupBy(r => NormName(r.HodName), StringComparer.OrdinalIgnoreCase)
+                                .ToDictionary(g => g.Key, g => g.First().Email, StringComparer.OrdinalIgnoreCase);
+
+            return names
+                .Select(kv => savedMap.TryGetValue(kv.Key, out var e)
+                    ? new HodRecipientRow(kv.Value, e, false)
+                    : suggest.TryGetValue(kv.Key, out var s2)
+                        ? new HodRecipientRow(kv.Value, s2, true)
+                        : new HodRecipientRow(kv.Value, null, false))
+                .OrderBy(r => string.IsNullOrEmpty(r.Email))   // HoDs with an email first
+                .ThenBy(r => r.HodName)
+                .ToList();
+        }
+
+        public async Task SaveRecipientsAsync(IEnumerable<(string HodName, string? Email)> rows, CancellationToken ct = default)
+        {
+            var clean = new Dictionary<string, (string Name, string Email)>(StringComparer.OrdinalIgnoreCase);
+            var bad = new List<string>();
+            foreach (var (name, email) in rows)
+            {
+                var key = NormName(name);
+                var e = (email ?? "").Trim();
+                if (key.Length == 0 || e.Length == 0) continue;
+                if (!System.Net.Mail.MailAddress.TryCreate(e, out _)) { bad.Add($"{Pretty(name)}: {e}"); continue; }
+                clean[key] = (Pretty(name), e);
+            }
+            if (bad.Count > 0)
+                throw new InvalidOperationException("Invalid email address — " + string.Join("; ", bad));
+
+            _db.GapReportRecipients.RemoveRange(_db.GapReportRecipients);
+            foreach (var v in clean.Values)
+                _db.GapReportRecipients.Add(new GapReportRecipient { HodName = v.Name, Email = v.Email, UpdatedAt = DateTime.UtcNow });
+            await _db.SaveChangesAsync(ct);
         }
 
         // ── CSV Parsing ───────────────────────────────────────────────────────
@@ -721,111 +796,5 @@ namespace AmpmHrmsPro.Services
             };
         }
 
-        // ── Email HTML body ───────────────────────────────────────────────────
-
-        private static string BuildEmailHtml(string managerName, List<AttendanceGapLog> gaps, string dateRange)
-        {
-            var sb = new StringBuilder();
-            sb.Append($@"
-<!DOCTYPE html>
-<html>
-<head><meta charset='utf-8'>
-<style>
-  body {{ font-family: Arial, sans-serif; font-size: 13px; color: #222; }}
-  h2   {{ color: #1e3a5f; }}
-  table {{ border-collapse: collapse; width: 100%; margin-top: 16px; }}
-  th   {{ background: #1e3a5f; color: #fff; padding: 8px 10px; text-align: left; font-size: 12px; }}
-  td   {{ padding: 7px 10px; border-bottom: 1px solid #e0e0e0; font-size: 12px; }}
-  tr:nth-child(even) {{ background: #f7f8fa; }}
-  .badge-late  {{ background:#fff3cd; color:#856404; padding:2px 7px; border-radius:10px; font-size:11px; }}
-  .badge-short {{ background:#d1ecf1; color:#0c5460; padding:2px 7px; border-radius:10px; font-size:11px; }}
-  .badge-extra {{ background:#d4edda; color:#155724; padding:2px 7px; border-radius:10px; font-size:11px; }}
-  .badge-absent{{ background:#f8d7da; color:#721c24; padding:2px 7px; border-radius:10px; font-size:11px; }}
-</style>
-</head>
-<body>
-<h2>Attendance Review — {dateRange}</h2>
-<p>Hi {managerName},</p>
-<p>Below is the attendance gap summary for your department (all reporting managers under you). The detailed Excel is attached.</p>
-<h3 style='color:#1e3a5f;margin-bottom:0;'>Summary by Reporting Manager</h3>
-<table>
-<tr>
-  <th>Reporting Manager</th><th>Employees</th><th>Late Coming</th><th>Short Hours</th>
-  <th>Extra Time</th><th>Absent / Unplanned</th><th>Total</th>
-</tr>");
-
-            foreach (var mg in gaps.GroupBy(x => x.ManagerName ?? "Unassigned").OrderBy(x => x.Key))
-            {
-                sb.Append($@"
-<tr>
-  <td>{mg.Key}</td>
-  <td>{mg.Select(x => x.EmployeeCode).Distinct().Count()}</td>
-  <td>{mg.Count(x => x.GapType == "Late")}</td>
-  <td>{mg.Count(x => x.GapType == "ShortHours")}</td>
-  <td>{mg.Count(x => x.GapType == "ExtraTime")}</td>
-  <td>{mg.Count(x => x.GapType == "Absent")}</td>
-  <td><b>{mg.Count()}</b></td>
-</tr>");
-            }
-
-            sb.Append(@"
-</table>
-<h3 style='color:#1e3a5f;margin:24px 0 0;'>Gap Details</h3>
-<table>
-<tr>
-  <th>Reporting Manager</th><th>Employee</th><th>Date</th><th>Gap</th>
-  <th>Actual In</th><th>Actual Out</th><th>Actual Hrs</th>
-  <th>Planned In</th><th>Planned Out</th><th>Details</th>
-</tr>");
-
-            foreach (var g in gaps.OrderBy(x => x.ManagerName).ThenBy(x => x.Date).ThenBy(x => x.EmployeeName))
-            {
-                var badgeClass = g.GapType switch
-                {
-                    "Late"       => "badge-late",
-                    "ShortHours" => "badge-short",
-                    "ExtraTime"  => "badge-extra",
-                    _            => "badge-absent"
-                };
-                var gapLabel = g.GapType switch
-                {
-                    "Late"       => "Late Coming",
-                    "ShortHours" => "Short Hours",
-                    "ExtraTime"  => "Extra Time",
-                    _            => "Absent/Unplanned"
-                };
-                var detail = g.GapType switch
-                {
-                    "Late"       => $"Late by {g.LateByMinutes} min",
-                    "ShortHours" => $"Short by {g.ShortByMinutes} min",
-                    "ExtraTime"  => $"Extra {g.ExtraByMinutes} min",
-                    _            => "No planned leave"
-                };
-
-                sb.Append($@"
-<tr>
-  <td>{g.ManagerName}</td>
-  <td>{g.EmployeeName} <span style='color:#888;font-size:11px;'>({g.EmployeeCode})</span></td>
-  <td>{g.Date:dd MMM yyyy}</td>
-  <td><span class='{badgeClass}'>{gapLabel}</span></td>
-  <td>{(g.ActualInTime.HasValue  ? g.ActualInTime.Value.ToString("HH:mm")  : "—")}</td>
-  <td>{(g.ActualOutTime.HasValue ? g.ActualOutTime.Value.ToString("HH:mm") : "—")}</td>
-  <td>{(g.ActualHours.HasValue   ? g.ActualHours.Value.ToString("0.00")    : "—")}</td>
-  <td>{(g.PlannedInTime.HasValue  ? g.PlannedInTime.Value.ToString("HH:mm")  : "—")}</td>
-  <td>{(g.PlannedOutTime.HasValue ? g.PlannedOutTime.Value.ToString("HH:mm") : "—")}</td>
-  <td>{detail}</td>
-</tr>");
-            }
-
-            sb.Append(@"
-</table>
-<p style='margin-top:24px;color:#888;font-size:11px;'>
-  This is an automated email from AMPM HRMS &mdash; Attendance Review module.<br>
-  Please do not reply to this email.
-</p>
-</body></html>");
-
-            return sb.ToString();
-        }
     }
 }

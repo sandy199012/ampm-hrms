@@ -4,6 +4,12 @@
     ViewData["Subtitle"] = "Detected attendance gaps";
     int importId = ViewBag.ImportId;
     var byManager = (IEnumerable<IGrouping<string, AmpmHrmsPro.Models.AttendanceGapLog>>)ViewBag.ByManager;
+    var recipientMap = (Dictionary<string, string>?)ViewBag.RecipientMap ?? new Dictionary<string, string>();
+    string? EmailFor(string hod)
+    {
+        var k = System.Text.RegularExpressions.Regex.Replace(hod ?? "", @"\s+", " ").Trim().TrimEnd('.').Trim();
+        return recipientMap.TryGetValue(k, out var e) ? e : null;
+    }
 
     string BadgeClass(string gapType) => gapType switch {
         "Late"       => "warning",
@@ -28,6 +34,9 @@
         <a href="@Url.Action("Index", "AttendanceReview")" class="btn btn-outline-secondary btn-sm">
             <i class="bi bi-arrow-left me-1"></i>Back
         </a>
+        <a href="@Url.Action("Recipients", "AttendanceReview")" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-envelope-paper me-1"></i>HoD Emails
+        </a>
         <a href="@Url.Action("DownloadExcel", "AttendanceReview", new { id = importId })"
            class="btn btn-sm" style="background:var(--success-light);color:var(--success);">
             <i class="bi bi-file-earmark-excel me-1"></i>Download Excel
@@ -36,7 +45,7 @@
             @Html.AntiForgeryToken()
             <input type="hidden" name="id" value="@importId" />
             <button type="submit" class="btn btn-primary btn-sm"
-                    onclick="return confirm('Send attendance review emails to all pilot managers now?')">
+                    onclick="return confirm('Email the Gap Analysis now to every HoD that has an email on the HoD Emails page?')">
                 <i class="bi bi-envelope-fill me-1"></i>Send Emails Now
             </button>
         </form>
@@ -117,7 +126,7 @@
                         @foreach (var grp in byManager)
                         {
                             var hg = grp.ToList();
-                            var hodEmail = hg.FirstOrDefault(x => !string.IsNullOrEmpty(x.ManagerEmail))?.ManagerEmail;
+                            var hodEmail = EmailFor(grp.Key);
                             <tr style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#hod-@hi">
                                 <td class="fw-semibold"><i class="bi bi-chevron-down me-1 text-muted"></i>@grp.Key</td>
                                 <td>@(hg.Select(x => x.ManagerName).Distinct().Count())</td>
@@ -134,11 +143,11 @@
                                     }
                                     else if (!string.IsNullOrEmpty(hodEmail))
                                     {
-                                        <span class="badge rounded-pill" style="background:var(--warning-light);color:var(--warning);">Pilot · Pending</span>
+                                        <span class="badge rounded-pill" style="background:var(--warning-light);color:var(--warning);" title="@hodEmail">Pending</span>
                                     }
                                     else
                                     {
-                                        <span class="badge rounded-pill" style="background:#eee;color:#888;">Not in Pilot</span>
+                                        <span class="badge rounded-pill" style="background:#eee;color:#888;">No email</span>
                                     }
                                 </td>
                             </tr>
@@ -169,7 +178,7 @@ else
     foreach (var grp in byManager)
     {
         var hodGaps = grp.ToList();
-        var hodEmail = hodGaps.FirstOrDefault(x => !string.IsNullOrEmpty(x.ManagerEmail))?.ManagerEmail;
+        var hodEmail = EmailFor(grp.Key);
         var byRm = hodGaps.GroupBy(x => x.ManagerName ?? "Unassigned").OrderBy(x => x.Key).ToList();
         <div class="card mb-3">
             <div class="card-header d-flex justify-content-between align-items-center"

@@ -69,6 +69,7 @@ namespace AmpmHrmsPro.Controllers
             ViewData["Subtitle"] = "Attendance gaps detected in this import";
             var gaps = await _svc.GetGapsAsync(id);
             ViewBag.ImportId = id;
+            ViewBag.RecipientMap = await _svc.GetRecipientMapAsync();
 
             // Group summary for display
             // Group by HoD (falls back to direct manager for older imports
@@ -91,9 +92,9 @@ namespace AmpmHrmsPro.Controllers
                 if (failed > 0)
                     TempData["Error"] = $"Emails sent: {sent}, failed: {failed}. Reason: {_svc.LastSendError}";
                 else if (sent == 0)
-                    TempData["Error"] = "No emails to send — either already sent, or no gaps belong to a pilot HoD.";
+                    TempData["Error"] = "No emails sent — either they were already sent, or none of these HoDs has an email added on the HoD Emails page.";
                 else
-                    TempData["Success"] = $"Emails sent to {sent} HoD(s).";
+                    TempData["Success"] = $"Gap Analysis emailed to {sent} HoD(s).";
             }
             catch (Exception ex)
             {
@@ -101,6 +102,32 @@ namespace AmpmHrmsPro.Controllers
                 TempData["Error"] = $"Error sending emails: {ex.Message}";
             }
             return RedirectToAction(nameof(GapReport), new { id });
+        }
+
+        // GET /AttendanceReview/Recipients — who receives the Gap Analysis email
+        public async Task<IActionResult> Recipients()
+        {
+            ViewData["Title"]    = "HoD Emails";
+            ViewData["Subtitle"] = "Who receives the Gap Analysis email";
+            return View(await _svc.GetRecipientRowsAsync());
+        }
+
+        // POST /AttendanceReview/Recipients — hodNames[i] ↔ emails[i]
+        [HttpPost, ValidateAntiForgeryToken]
+        public async Task<IActionResult> Recipients(List<string> hodNames, List<string?> emails)
+        {
+            try
+            {
+                var rows = hodNames.Select((n, i) => (n, i < emails.Count ? emails[i] : null));
+                await _svc.SaveRecipientsAsync(rows);
+                var count = (await _svc.GetRecipientMapAsync()).Count;
+                TempData["Success"] = $"Saved. Gap Analysis emails will go to {count} HoD(s) — everyone else gets nothing.";
+            }
+            catch (InvalidOperationException ex)
+            {
+                TempData["Error"] = ex.Message + " — nothing was saved.";
+            }
+            return RedirectToAction(nameof(Recipients));
         }
 
         // GET /AttendanceReview/DownloadExcel/5  [?managerEmail=...]
