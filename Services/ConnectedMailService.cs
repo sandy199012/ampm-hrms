@@ -469,10 +469,7 @@ function ensureKeepAwake() {
                 try { using var doc = JsonDocument.Parse(body); root = doc.RootElement.Clone(); }
                 catch
                 {
-                    var hint = body.Contains("<html", StringComparison.OrdinalIgnoreCase)
-                        ? "Google returned a web page instead of the script's reply. In the deployment, set 'Who has access' to 'Anyone', and use the Web app URL ending in /exec."
-                        : Truncate(body, 200);
-                    return (false, default, hint);
+                    return (false, default, ExplainGooglePage(url, body));
                 }
 
                 if (root.TryGetProperty("ok", out var okEl) && okEl.ValueKind == JsonValueKind.True)
@@ -490,6 +487,30 @@ function ensureKeepAwake() {
             {
                 return (false, default, ex.Message);
             }
+        }
+
+        // Turn the HTML page Google sent back into a specific, fixable message.
+        private static string ExplainGooglePage(string url, string body)
+        {
+            var title = System.Text.RegularExpressions.Regex.Match(body, @"<title>(.*?)</title>",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline)
+                .Groups[1].Value.Trim();
+            var text = System.Net.WebUtility.HtmlDecode(
+                System.Text.RegularExpressions.Regex.Replace(body, "<[^>]+>", " "));
+            text = System.Text.RegularExpressions.Regex.Replace(text, @"\s+", " ").Trim();
+
+            if (!url.TrimEnd('/').EndsWith("/exec", StringComparison.OrdinalIgnoreCase))
+                return "Wrong link pasted. Use the 'Web app' URL from Deploy → Manage deployments — it ends with /exec (not /dev or /edit).";
+            if (text.Contains("Script function not found", StringComparison.OrdinalIgnoreCase))
+                return "The deployment has the old empty code (it was deployed before the script was pasted/saved). In Apps Script: save (Ctrl+S), then Deploy → Manage deployments → pencil ✏ → Version: New version → Deploy, and connect again.";
+            if (title.Contains("Sign in", StringComparison.OrdinalIgnoreCase) || text.Contains("Sign in", StringComparison.OrdinalIgnoreCase)
+                || text.Contains("accounts.google.com", StringComparison.OrdinalIgnoreCase))
+                return "Google asked for a sign-in, so 'Who has access' isn't set to 'Anyone'. In Apps Script: Deploy → Manage deployments → pencil ✏ → Who has access: Anyone → Deploy, and connect again.";
+            if (text.Contains("authoriz", StringComparison.OrdinalIgnoreCase) || text.Contains("permission", StringComparison.OrdinalIgnoreCase))
+                return "The script isn't authorized yet. In Apps Script, select 'doGet' in the toolbar, click Run, approve access (Advanced → Go to… → Allow), then connect again.";
+
+            var detail = !string.IsNullOrEmpty(title) ? title : Truncate(text, 150);
+            return $"Google returned a page instead of the script's reply ({detail}). Check: Deploy → Manage deployments → Web app, Execute as: Me, Who has access: Anyone, and the URL ends with /exec.";
         }
 
         // Microsoft Graph sendMail JSON
