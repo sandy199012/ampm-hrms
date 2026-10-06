@@ -75,6 +75,9 @@ namespace AmpmHrmsPro.Services
         /// <summary>Replace the HoD email list. Rows with a blank email are removed.</summary>
         Task SaveRecipientsAsync(IEnumerable<(string HodName, string? Email)> rows, CancellationToken ct = default);
 
+        /// <summary>Send one HoD's Gap Analysis to a test address only (nothing to the HoD, nothing marked sent).</summary>
+        Task<(bool Ok, string Message)> SendTestEmailAsync(int importId, string hodName, string testEmail, CancellationToken ct = default);
+
         /// <summary>Reason the last failed email failed, if any.</summary>
         string? LastSendError { get; }
     }
@@ -536,32 +539,12 @@ namespace AmpmHrmsPro.Services
             {
                 if (alreadySent.Contains(NormName(rcp.HodName))) continue;
 
-                var scope = await _report.ResolveScopeAsync(rcp.HodName, upto, ct);
-                if (scope.Count == 0)
+                var (req, scope) = await BuildHodEmailAsync(rcp.HodName, rcp.Email.Trim(), upto, isTest: false, ct);
+                if (req == null)
                 {
                     _log.LogInformation("Gap Analysis: no team found for {Hod} on {Date} — skipped", rcp.HodName, upto);
                     continue;
                 }
-                var rows  = await _report.BuildRowsAsync(scope, upto, ct);
-                if (rows.Count == 0) continue;
-
-                var displayName = await _report.MasterNameForAsync(rcp.HodName, ct) ?? rcp.HodName;
-                var dateLabel   = upto.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture);
-                var excel       = _report.BuildWorkbook(rows, upto);
-
-                var req = new MailRequest
-                {
-                    To       = new List<string> { rcp.Email.Trim() },
-                    Subject  = $"Gap Analysis — {rcp.HodName} — {dateLabel}",
-                    HtmlBody = GapAnalysisEmail.BuildHtml(rcp.HodName, rows, upto),   // dashboard body
-                    Attachments =
-                    {
-                        new MailAttachment(
-                            SafeFileName($"Gap_Analysis_MTD_{displayName.Trim().Replace(' ', '_')}_{dateLabel}.xlsx"),
-                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            excel)
-                    }
-                };
 
                 var (ok, message) = await _email.SendAsync(settings, req);
                 if (ok)
@@ -590,6 +573,63 @@ namespace AmpmHrmsPro.Services
                 }
             }
             return (sent, failed);
+        }
+
+        // The exact Gap Analysis email a HoD gets (dashboard body + their team's
+        // MTD Excel). Null when the HoD has no team / no rows for that date.
+        private async Task<(MailRequest? Req, List<string> Scope)> BuildHodEmailAsync(
+            string hodName, string toEmail, DateOnly upto, bool isTest, CancellationToken ct)
+        {
+            var scope = await _report.ResolveScopeAsync(hodName, upto, ct);
+            if (scope.Count == 0) return (null, scope);
+            var rows = await _report.BuildRowsAsync(scope, upto, ct);
+            if (rows.Count == 0) return (null, scope);
+
+            var displayName = await _report.MasterNameForAsync(hodName, ct) ?? hodName;
+            var dateLabel   = upto.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture);
+            var html        = GapAnalysisEmail.BuildHtml(hodName, rows, upto);
+            if (isTest)
+                html = html.Replace("<body style='margin:0;padding:0;background:#f3f4f6;'>",
+                    "<body style='margin:0;padding:0;background:#f3f4f6;'>" +
+                    $"<div style='background:#fff3cd;color:#664d03;font-family:Arial,sans-serif;font-size:13px;padding:10px 16px;text-align:center;'>" +
+                    $"<b>TEST EMAIL</b> — this is exactly what {System.Net.WebUtility.HtmlEncode(hodName)} will receive. It was sent only to you; nothing was sent to the HoD.</div>");
+
+            var req = new MailRequest
+            {
+                To       = new List<string> { toEmail },
+                Subject  = (isTest ? "[TEST] " : "") + $"Gap Analysis — {hodName} — {dateLabel}",
+                HtmlBody = html,
+                Attachments =
+                {
+                    new MailAttachment(
+                        SafeFileName($"Gap_Analysis_MTD_{displayName.Trim().Replace(' ', '_')}_{dateLabel}.xlsx"),
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        _report.BuildWorkbook(rows, upto))
+                }
+            };
+            return (req, scope);
+        }
+
+        // ── Test: send one HoD's Gap Analysis to a test address only ─────────
+        // Nothing goes to the HoD and nothing is marked as sent.
+        public async Task<(bool Ok, string Message)> SendTestEmailAsync(int importId, string hodName, string testEmail, CancellationToken ct = default)
+        {
+            if (string.IsNullOrWhiteSpace(hodName)) return (false, "Choose a HoD.");
+            testEmail = (testEmail ?? "").Trim();
+            if (!System.Net.Mail.MailAddress.TryCreate(testEmail, out _)) return (false, "Enter a valid test email address.");
+
+            var import = await _db.AttendanceImports.FindAsync(new object[] { importId }, ct);
+            if (import == null) return (false, "Import not found.");
+
+            var (req, scope) = await BuildHodEmailAsync(hodName, testEmail, import.ToDate, isTest: true, ct);
+            if (req == null)
+                return (false, $"No team found for {hodName} on {import.ToDate:dd-MMM-yyyy}. Check the Master Sheet / Roster uploads.");
+
+            var settings = await _db.EmailSettingsList.FirstOrDefaultAsync(ct);
+            var (ok, message) = await _email.SendAsync(settings, req);
+            return ok
+                ? (true, $"Test email for {hodName} ({scope.Count} team members) sent to {testEmail}. Nothing was sent to the HoD.")
+                : (false, $"Test email failed — {message}");
         }
 
         private static string MtdLabel(DateOnly upto) =>

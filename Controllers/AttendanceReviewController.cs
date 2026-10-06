@@ -77,6 +77,10 @@ namespace AmpmHrmsPro.Controllers
             var gaps = await _svc.GetGapsAsync(id);
             ViewBag.ImportId = id;
             ViewBag.RecipientMap = await _svc.GetRecipientMapAsync();
+            ViewBag.HodNames = (await _svc.GetRecipientRowsAsync())
+                .Select(r => r.HodName).Where(n => !string.Equals(n, "Unassigned", StringComparison.OrdinalIgnoreCase)).ToList();
+            ViewBag.TestEmail = TempData["TestEmail"] as string
+                ?? (await Microsoft.EntityFrameworkCore.EntityFrameworkQueryableExtensions.FirstOrDefaultAsync(_db.MailAccounts))?.Email;
 
             // Group summary for display
             // Group by HoD (falls back to direct manager for older imports
@@ -135,6 +139,17 @@ namespace AmpmHrmsPro.Controllers
                 TempData["Error"] = ex.Message + " — nothing was saved.";
             }
             return RedirectToAction(nameof(Recipients));
+        }
+
+        // POST /AttendanceReview/SendTest — one HoD's Gap Analysis to a test address only
+        [HttpPost, ValidateAntiForgeryToken]
+        public async Task<IActionResult> SendTest(int id, string? hod, string? testEmail)
+        {
+            var (ok, msg) = await _svc.SendTestEmailAsync(id, hod ?? "", testEmail ?? "");
+            TempData[ok ? "Success" : "Error"] = msg;
+            TempData["TestEmail"] = testEmail;
+            TempData["TestHod"] = hod;
+            return RedirectToAction(nameof(GapReport), new { id });
         }
 
         // POST /AttendanceReview/UploadRoster — Attendance Management.xlsx (all month sheets)
