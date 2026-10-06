@@ -26,6 +26,73 @@
     </div>
 }
 
+@{
+    var ds = ViewBag.DataStatus as AmpmHrmsPro.Services.ReviewDataStatus;
+}
+<div class="card mb-3">
+    <div class="card-header">
+        <i class="bi bi-database-check me-1" style="color:var(--primary);"></i>
+        Gap Analysis data — the HoD report (Summary · Daily Detail (MTD) · Gaps Only) is built from these three
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-4">
+                <div class="fw-semibold mb-1"><span class="badge bg-primary me-1">1</span> Roster</div>
+                <div class="small text-muted mb-2">Attendance Management.xlsx — plan, shift, WFH/STORE/OFFICE, buffer (all month sheets)</div>
+                <div class="small mb-2">
+                    @if (ds != null && ds.RosterRows > 0)
+                    {
+                        <span class="text-success"><i class="bi bi-check-circle-fill"></i> @ds.RosterRows.ToString("N0") rows · @(string.Join(", ", ds.RosterMonths))</span>
+                    }
+                    else
+                    {
+                        <span class="text-danger"><i class="bi bi-exclamation-circle-fill"></i> Not uploaded — plan/shift will be taken from Presence 360</span>
+                    }
+                </div>
+                <form asp-action="UploadRoster" asp-controller="AttendanceReview" method="post" enctype="multipart/form-data" class="d-flex gap-2">
+                    @Html.AntiForgeryToken()
+                    <input type="file" name="rosterFile" accept=".xlsx" class="form-control form-control-sm" required />
+                    <button type="submit" class="btn btn-sm btn-outline-primary text-nowrap">Upload</button>
+                </form>
+            </div>
+            <div class="col-md-4">
+                <div class="fw-semibold mb-1"><span class="badge bg-primary me-1">2</span> Master Sheet</div>
+                <div class="small text-muted mb-2">Employee Master — who reports to whom (decides each HoD's team, every level)</div>
+                <div class="small mb-2">
+                    @if (ds != null && ds.MasterEmployees > 0)
+                    {
+                        <span class="text-success"><i class="bi bi-check-circle-fill"></i> @ds.MasterEmployees employees</span>
+                    }
+                    else
+                    {
+                        <span class="text-danger"><i class="bi bi-exclamation-circle-fill"></i> Not uploaded — HRMS Reporting Manager will be used</span>
+                    }
+                </div>
+                <form asp-action="UploadMaster" asp-controller="AttendanceReview" method="post" enctype="multipart/form-data" class="d-flex gap-2">
+                    @Html.AntiForgeryToken()
+                    <input type="file" name="masterFile" accept=".xlsx" class="form-control form-control-sm" required />
+                    <button type="submit" class="btn btn-sm btn-outline-primary text-nowrap">Upload</button>
+                </form>
+            </div>
+            <div class="col-md-4">
+                <div class="fw-semibold mb-1"><span class="badge bg-primary me-1">3</span> Presence 360 daily CSV</div>
+                <div class="small text-muted mb-2">Actual in/out + status — upload below every day</div>
+                <div class="small">
+                    @if (ds?.LatestP360Date != null)
+                    {
+                        <span class="text-success"><i class="bi bi-check-circle-fill"></i> Latest date: @ds.LatestP360Date.Value.ToString("dd MMM yyyy")</span>
+                    }
+                    else
+                    {
+                        <span class="text-danger"><i class="bi bi-exclamation-circle-fill"></i> No Presence 360 data yet</span>
+                    }
+                </div>
+                <div class="small text-muted mt-2">Roster & Master: upload again whenever they change.</div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="row g-3 mb-4">
     <div class="col-lg-5">
         <div class="card h-100">

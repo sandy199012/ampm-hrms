@@ -70,6 +70,9 @@ namespace AmpmHrmsPro.Data
         public DbSet<AttendanceImport> AttendanceImports  { get; set; }
         public DbSet<AttendanceGapLog> AttendanceGapLogs  { get; set; }
         public DbSet<GapReportRecipient> GapReportRecipients { get; set; }
+        public DbSet<P360DailyRecord>    P360DailyRecords    { get; set; }
+        public DbSet<ReviewEmployee>     ReviewEmployees     { get; set; }
+        public DbSet<GapReportSend>      GapReportSends      { get; set; }
         public DbSet<ConnectedMailAccount> MailAccounts { get; set; }
 
         protected override void OnModelCreating(ModelBuilder mb)
@@ -330,6 +333,10 @@ namespace AmpmHrmsPro.Data
             mb.Entity<AttendanceGapLog>().HasIndex(g => new { g.ManagerEmail, g.EmailSent });
             mb.Entity<AttendanceGapLog>().Property(g => g.ActualHours).HasPrecision(5, 2);
             mb.Entity<AttendanceGapLog>().Property(g => g.PlannedHours).HasPrecision(5, 2);
+            mb.Entity<P360DailyRecord>().HasIndex(r => new { r.EmpCode, r.Date });
+            mb.Entity<P360DailyRecord>().HasIndex(r => r.Date);
+            mb.Entity<ReviewEmployee>().HasIndex(r => r.EmpCode);
+            mb.Entity<GapReportSend>().HasIndex(r => new { r.HodName, r.ReportDate });
 
             // Connected Outlook/Gmail sender — keeps its original table name
             // from the Outlook-only version so existing connections survive.

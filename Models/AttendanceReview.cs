@@ -159,4 +159,63 @@ namespace AmpmHrmsPro.Models
 
         public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
     }
+
+    // ── P360DailyRecord ────────────────────────────────────────────────────────
+    // Every row of every uploaded Presence 360 report (not only the gaps), so
+    // the Month-to-Date Gap Analysis can show each employee's full month.
+    // One row per employee per date — a later upload of the same date replaces it.
+    public class P360DailyRecord
+    {
+        public int Id { get; set; }
+
+        // Employee code without leading zeros ("00109" → "109") so it matches
+        // the roster / master sheet "Employee ID" numbers.
+        [Required, MaxLength(20)] public string EmpCode { get; set; } = "";
+        [MaxLength(120)] public string EmployeeName { get; set; } = "";
+        [MaxLength(120)] public string? ManagerName { get; set; }
+        [MaxLength(80)]  public string? Department  { get; set; }
+
+        public DateOnly Date { get; set; }
+        public TimeOnly? InTime  { get; set; }
+        public TimeOnly? OutTime { get; set; }
+
+        // Presence 360 "Status" (P, HD, A, WO, H, POH, POW, A (MIS), L (CL) …)
+        // — shown as "HRMS Status" in the report.
+        [MaxLength(30)] public string? Status { get; set; }
+        // present / absent / leave / week-off
+        [MaxLength(20)] public string? AttendanceType { get; set; }
+
+        public TimeOnly? ShiftIn  { get; set; }
+        public TimeOnly? ShiftOut { get; set; }
+
+        public int ImportId { get; set; }
+        public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    }
+
+    // ── ReviewEmployee ─────────────────────────────────────────────────────────
+    // The "Employee Master" sheet of Master Sheet Employee Attendance
+    // Management.xlsx — who reports to whom. Decides "Reports To" and which
+    // employees go into each HoD's Gap Analysis (the HoD's whole team, every
+    // level below them).
+    public class ReviewEmployee
+    {
+        public int Id { get; set; }
+        [Required, MaxLength(20)] public string EmpCode { get; set; } = "";   // no leading zeros
+        [Required, MaxLength(120)] public string Name { get; set; } = "";
+        [MaxLength(120)] public string? ManagerName { get; set; }
+        [MaxLength(20)]  public string? ManagerCode { get; set; }             // no leading zeros
+        public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+    }
+
+    // ── GapReportSend ──────────────────────────────────────────────────────────
+    // One row per Gap Analysis email sent (HoD + report date), so the daily
+    // job never sends the same HoD the same day's report twice.
+    public class GapReportSend
+    {
+        public int Id { get; set; }
+        [Required, MaxLength(120)] public string HodName { get; set; } = "";
+        public DateOnly ReportDate { get; set; }
+        [MaxLength(200)] public string Email { get; set; } = "";
+        public DateTime SentAt { get; set; } = DateTime.UtcNow;
+    }
 }

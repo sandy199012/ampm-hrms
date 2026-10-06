@@ -86,6 +86,8 @@ namespace AmpmHrmsPro.Services
         private readonly AttendanceReviewOptions        _opts;
         private readonly ILogger<AttendanceReviewService> _log;
         private readonly IEmailSender                   _email;
+        private readonly IServiceScopeFactory           _scopeFactory;
+        private readonly IGapAnalysisReport             _report;
 
         /// <summary>Reason the last failed email failed (shown on the Gap Report page).</summary>
         public string? LastSendError { get; private set; }
@@ -99,8 +101,12 @@ namespace AmpmHrmsPro.Services
             AppDbContext db,
             IOptions<AttendanceReviewOptions> opts,
             ILogger<AttendanceReviewService> log,
-            IEmailSender email)
+            IEmailSender email,
+            IServiceScopeFactory scopeFactory,
+            IGapAnalysisReport report)
         {
+            _report = report;
+            _scopeFactory = scopeFactory;
             _db   = db;
             _opts = opts.Value;
             _log  = log;
@@ -211,6 +217,34 @@ namespace AmpmHrmsPro.Services
                 // no address → gap saved, no email (until one is added)
             }
 
+            // Every row (not just gaps) → P360DailyRecords, for the Month-to-Date
+            // Gap Analysis. Re-uploading a date replaces that date's rows.
+            var codesInFile = rows.Select(r => _report.NormCode(r.EmpCode)).Where(c => c.Length > 0).Distinct().ToList();
+            await _db.P360DailyRecords
+                .Where(r => dates.Contains(r.Date) && codesInFile.Contains(r.EmpCode))
+                .ExecuteDeleteAsync(ct);
+            foreach (var r in rows)
+            {
+                var code = _report.NormCode(r.EmpCode);
+                if (code.Length == 0) continue;
+                _db.P360DailyRecords.Add(new P360DailyRecord
+                {
+                    EmpCode        = code,
+                    EmployeeName   = Trunc(NormName(r.EmpName), 120),
+                    ManagerName    = string.IsNullOrWhiteSpace(r.ManagerName) ? null : Trunc(NormName(r.ManagerName), 120),
+                    Department     = string.IsNullOrWhiteSpace(r.Department) ? null : Trunc(r.Department.Trim(), 80),
+                    Date           = r.Date,
+                    InTime         = r.InTime,
+                    OutTime        = r.OutTime,
+                    Status         = string.IsNullOrWhiteSpace(r.Status) ? null : Trunc(r.Status.Trim(), 30),
+                    AttendanceType = string.IsNullOrWhiteSpace(r.AttendanceType) ? null : Trunc(r.AttendanceType, 20),
+                    ShiftIn        = r.ShiftIn,
+                    ShiftOut       = r.ShiftOut,
+                    ImportId       = import.Id,
+                    UpdatedAt      = DateTime.UtcNow,
+                });
+            }
+
             import.GapsDetected = gaps.Count;
             _db.AttendanceGapLogs.AddRange(gaps);
             await _db.SaveChangesAsync(ct);
@@ -218,7 +252,99 @@ namespace AmpmHrmsPro.Services
             _log.LogInformation("AttendanceReview: imported {File}, {Rows} rows, {Gaps} gaps",
                 fileName, rows.Count, gaps.Count);
 
+            // Also feed these In/Out punches into HRMS attendance — the same
+            // AttendancePunches/AttendanceDailies tables the Biometric API sync
+            // fills — so Daily Alert, Weekly Report and all attendance reports
+            // work from BOTH sources. Runs in the background: a month-long file
+            // means thousands of day recomputes, too slow for the upload request.
+            var punchRows = rows
+                .Where(r => r.InTime.HasValue)
+                .Select(r => (r.EmpCode, r.Date, r.InTime, r.OutTime))
+                .ToList();
+            _ = Task.Run(() => SyncPunchesToHrmsAsync(punchRows, dates.Min(), dates.Max()));
+
             return import.Id;
+        }
+
+        // ── Presence 360 upload → HRMS attendance (shared with Biometric API) ──
+        private const string UploadPunchSource = "P360Upload";
+
+        private async Task SyncPunchesToHrmsAsync(
+            List<(string EmpCode, DateOnly Date, TimeOnly? InTime, TimeOnly? OutTime)> rows,
+            DateOnly fromDate, DateOnly toDate)
+        {
+            try
+            {
+                using var scope = _scopeFactory.CreateScope();
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+                // Employee code → Id ("00109" also matches "109").
+                var emps = await db.Employees.AsNoTracking()
+                    .Select(e => new { e.Id, e.EmpCode }).ToListAsync();
+                var byCode = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                foreach (var e in emps)
+                {
+                    var c = (e.EmpCode ?? "").Trim();
+                    if (c.Length == 0) continue;
+                    byCode.TryAdd(c, e.Id);
+                    byCode.TryAdd(c.TrimStart('0'), e.Id);
+                }
+                int? IdFor(string code)
+                {
+                    var c = (code ?? "").Trim();
+                    if (byCode.TryGetValue(c, out var id)) return id;
+                    return byCode.TryGetValue(c.TrimStart('0'), out id) ? id : null;
+                }
+
+                var punches = new List<AttendancePunch>();
+                var empIds  = new HashSet<int>();
+                foreach (var r in rows)
+                {
+                    var id = IdFor(r.EmpCode);
+                    if (id == null || r.InTime == null) continue;
+                    empIds.Add(id.Value);
+
+                    var day = r.Date.ToDateTime(TimeOnly.MinValue);
+                    punches.Add(new AttendancePunch
+                    {
+                        EmployeeId = id.Value, Direction = "In", Source = UploadPunchSource,
+                        PunchDateTime = day + r.InTime.Value.ToTimeSpan(), SyncedAt = DateTime.Now,
+                    });
+                    if (r.OutTime.HasValue && r.OutTime.Value > r.InTime.Value)
+                        punches.Add(new AttendancePunch
+                        {
+                            EmployeeId = id.Value, Direction = "Out", Source = UploadPunchSource,
+                            PunchDateTime = day + r.OutTime.Value.ToTimeSpan(), SyncedAt = DateTime.Now,
+                        });
+                }
+                if (empIds.Count == 0)
+                {
+                    _log.LogWarning("P360 upload → HRMS: no employee codes matched the Employee Master; nothing synced.");
+                    return;
+                }
+
+                // Re-uploading the same dates replaces the earlier upload's punches;
+                // Biometric API / mobile / manual punches are never touched.
+                var from = fromDate.ToDateTime(TimeOnly.MinValue);
+                var to   = toDate.ToDateTime(TimeOnly.MinValue).AddDays(1);
+                var idList = empIds.ToList();
+                await db.AttendancePunches
+                    .Where(p => p.Source == UploadPunchSource && idList.Contains(p.EmployeeId)
+                             && p.PunchDateTime >= from && p.PunchDateTime < to)
+                    .ExecuteDeleteAsync();
+
+                db.AttendancePunches.AddRange(punches);
+                await db.SaveChangesAsync();
+                db.ChangeTracker.Clear();
+
+                await AttendanceEngine.RecomputeAllAsync(db, from, to.AddDays(-1), idList);
+                _log.LogInformation("P360 upload → HRMS: {Punches} punches for {Emps} employees, {From:dd-MMM} to {To:dd-MMM} recomputed.",
+                    punches.Count, idList.Count, from, to.AddDays(-1));
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "P360 upload → HRMS attendance sync failed");
+            }
         }
 
         // ── 2. Queries ────────────────────────────────────────────────────────
@@ -372,67 +498,66 @@ namespace AmpmHrmsPro.Services
         };
 
         // ── 4. Send emails for a specific import ──────────────────────────────
+        // ── 4. Send the Gap Analysis for an import (report date = its last date) ──
         public async Task<(int Sent, int Failed)> SendEmailsForImportAsync(int importId, CancellationToken ct = default)
         {
-            var gaps = await _db.AttendanceGapLogs
-                .Where(g => g.ImportId == importId && !g.EmailSent)
-                .ToListAsync(ct);
-            return await SendGapsEmailAsync(gaps, ct);
+            var import = await _db.AttendanceImports.FindAsync(new object[] { importId }, ct);
+            if (import == null) return (0, 0);
+            return await SendMtdReportsAsync(import.ToDate, ct);
         }
 
-        // ── 5. Daily auto-send: yesterday's unsent gaps ───────────────────────
+        // ── 5. Daily auto-send: report up to yesterday, once the data is in ──
         public async Task<(int Sent, int Failed)> SendDailyEmailsAsync(CancellationToken ct = default)
         {
             var yesterday = DateOnly.FromDateTime(IndiaTime.Today.AddDays(-1));
-            var gaps = await _db.AttendanceGapLogs
-                .Where(g => g.Date == yesterday && !g.EmailSent)
-                .ToListAsync(ct);
-
-            return await SendGapsEmailAsync(gaps, ct);
+            if (!await _report.HasDataForAsync(yesterday, ct))
+                return (0, 0);   // yesterday's attendance not uploaded / synced yet — try again later
+            return await SendMtdReportsAsync(yesterday, ct);
         }
 
         // ─────────────────────────────────────────────────────────────────────
         // Private helpers
         // ─────────────────────────────────────────────────────────────────────
 
-        // Gap Analysis email: ONE email per HoD, ONLY to the address saved on
-        // the HoD Emails page (no CC), short body + "Gap Analysis" Excel.
-        private async Task<(int Sent, int Failed)> SendGapsEmailAsync(
-            List<AttendanceGapLog> gaps, CancellationToken ct)
+        // Gap Analysis email: ONE email per HoD on the HoD Emails page, to that
+        // address only (no CC), with the Month-to-Date workbook of their whole
+        // team (every level below them). Each HoD gets a given date's report once.
+        private async Task<(int Sent, int Failed)> SendMtdReportsAsync(DateOnly upto, CancellationToken ct)
         {
-            if (gaps.Count == 0) return (0, 0);
-
-            // SMTP settings are only a fallback — SmartEmailSender sends via the
-            // connected Gmail/Outlook account when there is one.
             var settings   = await _db.EmailSettingsList.FirstOrDefaultAsync(ct);
-            var recipients = await GetRecipientMapAsync(ct);
+            var recipients = await _db.GapReportRecipients.AsNoTracking().ToListAsync(ct);
+            var alreadySent = (await _db.GapReportSends.AsNoTracking()
+                    .Where(x => x.ReportDate == upto).Select(x => x.HodName).ToListAsync(ct))
+                .Select(NormName).ToHashSet(StringComparer.OrdinalIgnoreCase);
             LastSendError = null;
 
             int sent = 0, failed = 0;
-            foreach (var grp in gaps.GroupBy(g => NormName(g.HodName ?? g.ManagerName), StringComparer.OrdinalIgnoreCase))
+            foreach (var rcp in recipients.Where(r => !string.IsNullOrWhiteSpace(r.Email)))
             {
-                if (!recipients.TryGetValue(grp.Key, out var toEmail))
-                    continue;   // no email added for this HoD → nothing is sent
+                if (alreadySent.Contains(NormName(rcp.HodName))) continue;
 
-                var hodGaps = grp.ToList();
-                var hodName = hodGaps.First().HodName ?? hodGaps.First().ManagerName ?? toEmail;
+                var scope = await _report.ResolveScopeAsync(rcp.HodName, upto, ct);
+                if (scope.Count == 0)
+                {
+                    _log.LogInformation("Gap Analysis: no team found for {Hod} on {Date} — skipped", rcp.HodName, upto);
+                    continue;
+                }
+                var rows  = await _report.BuildRowsAsync(scope, upto, ct);
+                if (rows.Count == 0) continue;
 
-                var dateMin = hodGaps.Min(g => g.Date);
-                var dateMax = hodGaps.Max(g => g.Date);
-                var dateRange = dateMin == dateMax
-                    ? dateMin.ToString("dd-MMM-yyyy")
-                    : $"{dateMin:dd-MMM-yyyy} to {dateMax:dd-MMM-yyyy}";
+                var displayName = await _report.MasterNameForAsync(rcp.HodName, ct) ?? rcp.HodName;
+                var dateLabel   = upto.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture);
+                var excel       = _report.BuildWorkbook(rows, upto);
 
-                var excel = await GenerateExcelAsync(toEmail, hodGaps);
                 var req = new MailRequest
                 {
-                    To       = new List<string> { toEmail },
-                    Subject  = $"Gap Analysis — {hodName} — {dateRange}",
-                    HtmlBody = BuildGapAnalysisEmailHtml(hodName, dateRange),
+                    To       = new List<string> { rcp.Email.Trim() },
+                    Subject  = $"Gap Analysis — {rcp.HodName} — {dateLabel}",
+                    HtmlBody = BuildGapAnalysisEmailHtml(rcp.HodName, MtdLabel(upto)),
                     Attachments =
                     {
                         new MailAttachment(
-                            SafeFileName($"Gap Analysis - {hodName} - {dateRange}.xlsx"),
+                            SafeFileName($"Gap_Analysis_MTD_{displayName.Trim().Replace(' ', '_')}_{dateLabel}.xlsx"),
                             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             excel)
                     }
@@ -441,21 +566,36 @@ namespace AmpmHrmsPro.Services
                 var (ok, message) = await _email.SendAsync(settings, req);
                 if (ok)
                 {
-                    var now = DateTime.UtcNow;
-                    foreach (var g in hodGaps) { g.EmailSent = true; g.EmailSentAt = now; g.ManagerEmail = toEmail; }
+                    _db.GapReportSends.Add(new GapReportSend
+                    {
+                        HodName = rcp.HodName, ReportDate = upto, Email = rcp.Email.Trim(), SentAt = DateTime.UtcNow
+                    });
+
+                    // Keep the Gap Report page's "Sent" badges in step.
+                    var from = new DateOnly(upto.Year, upto.Month, 1);
+                    var inScope = scope.ToHashSet();
+                    var logs = await _db.AttendanceGapLogs
+                        .Where(g => !g.EmailSent && g.Date >= from && g.Date <= upto).ToListAsync(ct);
+                    foreach (var g in logs.Where(g => inScope.Contains(_report.NormCode(g.EmployeeCode))))
+                    { g.EmailSent = true; g.EmailSentAt = DateTime.UtcNow; g.ManagerEmail ??= rcp.Email.Trim(); }
+
+                    await _db.SaveChangesAsync(ct);
                     sent++;
                 }
                 else
                 {
-                    _log.LogError("Gap Analysis: failed to send to {Email}: {Msg}", toEmail, message);
+                    _log.LogError("Gap Analysis: failed to send to {Email}: {Msg}", rcp.Email, message);
                     LastSendError = message;
                     failed++;
                 }
             }
-
-            await _db.SaveChangesAsync(ct);
             return (sent, failed);
         }
+
+        private static string MtdLabel(DateOnly upto) =>
+            upto.Day == 1
+                ? upto.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture)
+                : $"01-{upto:MMM} to {upto.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture)} (month to date)";
 
         private static string BuildGapAnalysisEmailHtml(string hodName, string dateRange) => $@"
 <div style='font-family:Arial,sans-serif;font-size:14px;color:#222;'>
@@ -470,6 +610,8 @@ namespace AmpmHrmsPro.Services
                 name = name.Replace(ch, '-');
             return name;
         }
+
+        private static string Trunc(string s, int n) => s.Length <= n ? s : s[..n];
 
         // ── HoD email recipients (Attendance Review → HoD Emails) ───────────
         public async Task<Dictionary<string, string>> GetRecipientMapAsync(CancellationToken ct = default)
@@ -542,7 +684,7 @@ namespace AmpmHrmsPro.Services
         private record AttendanceRow(
             string EmpName, string EmpCode, string Department, string ManagerName,
             DateOnly Date, TimeOnly? InTime, TimeOnly? OutTime, decimal? WorkingHours,
-            string AttendanceType,
+            string AttendanceType, string Status,
             TimeOnly? ShiftIn, TimeOnly? ShiftOut);
 
         private List<AttendanceRow> ParseCsv(Stream stream)
@@ -599,6 +741,7 @@ namespace AmpmHrmsPro.Services
                     OutTime:        TryParseTime(outStr, out var t2)   ? t2   : null,
                     WorkingHours:   TryParseHours(hoursStr, out var h) ? h   : null,
                     AttendanceType: attType,
+                    Status:         Get("Status"),
                     ShiftIn:        TryParseTime(shiftIn, out var s1)  ? s1  : null,
                     ShiftOut:       TryParseTime(shiftOut, out var s2) ? s2  : null
                 ));

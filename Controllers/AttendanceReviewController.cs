@@ -10,13 +10,19 @@ namespace AmpmHrmsPro.Controllers
     public class AttendanceReviewController : Controller
     {
         private readonly IAttendanceReviewService _svc;
+        private readonly IGapAnalysisReport _report;
+        private readonly AmpmHrmsPro.Data.AppDbContext _db;
         private readonly ILogger<AttendanceReviewController> _log;
 
         public AttendanceReviewController(
             IAttendanceReviewService svc,
+            IGapAnalysisReport report,
+            AmpmHrmsPro.Data.AppDbContext db,
             ILogger<AttendanceReviewController> log)
         {
             _svc = svc;
+            _report = report;
+            _db = db;
             _log = log;
         }
 
@@ -26,6 +32,7 @@ namespace AmpmHrmsPro.Controllers
             ViewData["Title"]    = "Attendance Review";
             ViewData["Subtitle"] = "Upload daily Presence 360 report and review attendance gaps";
             var imports = await _svc.GetImportsAsync();
+            ViewBag.DataStatus = await _report.GetStatusAsync();
             return View(imports);
         }
 
@@ -51,7 +58,7 @@ namespace AmpmHrmsPro.Controllers
                 var importedBy   = User.Identity?.Name ?? "Admin";
                 var importId     = await _svc.ImportCsvAsync(stream, csvFile.FileName, importedBy);
 
-                TempData["Success"] = "CSV imported successfully. Gaps have been detected.";
+                TempData["Success"] = "CSV imported — gaps detected. The same punches are also being added to HRMS attendance in the background (Daily Alert, Weekly Report and attendance reports use them); a month-long file can take a few minutes.";
                 return RedirectToAction(nameof(GapReport), new { id = importId });
             }
             catch (Exception ex)
@@ -130,24 +137,69 @@ namespace AmpmHrmsPro.Controllers
             return RedirectToAction(nameof(Recipients));
         }
 
-        // GET /AttendanceReview/DownloadExcel/5  [?managerEmail=...]
-        // ?hod=Manish Rana → only that HoD's department; no filter → all HoDs
-        // (Summary sheet + one sheet per HoD).
-        public async Task<IActionResult> DownloadExcel(int id, string? managerEmail = null, string? hod = null)
+        // POST /AttendanceReview/UploadRoster — Attendance Management.xlsx (all month sheets)
+        [HttpPost, ValidateAntiForgeryToken]
+        public async Task<IActionResult> UploadRoster(IFormFile rosterFile)
         {
-            var gaps = await _svc.GetGapsAsync(id);
-            var filtered = gaps;
-            if (!string.IsNullOrEmpty(hod))
-                filtered = gaps.Where(g => string.Equals(g.HodName ?? g.ManagerName, hod,
-                                           StringComparison.OrdinalIgnoreCase)).ToList();
-            else if (!string.IsNullOrEmpty(managerEmail))
-                filtered = gaps.Where(g => g.ManagerEmail == managerEmail).ToList();
+            if (rosterFile == null || rosterFile.Length == 0)
+            { TempData["Error"] = "Please select the roster Excel file."; return RedirectToAction(nameof(Index)); }
+            try
+            {
+                using var stream = rosterFile.OpenReadStream();
+                var (rows, months) = await _report.ImportRosterAsync(stream);
+                TempData["Success"] = $"Roster uploaded — {rows:N0} rows ({string.Join(", ", months)}).";
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "Roster upload failed");
+                TempData["Error"] = $"Roster upload failed: {ex.Message}";
+            }
+            return RedirectToAction(nameof(Index));
+        }
 
-            var bytes = await _svc.GenerateExcelAsync(managerEmail ?? "all", filtered);
-            var label = string.IsNullOrEmpty(hod) ? "AllHoDs" : hod.Replace(" ", "_");
-            var name  = $"AttendanceGaps_{label}_{id}_{DateTime.Today:yyyyMMdd}.xlsx";
-            return File(bytes,
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", name);
+        // POST /AttendanceReview/UploadMaster — Master Sheet (Employee Master: who reports to whom)
+        [HttpPost, ValidateAntiForgeryToken]
+        public async Task<IActionResult> UploadMaster(IFormFile masterFile)
+        {
+            if (masterFile == null || masterFile.Length == 0)
+            { TempData["Error"] = "Please select the Master Sheet Excel file."; return RedirectToAction(nameof(Index)); }
+            try
+            {
+                using var stream = masterFile.OpenReadStream();
+                var n = await _report.ImportMasterAsync(stream);
+                TempData["Success"] = $"Master Sheet uploaded — {n} employees with their reporting managers.";
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "Master upload failed");
+                TempData["Error"] = $"Master Sheet upload failed: {ex.Message}";
+            }
+            return RedirectToAction(nameof(Index));
+        }
+
+        // GET /AttendanceReview/DownloadExcel/5[?hod=Manish Rana]
+        // Month-to-Date Gap Analysis up to this import's last date —
+        // everyone, or one HoD's whole team.
+        public async Task<IActionResult> DownloadExcel(int id, string? hod = null)
+        {
+            var import = await _db.AttendanceImports.FindAsync(id);
+            if (import == null) return NotFound();
+            var upto = import.ToDate;
+
+            var scope = await _report.ResolveScopeAsync(string.IsNullOrWhiteSpace(hod) ? null : hod, upto);
+            var rows  = await _report.BuildRowsAsync(scope, upto);
+            var bytes = _report.BuildWorkbook(rows, upto);
+
+            var date = upto.ToString("dd-MMM-yyyy", System.Globalization.CultureInfo.InvariantCulture);
+            string name;
+            if (string.IsNullOrWhiteSpace(hod))
+                name = $"ALL_Employees_Attendance_MTD_{date}.xlsx";
+            else
+            {
+                var display = await _report.MasterNameForAsync(hod) ?? hod;
+                name = $"Attendance_MTD_{display.Trim().Replace(' ', '_')}_{date}.xlsx";
+            }
+            return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", name);
         }
     }
 }

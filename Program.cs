@@ -167,6 +167,7 @@ builder.Services.AddScoped<IPayrollTaxEngine, PayrollTaxEngine>();
 // "AttendanceReview". ──
 builder.Services.Configure<AttendanceReviewOptions>(
     builder.Configuration.GetSection("AttendanceReview"));
+builder.Services.AddScoped<IGapAnalysisReport, GapAnalysisReport>();
 builder.Services.AddScoped<IAttendanceReviewService, AttendanceReviewService>();
 builder.Services.AddHostedService<AttendanceReviewEmailHostedService>();
 
