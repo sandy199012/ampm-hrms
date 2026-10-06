@@ -553,7 +553,7 @@ namespace AmpmHrmsPro.Services
                 {
                     To       = new List<string> { rcp.Email.Trim() },
                     Subject  = $"Gap Analysis — {rcp.HodName} — {dateLabel}",
-                    HtmlBody = BuildGapAnalysisEmailHtml(rcp.HodName, MtdLabel(upto)),
+                    HtmlBody = GapAnalysisEmail.BuildHtml(rcp.HodName, rows, upto),   // dashboard body
                     Attachments =
                     {
                         new MailAttachment(
