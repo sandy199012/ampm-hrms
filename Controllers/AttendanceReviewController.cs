@@ -1,4 +1,5 @@
 // Controllers/AttendanceReviewController.cs
+using System.Globalization;
 using AmpmHrmsPro.Models;
 using AmpmHrmsPro.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -161,8 +162,11 @@ namespace AmpmHrmsPro.Controllers
             try
             {
                 using var stream = rosterFile.OpenReadStream();
-                var (rows, months) = await _report.ImportRosterAsync(stream);
+                var (rows, months, warnings) = await _report.ImportRosterAsync(stream);
                 TempData["Success"] = $"Roster uploaded — {rows:N0} rows ({string.Join(", ", months)}).";
+                if (warnings.Count > 0)
+                    TempData["Warning"] = "Please check the roster: " + string.Join(" · ", warnings.Take(15))
+                                        + (warnings.Count > 15 ? $" · …and {warnings.Count - 15} more." : "");
             }
             catch (Exception ex)
             {
@@ -170,6 +174,30 @@ namespace AmpmHrmsPro.Controllers
                 TempData["Error"] = $"Roster upload failed: {ex.Message}";
             }
             return RedirectToAction(nameof(Index));
+        }
+
+        // GET /AttendanceReview/DownloadRoster?month=2026-11 — roster Excel for every staff member & worker,
+        // pre-filled, in the Attendance Management.xlsx format. Fill it and upload it back above.
+        [HttpGet]
+        public async Task<IActionResult> DownloadRoster(string? month)
+        {
+            var today = IndiaTime.Today;
+            var m = new DateTime(today.Year, today.Month, 1);
+            if (!string.IsNullOrWhiteSpace(month) &&
+                DateTime.TryParseExact(month, "yyyy-MM", CultureInfo.InvariantCulture, DateTimeStyles.None, out var picked))
+                m = picked;
+            try
+            {
+                var bytes = await _report.BuildRosterTemplateAsync(m.Year, m.Month);
+                return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    $"Roster_{m.ToString("MMM-yyyy", CultureInfo.InvariantCulture)}.xlsx");
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex, "Roster template failed");
+                TempData["Error"] = $"Couldn't build the roster file: {ex.Message}";
+                return RedirectToAction(nameof(Index));
+            }
         }
 
         // POST /AttendanceReview/UploadMaster — Master Sheet (Employee Master: who reports to whom)

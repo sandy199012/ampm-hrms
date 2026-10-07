@@ -65,7 +65,9 @@ namespace AmpmHrmsPro.Services
         Task<bool> HasDataForAsync(DateOnly date, CancellationToken ct = default);
         Task<string?> MasterNameForAsync(string hodName, CancellationToken ct = default);
 
-        Task<(int Rows, List<string> Months)> ImportRosterAsync(Stream xlsx, CancellationToken ct = default);
+        Task<(int Rows, List<string> Months, List<string> Warnings)> ImportRosterAsync(Stream xlsx, CancellationToken ct = default);
+        /// <summary>Roster Excel for one month (same format as Attendance Management.xlsx) pre-filled for every staff member and worker.</summary>
+        Task<byte[]> BuildRosterTemplateAsync(int year, int month, CancellationToken ct = default);
         Task<int> ImportMasterAsync(Stream xlsx, CancellationToken ct = default);
         Task<ReviewDataStatus> GetStatusAsync(CancellationToken ct = default);
 
@@ -528,11 +530,13 @@ namespace AmpmHrmsPro.Services
         // Roster: every month sheet of Attendance Management.xlsx
         // (Name | Employee ID | Date | Holiday/Week Off/Leave/ Official Travel |
         //  In Time | Out Time | WFH/STORE/OFFICE | Late Coming Buffer | … | Special Remarks)
-        public async Task<(int Rows, List<string> Months)> ImportRosterAsync(Stream xlsx, CancellationToken ct = default)
+        public async Task<(int Rows, List<string> Months, List<string> Warnings)> ImportRosterAsync(Stream xlsx, CancellationToken ct = default)
         {
             using var wb = new XLWorkbook(xlsx);
             var entries = new List<RosterEntry>();
             var months = new List<string>();
+            var noCode = new Dictionary<string, int>();                    // name → rows skipped (Employee ID blank)
+            var longShift = new Dictionary<string, string>();              // name → "10:30–07:30 (21:00 hrs)"
 
             foreach (var ws in wb.Worksheets)
             {
@@ -563,18 +567,34 @@ namespace AmpmHrmsPro.Services
                     var row = ws.Row(r);
                     var code = NormCode(ReadText(row.Cell(cCode)));
                     var date = ReadDate(row.Cell(cDate));
+                    if (code.Length == 0 && date != null && cName > 0)
+                    {
+                        var nm = ReadText(row.Cell(cName)).Trim();
+                        if (nm.Length > 0) noCode[nm] = noCode.GetValueOrDefault(nm) + 1;
+                    }
                     if (code.Length == 0 || date == null) continue;
 
                     var type = cType > 0 ? ReadText(row.Cell(cType)).Trim() : "";
                     var buf = cBuf > 0 ? ReadNumber(row.Cell(cBuf)) : null;
+                    var tIn  = cIn  > 0 ? ReadTime(row.Cell(cIn))  : null;
+                    var tOut = cOut > 0 ? ReadTime(row.Cell(cOut)) : null;
+                    if (type.Length == 0 && tIn.HasValue && tOut.HasValue)
+                    {
+                        var len = (Mins(tOut)!.Value - Mins(tIn)!.Value + 1440) % 1440;
+                        if (len > 14 * 60)
+                        {
+                            var nm = cName > 0 ? ReadText(row.Cell(cName)).Trim() : code;
+                            longShift.TryAdd($"{nm} ({code})", $"{Tm(Mins(tIn)!.Value)}–{Tm(Mins(tOut)!.Value)} = {Hm(len)} hrs");
+                        }
+                    }
                     entries.Add(new RosterEntry
                     {
                         EmployeeName      = cName > 0 ? ReadText(row.Cell(cName)).Trim() : "",
                         EmployeeCode      = code,
                         Date              = date.Value,
                         DayType           = type.Length > 0 ? Truncate(type, 40) : null,
-                        ShiftInTime       = cIn  > 0 ? ReadTime(row.Cell(cIn))  : null,
-                        ShiftOutTime      = cOut > 0 ? ReadTime(row.Cell(cOut)) : null,
+                        ShiftInTime       = tIn,
+                        ShiftOutTime      = tOut,
                         Location          = cMode > 0 ? NullIfEmpty(ReadText(row.Cell(cMode)).Trim().ToUpperInvariant()) : null,
                         LateBufferMinutes = buf.HasValue ? (int)Math.Round(buf.Value) : 10,
                         SpecialRemarks    = cRem > 0 ? NullIfEmpty(Truncate(ReadText(row.Cell(cRem)).Trim(), 300)) : null,
@@ -599,7 +619,13 @@ namespace AmpmHrmsPro.Services
                 _db.ChangeTracker.Clear();
             }
             _log.LogInformation("Roster uploaded: {Rows} rows, {From}–{To}", entries.Count, minD, maxD);
-            return (entries.Count, months);
+
+            var warnings = new List<string>();
+            foreach (var (nm, n) in noCode)
+                warnings.Add($"{nm}: Employee ID is blank — {n} rows skipped.");
+            foreach (var (nm, txt) in longShift)
+                warnings.Add($"{nm}: shift {txt} — please check the Out Time.");
+            return (entries.Count, months, warnings);
         }
 
         // Master Sheet: "Employee Master" — Employee Code | Employee Name | Manager Name | Manager Emp Code
@@ -659,6 +685,262 @@ namespace AmpmHrmsPro.Services
             DateOnly? p360 = await _db.P360DailyRecords.AnyAsync(ct)
                 ? await _db.P360DailyRecords.MaxAsync(r => r.Date, ct) : null;
             return new ReviewDataStatus(rosterCount, rFrom, rTo, months, master, p360);
+        }
+
+        // ── Roster template (download → fill → upload) ───────────────────────
+        // Same layout as "Attendance Management.xlsx": a "How To Update" sheet
+        // plus one "<Mon-yyyy>" sheet with a row per employee per day. Everyone
+        // is included — HRMS staff + workers, the Master Sheet, and anybody
+        // who punched in Presence 360 recently. Rows already in the uploaded
+        // roster come back exactly as they are; new rows are pre-filled from
+        // the employee's last month pattern → HRMS shift / week-off policy →
+        // 09:30–18:00, Sunday off.
+        private sealed class RosterPerson
+        {
+            public string Code = "", Name = "";
+            public string? Manager, Category;
+            public TimeOnly? In, Out;
+            public int Buffer = 10;
+            public string Mode = "OFFICE";
+            public WeekOffPolicy? Policy;
+            public DayOfWeek? PrevOffDay;      // consistent week-off day last month
+            public bool Rotational;            // week offs on different days last month (retail) → leave blank
+            public bool FromPrevRoster;
+        }
+
+        public async Task<byte[]> BuildRosterTemplateAsync(int year, int month, CancellationToken ct = default)
+        {
+            var from = new DateOnly(year, month, 1);
+            var to   = from.AddMonths(1).AddDays(-1);
+            var sheetName = from.ToString("MMM-yyyy", CultureInfo.InvariantCulture);
+            var people = new Dictionary<string, RosterPerson>();
+            RosterPerson Get(string code) => people.TryGetValue(code, out var p) ? p : people[code] = new RosterPerson { Code = code };
+
+            // 1) HRMS employees (staff + workers)
+            var emps = await _db.Employees.AsNoTracking()
+                .Include(e => e.Shift).Include(e => e.ReportingManager)
+                .Include(e => e.WeekOffPolicy).ThenInclude(w => w!.Rules)
+                .ToListAsync(ct);
+            var inactive = new HashSet<string>();
+            foreach (var e in emps)
+            {
+                var code = NormCode(e.EmpCode);
+                if (code.Length == 0) continue;
+                if (!e.IsActive || !string.Equals(e.Status, "Active", StringComparison.OrdinalIgnoreCase)) { inactive.Add(code); continue; }
+                var p = Get(code);
+                p.Name = e.Name.Trim();
+                p.Manager = e.ReportingManager?.Name;
+                p.Category = e.Category;
+                p.Policy = e.WeekOffPolicy;
+                if (e.Shift != null)
+                {
+                    p.In = TimeOnly.FromTimeSpan(e.Shift.StartTime);
+                    p.Out = TimeOnly.FromTimeSpan(e.Shift.EndTime);
+                    if (e.Shift.GraceMinutes > 0) p.Buffer = e.Shift.GraceMinutes;
+                }
+            }
+
+            // 2) Master Sheet — names / managers as the HoD reports use them
+            foreach (var m in await _db.ReviewEmployees.AsNoTracking().ToListAsync(ct))
+            {
+                if (inactive.Contains(m.EmpCode)) continue;
+                var p = Get(m.EmpCode);
+                p.Name = m.Name;
+                if (!string.IsNullOrWhiteSpace(m.ManagerName)) p.Manager = m.ManagerName;
+            }
+
+            // 3) Presence 360 — anybody who punched in the last 45 days (factory workers not in HRMS)
+            var p360From = from.AddDays(-45);
+            var p360 = await _db.P360DailyRecords.AsNoTracking()
+                .Where(r => r.Date >= p360From && r.Date <= to)
+                .Select(r => new { r.EmpCode, r.EmployeeName, r.ManagerName, r.Date })
+                .ToListAsync(ct);
+            foreach (var g in p360.GroupBy(r => r.EmpCode))
+            {
+                if (g.Key.Length == 0 || inactive.Contains(g.Key)) continue;
+                var last = g.OrderByDescending(r => r.Date).First();
+                var p = Get(g.Key);
+                if (p.Name.Length == 0) p.Name = last.EmployeeName.Trim();
+                p.Manager ??= last.ManagerName;
+            }
+
+            // 4) Previous month's roster — the pattern HR already curated
+            var prevFrom = from.AddMonths(-1);
+            var prev = await _db.RosterEntries.AsNoTracking()
+                .Where(r => r.Date >= prevFrom && r.Date < from).ToListAsync(ct);
+            foreach (var g in prev.GroupBy(r => NormCode(r.EmployeeCode)))
+            {
+                if (inactive.Contains(g.Key)) continue;
+                var p = Get(g.Key);
+                p.FromPrevRoster = true;
+                if (!string.IsNullOrWhiteSpace(g.First().EmployeeName)) p.Name = g.OrderByDescending(r => r.Date).First().EmployeeName.Trim();
+                var work = g.Where(r => r.DayType == null && r.ShiftInTime.HasValue && r.ShiftOutTime.HasValue).ToList();
+                if (work.Count > 0)
+                {
+                    var shift = work.GroupBy(r => (r.ShiftInTime, r.ShiftOutTime)).OrderByDescending(x => x.Count()).First().Key;
+                    p.In = shift.ShiftInTime; p.Out = shift.ShiftOutTime;
+                    p.Buffer = work.GroupBy(r => r.LateBufferMinutes).OrderByDescending(x => x.Count()).First().Key;
+                    var mode = work.Where(r => !string.IsNullOrEmpty(r.Location) && r.Location != "WFH")
+                                   .GroupBy(r => r.Location!).OrderByDescending(x => x.Count()).FirstOrDefault()?.Key;
+                    if (mode != null) p.Mode = mode;
+                }
+                var offs = g.Where(r => string.Equals(r.DayType, "Week Off", StringComparison.OrdinalIgnoreCase))
+                            .Select(r => r.Date.DayOfWeek).ToList();
+                if (offs.Count >= 3 && offs.Distinct().Count() == 1) p.PrevOffDay = offs[0];
+                else if (offs.Count > 0) p.Rotational = true;
+            }
+
+            // Rows already uploaded for this month win.
+            var existing = (await _db.RosterEntries.AsNoTracking()
+                    .Where(r => r.Date >= from && r.Date <= to).ToListAsync(ct))
+                .GroupBy(r => (NormCode(r.EmployeeCode), r.Date))
+                .ToDictionary(g => g.Key, g => g.OrderByDescending(r => r.Id).First());
+            foreach (var g in existing.Values.GroupBy(r => NormCode(r.EmployeeCode)))
+            {
+                var p = Get(g.Key);
+                if (p.Name.Length == 0) p.Name = g.First().EmployeeName.Trim();
+            }
+
+            var holidays = (await _db.Holidays.AsNoTracking().Where(h => h.IsActive).ToListAsync(ct))
+                .Where(h => h.Type != "Optional" && h.Type != "Restricted")
+                .Select(h => (Ok: DateOnly.TryParseExact(h.Date, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d), d, h.Name))
+                .Where(x => x.Ok && x.d >= from && x.d <= to)
+                .GroupBy(x => x.d).ToDictionary(g => g.Key, g => g.First().Name);
+
+            var list = people.Values.Where(p => p.Name.Length > 0)
+                .OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase).ToList();
+
+            using var wb = new XLWorkbook();
+            BuildHowToSheet(wb);
+            var ws = wb.Worksheets.Add(sheetName);
+            string[] hdr = { "Name", "Employee ID", "Manager", "Date", "Holiday/Week Off/Leave/ Official Travel", "In Time", "Out Time",
+                             "WFH/STORE/OFFICE", "Late Coming Buffer - in Minutes", "Working Hours", "Special Remarks" };
+            for (int c = 0; c < hdr.Length; c++) ws.Cell(1, c + 1).Value = hdr[c];
+            var h1 = ws.Range(1, 1, 1, hdr.Length);
+            h1.Style.Font.Bold = true; h1.Style.Font.FontColor = XLColor.White;
+            h1.Style.Fill.BackgroundColor = XLColor.FromHtml("#1F4E78");
+            h1.Style.Alignment.WrapText = true;
+            h1.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            h1.Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+            ws.Row(1).Height = 45;
+
+            int row = 2;
+            foreach (var p in list)
+            {
+                for (var d = from; d <= to; d = d.AddDays(1))
+                {
+                    string? type = null, remark = null, mode = null;
+                    TimeOnly? tin = null, tout = null; int? buf = null;
+                    if (existing.TryGetValue((p.Code, d), out var e))
+                    {
+                        type = e.DayType; remark = e.SpecialRemarks;
+                        if (type == null || !IsRestType(type)) { tin = e.ShiftInTime; tout = e.ShiftOutTime; mode = e.Location; buf = e.LateBufferMinutes; }
+                    }
+                    else
+                    {
+                        if (holidays.TryGetValue(d, out var hn)) { type = "Holiday"; remark = hn; }
+                        else if (IsDefaultOff(p, d)) type = "Week Off";
+                        if (type == null) { tin = p.In ?? new TimeOnly(9, 30); tout = p.Out ?? new TimeOnly(18, 0); mode = p.Mode; buf = p.Buffer; }
+                    }
+
+                    ws.Cell(row, 1).Value = p.Name;
+                    if (long.TryParse(p.Code, out var n)) ws.Cell(row, 2).Value = (double)n; else ws.Cell(row, 2).Value = p.Code;
+                    ws.Cell(row, 3).Value = p.Manager ?? "";
+                    ws.Cell(row, 4).Value = d.ToDateTime(TimeOnly.MinValue);
+                    if (type != null) ws.Cell(row, 5).Value = type;
+                    if (tin.HasValue)  ws.Cell(row, 6).Value = tin.Value.ToTimeSpan();
+                    if (tout.HasValue) ws.Cell(row, 7).Value = tout.Value.ToTimeSpan();
+                    if (mode != null) ws.Cell(row, 8).Value = mode;
+                    if (buf.HasValue) ws.Cell(row, 9).Value = (double)buf.Value;
+                    ws.Cell(row, 10).FormulaA1 = $"IF(AND(ISNUMBER(F{row}),ISNUMBER(G{row})),MOD(G{row}-F{row},1),\"\")";
+                    if (remark != null) ws.Cell(row, 11).Value = remark;
+                    row++;
+                }
+            }
+            int lastRow = Math.Max(2, row - 1);
+
+            var body = ws.Range(1, 1, lastRow, hdr.Length);
+            body.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+            body.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+            ws.Range(2, 4, lastRow, 4).Style.NumberFormat.Format = "ddd dd-mmm-yy";
+            ws.Range(2, 6, lastRow, 7).Style.NumberFormat.Format = "hh:mm";
+            ws.Range(2, 10, lastRow, 10).Style.NumberFormat.Format = "[h]:mm";
+            ws.Range(2, 5, lastRow, 9).Style.Font.FontColor = XLColor.Blue;     // editable inputs
+            ws.Range(2, 11, lastRow, 11).Style.Font.FontColor = XLColor.Blue;
+            // Week offs / holidays shaded so the month reads at a glance
+            ws.Range(2, 1, lastRow, hdr.Length).AddConditionalFormat()
+              .WhenIsTrue("=OR($E2=\"Week Off\",$E2=\"Holiday\")").Fill.SetBackgroundColor(XLColor.FromHtml("#E7E6E6"));
+            ws.Range(2, 1, lastRow, hdr.Length).AddConditionalFormat()
+              .WhenIsTrue("=OR($E2=\"Leave\",$E2=\"Comp Off\",$E2=\"Half Day Leave\",$E2=\"Official Travel\")").Fill.SetBackgroundColor(XLColor.FromHtml("#FFF2CC"));
+
+            // Drop-downs (values kept on a hidden "Lists" sheet — the upload ignores it)
+            var lists = wb.Worksheets.Add("Lists");
+            string[] dayTypes = { "Week Off", "Holiday", "Leave", "Half Day Leave", "Official Travel", "Comp Off" };
+            string[] modes = { "OFFICE", "STORE", "WFH" };
+            for (int i = 0; i < dayTypes.Length; i++) lists.Cell(i + 1, 1).Value = dayTypes[i];
+            for (int i = 0; i < modes.Length; i++) lists.Cell(i + 1, 2).Value = modes[i];
+            lists.Visibility = XLWorksheetVisibility.Hidden;
+            ws.Range(2, 5, lastRow + 500, 5).CreateDataValidation().List(lists.Range(1, 1, dayTypes.Length, 1), true);
+            ws.Range(2, 8, lastRow + 500, 8).CreateDataValidation().List(lists.Range(1, 2, modes.Length, 2), true);
+
+            double[] widths = { 30, 11, 24, 15, 22, 9, 9, 12, 10, 10, 28 };
+            for (int c = 0; c < widths.Length; c++) ws.Column(c + 1).Width = widths[c];
+            ws.SheetView.Freeze(1, 4);
+            ws.Range(1, 1, lastRow, hdr.Length).SetAutoFilter();
+
+            using var ms = new MemoryStream();
+            wb.SaveAs(ms);
+            return ms.ToArray();
+        }
+
+        private static bool IsRestType(string t) =>
+            t.Equals("Week Off", StringComparison.OrdinalIgnoreCase) || t.Equals("Holiday", StringComparison.OrdinalIgnoreCase) ||
+            t.StartsWith("Leave", StringComparison.OrdinalIgnoreCase) || t.Equals("Comp Off", StringComparison.OrdinalIgnoreCase);
+
+        private static bool IsDefaultOff(RosterPerson p, DateOnly d)
+        {
+            if (p.PrevOffDay.HasValue) return d.DayOfWeek == p.PrevOffDay.Value;
+            if (p.Rotational) return false;                                  // retail rotational — HR marks them
+            if (p.Policy != null && p.Policy.Rules.Count > 0) return WeekOffHelper.IsWeekOff(d.ToDateTime(TimeOnly.MinValue), p.Policy);
+            return d.DayOfWeek == DayOfWeek.Sunday;
+        }
+
+        private static void BuildHowToSheet(XLWorkbook wb)
+        {
+            var ws = wb.Worksheets.Add("How To Update");
+            ws.Cell(1, 1).Value = "ROSTER – HOW TO UPDATE";
+            ws.Cell(1, 1).Style.Font.Bold = true; ws.Cell(1, 1).Style.Font.FontSize = 14;
+            string[][] rows =
+            {
+                new[] { "Column", "What to enter", "Effect in daily review" },
+                new[] { "Holiday/Week Off/Leave/ Official Travel", "Week Off", "No attendance expected. Work done = Extra time (if ≥30 min)" },
+                new[] { "", "Holiday", "Same as Week Off. Put holiday name in Special Remarks" },
+                new[] { "", "Leave / Comp Off", "Planned absence – NOT reported as Unplanned" },
+                new[] { "", "Half Day Leave", "Expected hours = half of shift; late check skipped" },
+                new[] { "", "Official Travel", "Treated as present – no gaps reported" },
+                new[] { "", "(blank)", "Normal working day – all 4 checks apply" },
+                new[] { "In Time / Out Time", "Shift start / end (hh:mm)", "Late = In Time + buffer; required hours = Out − In" },
+                new[] { "WFH/STORE/OFFICE", "OFFICE / STORE / WFH", "WFH with no punch = not absent" },
+                new[] { "Late Coming Buffer - in Minutes", "10 (default)", "Late only if punch is after start + buffer" },
+                new[] { "Working Hours", "Auto formula (Out − In)", "Do not type – calculated" },
+            };
+            for (int i = 0; i < rows.Length; i++)
+                for (int c = 0; c < 3; c++) ws.Cell(3 + i, c + 1).Value = rows[i][c];
+            var hr = ws.Range(3, 1, 3, 3);
+            hr.Style.Font.Bold = true; hr.Style.Font.FontColor = XLColor.White;
+            hr.Style.Fill.BackgroundColor = XLColor.FromHtml("#1F4E78");
+            ws.Range(3, 1, 3 + rows.Length - 1, 3).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+            ws.Range(3, 1, 3 + rows.Length - 1, 3).Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+            string[] notes =
+            {
+                "Blue text = editable input. To change a shift for one day, edit In/Out on that row only.",
+                "This sheet lists every active employee — staff and workers. Delete rows of anyone who has left; add a block of rows for a new joiner (Employee ID is required).",
+                "Pre-filled from last month's roster (shift, OFFICE/STORE, fixed week-off day), else the HRMS shift & week-off policy, else 09:30–18:00 with Sunday off. Holidays come from the HRMS Holiday master.",
+                "Retail staff with rotational week offs are left blank – please mark their Week Off days.",
+                "Upload the filled file on Attendance Review → Roster → Upload. Uploading replaces the roster for the dates in the file, so keep all employees in it.",
+            };
+            for (int i = 0; i < notes.Length; i++) ws.Cell(3 + rows.Length + 1 + i, 1).Value = notes[i];
+            ws.Column(1).Width = 38; ws.Column(2).Width = 30; ws.Column(3).Width = 62;
         }
 
         // ── cell readers (Excel stores times as day fractions) ──────────────

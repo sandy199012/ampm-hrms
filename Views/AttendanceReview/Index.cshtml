@@ -26,8 +26,17 @@
     </div>
 }
 
+@if (TempData["Warning"] != null)
+{
+    <div class="alert alert-warning alert-dismissible fade show" role="alert">
+        <i class="bi bi-exclamation-circle-fill me-2"></i>@TempData["Warning"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+}
+
 @{
     var ds = ViewBag.DataStatus as AmpmHrmsPro.Services.ReviewDataStatus;
+    var nextMonth = AmpmHrmsPro.Services.IndiaTime.Today.AddMonths(1).ToString("yyyy-MM");
 }
 <div class="card mb-3">
     <div class="card-header">
@@ -49,6 +58,11 @@
                         <span class="text-danger"><i class="bi bi-exclamation-circle-fill"></i> Not uploaded — plan/shift will be taken from Presence 360</span>
                     }
                 </div>
+                <form asp-action="DownloadRoster" asp-controller="AttendanceReview" method="get" class="d-flex gap-2 mb-2">
+                    <input type="month" name="month" value="@nextMonth" class="form-control form-control-sm" required title="Roster month" />
+                    <button type="submit" class="btn btn-sm btn-success text-nowrap"><i class="bi bi-download"></i> Download roster</button>
+                </form>
+                <div class="small text-muted mb-2">All staff &amp; workers, pre-filled — fill Week Off / Leave / shifts, then upload:</div>
                 <form asp-action="UploadRoster" asp-controller="AttendanceReview" method="post" enctype="multipart/form-data" class="d-flex gap-2">
                     @Html.AntiForgeryToken()
                     <input type="file" name="rosterFile" accept=".xlsx" class="form-control form-control-sm" required />
