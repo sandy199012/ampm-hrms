@@ -6,40 +6,59 @@
     var userName = User.Identity?.Name ?? "User";
     var userRole = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "employee";
     var initials = string.Join("", userName.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(w => w[0])).ToUpper();
-    var isAdminOrHr = userRole == "admin" || userRole == "hr";
+    var access = await AccessSvc.GetAsync(User);
+    var company = await CompanySvc.GetAsync(User.GetCompanyId());
+    bool Can(string perm) => access.Can(perm) || (perm.EndsWith(".view") && access.Can(perm[..^5] + ".manage"));
+    bool Mod(string m) => access.HasModule(m);
+    var isAdminOrHr = access.AnyAdmin;
+    var impersonator = User.FindFirst(TenantClaims.Impersonator)?.Value;
+    var roleLabel = userRole switch { "admin" => "Admin", "hr" => "HR", "manager" => "Manager", _ => "Employee" };
 }
+@inject IAccessService AccessSvc
+@inject ICompanyInfoService CompanySvc
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>@ViewData["Title"] — AMPM HRMS</title>
+    <title>@ViewData["Title"] — @(company?.Name ?? PlatformBrand.ProductName)</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="~/css/theme.css" />
+    <partial name="_BrandStyle" model="company" />
     @await RenderSectionAsync("Styles", required: false)
 </head>
 <body>
     <div class="app-shell">
         <aside class="sidebar">
             <div class="sidebar-brand">
-                <div class="logo-mark">A</div>
+                @if (!string.IsNullOrEmpty(company?.LogoDataUrl))
+                {
+                    <div class="logo-mark has-img"><img src="@company.LogoDataUrl" alt="" /></div>
+                }
+                else
+                {
+                    <div class="logo-mark">@(company?.Initial ?? "H")</div>
+                }
                 <div class="brand-text">
-                    <strong>AMPM HRMS</strong>
-                    <span>Fashions Pvt. Ltd.</span>
+                    <strong>@(company?.Name ?? PlatformBrand.ProductName)</strong>
+                    <span>@PlatformBrand.ProductName</span>
                 </div>
             </div>
             <nav class="sidebar-nav">
-                @if (isAdminOrHr)
+                @if (Can(Perm.Dashboard))
                 {
                 <div class="nav-section-label">Overview</div>
                 <a class="sidebar-link @(IsActive("Admin","Index") ? "active" : "")" asp-controller="Admin" asp-action="Index">
                     <i class="bi bi-grid-1x2-fill"></i> Dashboard
                 </a>
+                }
 
+                @if (Can(Perm.EmployeesView))
+                {
                 <div class="nav-section-label">Employee Master</div>
                 <a class="sidebar-link @(IsActive("Admin","Employees") ? "active" : "")" asp-controller="Admin" asp-action="Employees">
                     <i class="bi bi-people-fill"></i> All Employees
@@ -54,6 +73,9 @@
                     <i class="bi bi-sliders2-vertical"></i> Bulk Assign Policy
                 </a>
 
+                }
+                @if (Can(Perm.MastersView))
+                {
                 <div class="nav-section-label">Organization Masters</div>
                 <a class="sidebar-link @(IsActive("Admin","Masters") ? "active" : "")" asp-controller="Admin" asp-action="Masters">
                     <i class="bi bi-diagram-3-fill"></i> Department / Designation
@@ -77,18 +99,12 @@
                     <i class="bi bi-calendar2-check-fill"></i> Leave Policies
                 </a>
 
+                }
+                @if (Mod(Modules.Attendance) && Can(Perm.AttendanceView))
+                {
                 <div class="nav-section-label">Attendance</div>
                 <a class="sidebar-link @(IsActive("Attendance","BulkAttendanceImport") ? "active" : "")" asp-controller="Attendance" asp-action="BulkAttendanceImport">
                     <i class="bi bi-file-earmark-arrow-up-fill"></i> Bulk Import
-                </a>
-                <a class="sidebar-link @(IsActive("Attendance","ApiSettings") ? "active" : "")" asp-controller="Attendance" asp-action="ApiSettings">
-                    <i class="bi bi-plug-fill"></i> Biometric API
-                </a>
-                <a class="sidebar-link @(IsActive("Attendance","FaceMatchSettings") ? "active" : "")" asp-controller="Attendance" asp-action="FaceMatchSettings">
-                    <i class="bi bi-person-bounding-box"></i> Face Match API
-                </a>
-                <a class="sidebar-link @(IsActive("Attendance","KioskDevices") ? "active" : "")" asp-controller="Attendance" asp-action="KioskDevices">
-                    <i class="bi bi-tablet"></i> Kiosk Devices
                 </a>
                 <a class="sidebar-link @(IsActive("Attendance","ManualEntry") ? "active" : "")" asp-controller="Attendance" asp-action="ManualEntry">
                     <i class="bi bi-pencil-square"></i> Manual Entry
@@ -96,10 +112,10 @@
                 <a class="sidebar-link @(IsActive("Attendance","Recompute") ? "active" : "")" asp-controller="Attendance" asp-action="Recompute">
                     <i class="bi bi-arrow-repeat"></i> Recompute
                 </a>
-                <a class="sidebar-link @(IsActive("Attendance","EmailSettings") ? "active" : "")" asp-controller="Attendance" asp-action="EmailSettings">
-                    <i class="bi bi-envelope-fill"></i> Email Notifications
-                </a>
+                }
 
+                @if (Mod(Modules.AttendanceReview) && Can(Perm.ReviewView))
+                {
                 <div class="nav-section-label">Attendance Review</div>
                 <a class="sidebar-link @(IsActiveAny("AttendanceReview","Index","GapReport") ? "active" : "")" asp-controller="AttendanceReview" asp-action="Index">
                     <i class="bi bi-clipboard2-data-fill"></i> Gap Analysis
@@ -107,7 +123,10 @@
                 <a class="sidebar-link @(IsActive("AttendanceReview","Recipients") ? "active" : "")" asp-controller="AttendanceReview" asp-action="Recipients">
                     <i class="bi bi-envelope-paper-fill"></i> HoD Emails
                 </a>
+                }
 
+                @if (Mod(Modules.Payroll) && Can(Perm.PayrollView))
+                {
                 <div class="nav-section-label">Salary Structure</div>
                 <a class="sidebar-link @(IsActive("Salary","Components") ? "active" : "")" asp-controller="Salary" asp-action="Components">
                     <i class="bi bi-cash-coin"></i> Components
@@ -118,7 +137,10 @@
                 <a class="sidebar-link @(IsActiveAny("Salary","EmployeeStructure","AssignStructure") ? "active" : "")" asp-controller="Salary" asp-action="EmployeeStructure">
                     <i class="bi bi-person-badge-fill"></i> Employee Structure
                 </a>
+                }
 
+                @if (Mod(Modules.Payroll) && Can(Perm.PayrollView))
+                {
                 <div class="nav-section-label">Income Tax / TDS</div>
                 <a class="sidebar-link @(IsActiveAny("Tax","SlabSettings","SlabSettingsEdit") ? "active" : "")" asp-controller="Tax" asp-action="SlabSettings">
                     <i class="bi bi-percent"></i> Tax Slab Settings
@@ -132,6 +154,7 @@
                 <a class="sidebar-link @(IsActive("Tax","TdsReport") ? "active" : "")" asp-controller="Tax" asp-action="TdsReport">
                     <i class="bi bi-graph-up-arrow"></i> TDS Report
                 </a>
+                }
 
                 <div class="nav-section-label">Applications</div>
                 <a class="sidebar-link @(IsActiveAny("Applications","Index") ? "active" : "")" asp-controller="Applications" asp-action="Index">
@@ -141,6 +164,8 @@
                     <i class="bi bi-send-plus-fill"></i> New Application
                 </a>
 
+                @if (Mod(Modules.CompOff) && Can(Perm.CompOffView))
+                {
                 <div class="nav-section-label">Comp-Off</div>
                 <a class="sidebar-link @(IsActive("CompOff","Rules") ? "active" : "")" asp-controller="CompOff" asp-action="Rules">
                     <i class="bi bi-calendar-plus"></i> Comp-Off Rules
@@ -151,7 +176,10 @@
                 <a class="sidebar-link @(IsActive("CompOff","Ledger") ? "active" : "")" asp-controller="CompOff" asp-action="Ledger">
                     <i class="bi bi-journal-check"></i> Comp-Off Ledger
                 </a>
+                }
 
+                @if (Mod(Modules.Leave) && Can(Perm.LeaveView))
+                {
                 <div class="nav-section-label">Leave Balances</div>
                 <a class="sidebar-link @(IsActiveAny("LeaveBalance","Index","Employee") ? "active" : "")" asp-controller="LeaveBalance" asp-action="Index">
                     <i class="bi bi-bar-chart-steps"></i> EL / CL / SL Balances
@@ -159,7 +187,10 @@
                 <a class="sidebar-link @(IsActive("LeaveBalance","BulkUpload") ? "active" : "")" asp-controller="LeaveBalance" asp-action="BulkUpload">
                     <i class="bi bi-file-earmark-arrow-up-fill"></i> Upload Leave Data
                 </a>
+                }
 
+                @if (Mod(Modules.OT) && Can(Perm.OTView))
+                {
                 <div class="nav-section-label">OT (Overtime)</div>
                 <a class="sidebar-link @(IsActive("OT","Rules") ? "active" : "")" asp-controller="OT" asp-action="Rules">
                     <i class="bi bi-clock-history"></i> OT Rules
@@ -170,7 +201,10 @@
                 <a class="sidebar-link @(IsActive("OT","Ledger") ? "active" : "")" asp-controller="OT" asp-action="Ledger">
                     <i class="bi bi-clock-fill"></i> OT Ledger
                 </a>
+                }
 
+                @if (Mod(Modules.Reports) && Can(Perm.Reports))
+                {
                 <div class="nav-section-label">Reports</div>
                 <a class="sidebar-link @(IsActive("Reports","Dashboard") ? "active" : "")" asp-controller="Reports" asp-action="Dashboard">
                     <i class="bi bi-speedometer2"></i> Dashboard
@@ -202,6 +236,8 @@
                 <a class="sidebar-link @(IsActive("Reports","LegendKey") ? "active" : "")" asp-controller="Reports" asp-action="LegendKey">
                     <i class="bi bi-question-circle-fill"></i> Legend &amp; Key
                 </a>
+                @if (Mod(Modules.OT))
+                {
                 <a class="sidebar-link @(IsActive("Reports","OTAttendanceReport") ? "active" : "")" asp-controller="Reports" asp-action="OTAttendanceReport">
                     <i class="bi bi-graph-up"></i> OT - Attendance
                 </a>
@@ -218,7 +254,51 @@
                     <i class="bi bi-book-fill"></i> OT Rules &amp; Legend
                 </a>
                 }
+                }
 
+                @if (Can(Perm.Settings) || Can(Perm.Users) || Can(Perm.Audit))
+                {
+                <div class="nav-section-label">Administration</div>
+                @if (Can(Perm.Settings))
+                {
+                <a class="sidebar-link @(IsActive("Settings","Company") ? "active" : "")" asp-controller="Settings" asp-action="Company">
+                    <i class="bi bi-building-gear"></i> Company Profile &amp; Branding
+                </a>
+                <a class="sidebar-link @(IsActive("Settings","Security") ? "active" : "")" asp-controller="Settings" asp-action="Security">
+                    <i class="bi bi-shield-lock-fill"></i> Security Policy
+                </a>
+                @if (Mod(Modules.Attendance))
+                {
+                <a class="sidebar-link @(IsActive("Attendance","ApiSettings") ? "active" : "")" asp-controller="Attendance" asp-action="ApiSettings">
+                    <i class="bi bi-plug-fill"></i> Biometric API
+                </a>
+                <a class="sidebar-link @(IsActive("Attendance","FaceMatchSettings") ? "active" : "")" asp-controller="Attendance" asp-action="FaceMatchSettings">
+                    <i class="bi bi-person-bounding-box"></i> Face Match API
+                </a>
+                <a class="sidebar-link @(IsActive("Attendance","KioskDevices") ? "active" : "")" asp-controller="Attendance" asp-action="KioskDevices">
+                    <i class="bi bi-tablet"></i> Kiosk Devices
+                </a>
+                }
+                <a class="sidebar-link @(IsActive("Attendance","EmailSettings") ? "active" : "")" asp-controller="Attendance" asp-action="EmailSettings">
+                    <i class="bi bi-envelope-fill"></i> Email Notifications
+                </a>
+                }
+                @if (Can(Perm.Users))
+                {
+                <a class="sidebar-link @(IsActiveAny("Users","Index","Edit") ? "active" : "")" asp-controller="Users" asp-action="Index">
+                    <i class="bi bi-person-lock"></i> Users &amp; Access
+                </a>
+                <a class="sidebar-link @(IsActiveAny("Users","Roles","Role") ? "active" : "")" asp-controller="Users" asp-action="Roles">
+                    <i class="bi bi-people-fill"></i> Roles &amp; Permissions
+                </a>
+                }
+                @if (Can(Perm.Audit))
+                {
+                <a class="sidebar-link @(IsActive("Users","Audit") ? "active" : "")" asp-controller="Users" asp-action="Audit">
+                    <i class="bi bi-journal-text"></i> Audit Log
+                </a>
+                }
+                }
                 @if (!isAdminOrHr)
                 {
                 <div class="nav-section-label">My Overview</div>
@@ -248,24 +328,42 @@
                 </a>
                 }
 
+                @if (Mod(Modules.Payroll) || Mod(Modules.CompOff) || Mod(Modules.OT) || Mod(Modules.Leave))
+                {
                 <div class="nav-section-label">My Payroll</div>
+                @if (Mod(Modules.Payroll))
+                {
                 <a class="sidebar-link @(IsActive("MyTax","Salary") ? "active" : "")" asp-controller="MyTax" asp-action="Salary">
                     <i class="bi bi-wallet2"></i> My Salary
                 </a>
                 <a class="sidebar-link @(IsActive("MyTax","Declaration") ? "active" : "")" asp-controller="MyTax" asp-action="Declaration">
                     <i class="bi bi-file-earmark-text"></i> My Tax Declaration
                 </a>
+                }
+                @if (Mod(Modules.CompOff))
+                {
                 <a class="sidebar-link @(IsActive("MyCompOff","Index") ? "active" : "")" asp-controller="MyCompOff" asp-action="Index">
                     <i class="bi bi-journal-check"></i> My Comp-Off
                 </a>
+                }
+                @if (Mod(Modules.OT))
+                {
                 <a class="sidebar-link @(IsActive("MyOT","Index") ? "active" : "")" asp-controller="MyOT" asp-action="Index">
                     <i class="bi bi-clock-history"></i> My OT
                 </a>
+                }
+                @if (Mod(Modules.Leave))
+                {
                 <a class="sidebar-link @(IsActive("MyLeave","Index") ? "active" : "")" asp-controller="MyLeave" asp-action="Index">
                     <i class="bi bi-calendar2-check-fill"></i> My Leave Balance
                 </a>
+                }
+                }
 
                 <div class="nav-section-label">Account</div>
+                <a class="sidebar-link @(IsActiveAny("Account","Security","ChangePassword","TwoFactorSetup") ? "active" : "")" asp-controller="Account" asp-action="Security">
+                    <i class="bi bi-shield-lock"></i> My Security
+                </a>
                 <a class="sidebar-link" asp-controller="Account" asp-action="Logout">
                     <i class="bi bi-box-arrow-right"></i> Sign Out
                 </a>
@@ -273,6 +371,17 @@
         </aside>
 
         <div class="main-col">
+            @if (impersonator != null)
+            {
+                <div class="impersonation-bar">
+                    <i class="bi bi-incognito"></i> Owner support view — signed in to <b>@company?.Name</b> as @userName
+                    <a href="/Platform/ExitImpersonation" class="btn btn-sm btn-warning py-0">Back to owner console</a>
+                </div>
+            }
+            @if (company != null && company.DaysLeft is int left && left <= 15 && Can(Perm.Settings))
+            {
+                <div class="plan-bar"><i class="bi bi-info-circle me-1"></i> @company.Plan plan @(left > 0 ? $"ends in {left} day(s)" : "has ended") — contact your HRMS provider to renew.</div>
+            }
             <header class="topbar">
                 <div class="topbar-title">
                     @ViewData["Title"]
@@ -286,7 +395,7 @@
                         <div class="avatar">@initials</div>
                         <div class="u-meta">
                             <strong>@userName</strong>
-                            <span>@userRole</span>
+                            <span>@roleLabel</span>
                         </div>
                     </div>
                 </div>

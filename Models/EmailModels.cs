@@ -23,7 +23,7 @@ namespace AmpmHrmsPro.Models
         [MaxLength(200)] public string? SmtpPassword { get; set; }
         public bool SmtpUseSsl { get; set; } = true;
         [MaxLength(120)] public string? FromEmail { get; set; }
-        [MaxLength(100)] public string? FromName { get; set; } = "AMPM HRMS";
+        [MaxLength(100)] public string? FromName { get; set; }
 
         // ── Daily Attendance Alert — Late Coming + Early Going + Miss Punch
         // combined into one email, department-wise, to each department's

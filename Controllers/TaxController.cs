@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using AmpmHrmsPro.Services.Tenancy;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 using AmpmHrmsPro.Data;
@@ -20,7 +21,8 @@ namespace AmpmHrmsPro.Controllers
     // two share their actual save/upload/review logic via
     // Services/TaxDeclarationHelper.cs so behavior never drifts apart.
     // ═══════════════════════════════════════════
-    [Authorize(Roles = "admin,hr")]
+    [Authorize]
+    [RequirePermission(Perm.PayrollView, Perm.PayrollManage)]
     public class TaxController : Controller
     {
         readonly AppDbContext _db;

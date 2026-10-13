@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using AmpmHrmsPro.Services.Tenancy;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 using AmpmHrmsPro.Data;
@@ -16,7 +17,8 @@ namespace AmpmHrmsPro.Controllers
     // Structure). See Services/PayrollTaxEngine.cs for how a structure
     // resolves into a monthly/annual breakdown and feeds the tax engine.
     // ═══════════════════════════════════════════
-    [Authorize(Roles = "admin,hr")]
+    [Authorize]
+    [RequirePermission(Perm.PayrollView, Perm.PayrollManage)]
     public class SalaryController : Controller
     {
         readonly AppDbContext _db;

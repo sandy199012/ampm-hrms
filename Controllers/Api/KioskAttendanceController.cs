@@ -40,14 +40,27 @@ namespace AmpmHrmsPro.Controllers.Api
     {
         readonly AppDbContext _db;
         readonly IFaceMatchService _faceMatch;
-        public KioskAttendanceController(AppDbContext db, IFaceMatchService faceMatch) { _db = db; _faceMatch = faceMatch; }
+        readonly AmpmHrmsPro.Services.Tenancy.ITenantContext _tenant;
+        readonly AmpmHrmsPro.Services.Tenancy.ICompanyInfoService _companies;
+        public KioskAttendanceController(AppDbContext db, IFaceMatchService faceMatch,
+            AmpmHrmsPro.Services.Tenancy.ITenantContext tenant, AmpmHrmsPro.Services.Tenancy.ICompanyInfoService companies)
+        { _db = db; _faceMatch = faceMatch; _tenant = tenant; _companies = companies; }
 
+        // The device key identifies the company too: look it up across all
+        // companies, then work inside the device's company for the request.
         async Task<KioskDevice?> AuthenticateAsync()
         {
             if (!Request.Headers.TryGetValue("X-Kiosk-Key", out var key) || string.IsNullOrWhiteSpace(key))
                 return null;
-            var device = await _db.KioskDevices.FirstOrDefaultAsync(d => d.ApiKey == key.ToString() && d.IsActive);
-            return device;
+            var hit = await _db.KioskDevices.IgnoreQueryFilters()
+                .Where(d => d.ApiKey == key.ToString() && d.IsActive)
+                .Select(d => new { d.Id, CompanyId = EF.Property<int>(d, AppDbContext.TenantColumn) })
+                .FirstOrDefaultAsync();
+            if (hit == null) return null;
+            var info = await _companies.GetAsync(hit.CompanyId);
+            if (info == null || !info.CanUse) return null;
+            _tenant.Use(hit.CompanyId);
+            return await _db.KioskDevices.FirstOrDefaultAsync(d => d.Id == hit.Id);
         }
 
         // Called by the kiosk app's setup screen to confirm the server URL

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using AmpmHrmsPro.Services.Tenancy;
 using System.Security.Claims;
 using AmpmHrmsPro.Data;
 using AmpmHrmsPro.Services;
@@ -10,6 +11,7 @@ namespace AmpmHrmsPro.Controllers
     // Hard-scoped to CurrentEmpId so a logged-in worker can only see
     // their own OT, never another employee's.
     [Authorize]
+    [RequireModule(Modules.OT)]
     public class MyOTController : Controller
     {
         readonly AppDbContext _db;

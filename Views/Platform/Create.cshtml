@@ -1,0 +1,47 @@
+@{ ViewData["Title"] = "New company"; }
+<h1 class="h4 mb-1">New client company</h1>
+<p class="text-muted mb-3">Creates the company with standard masters (departments, leave types, shifts, tax slabs) and its first admin login.</p>
+@if (ViewBag.Error != null) { <div class="alert alert-danger"><i class="bi bi-exclamation-circle-fill me-1"></i> @ViewBag.Error</div> }
+<form method="post" asp-action="Create">
+    @Html.AntiForgeryToken()
+    <div class="row g-3">
+        <div class="col-lg-6">
+            <div class="card h-100"><div class="card-header">Company</div><div class="card-body">
+                <div class="row g-3">
+                    <div class="col-4"><label class="form-label">Company code *</label><input name="code" class="form-control text-uppercase" maxlength="20" required placeholder="ABC" /><div class="form-text">Typed on the login page.</div></div>
+                    <div class="col-8"><label class="form-label">Company name *</label><input name="name" class="form-control" required /></div>
+                    <div class="col-6"><label class="form-label">Contact person</label><input name="contactName" class="form-control" /></div>
+                    <div class="col-6"><label class="form-label">Contact phone</label><input name="contactPhone" class="form-control" /></div>
+                    <div class="col-12"><label class="form-label">Contact email</label><input type="email" name="contactEmail" class="form-control" /></div>
+                </div>
+            </div></div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card h-100"><div class="card-header">Plan</div><div class="card-body">
+                <div class="row g-3">
+                    <div class="col-6">
+                        <label class="form-label">Plan</label>
+                        <select name="plan" class="form-select">
+                            @foreach (var p in Plans.All) { <option value="@p.Name">@p.Name — @(p.MaxEmployees == 0 ? "unlimited" : p.MaxEmployees + " employees")</option> }
+                        </select>
+                    </div>
+                    <div class="col-6"><label class="form-label">Max employees (override)</label><input type="number" min="0" name="maxEmployees" class="form-control" placeholder="from plan" /><div class="form-text">0 = unlimited</div></div>
+                    <div class="col-6"><label class="form-label">Trial days</label><input type="number" min="1" name="trialDays" class="form-control" value="14" /></div>
+                    <div class="col-6"><label class="form-label">Paid until</label><input type="date" name="subscriptionEndsAt" class="form-control" /></div>
+                </div>
+                <div class="form-text mt-2">Modules can be switched on/off after creating, from Manage.</div>
+            </div></div>
+        </div>
+        <div class="col-12">
+            <div class="card"><div class="card-header">First admin login</div><div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-3"><label class="form-label">Login code *</label><input name="adminEmpCode" class="form-control" value="ADMIN001" required /></div>
+                    <div class="col-md-3"><label class="form-label">Name *</label><input name="adminName" class="form-control" value="HR Admin" required /></div>
+                    <div class="col-md-3"><label class="form-label">Email *</label><input type="email" name="adminEmail" class="form-control" required /></div>
+                    <div class="col-md-3"><label class="form-label">Password</label><input name="adminPassword" class="form-control" placeholder="auto-generate" /><div class="form-text">They must change it at first login.</div></div>
+                </div>
+            </div></div>
+        </div>
+    </div>
+    <button class="btn btn-primary mt-3"><i class="bi bi-building-add me-1"></i> Create company</button>
+</form>

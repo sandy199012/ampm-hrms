@@ -1,3 +1,4 @@
+using AmpmHrmsPro.Services.Tenancy;
 // ─────────────────────────────────────────────────────────────────────────────
 // Services/ConnectedMailService.cs
 //
@@ -42,6 +43,8 @@ namespace AmpmHrmsPro.Services
         public List<string> Bcc { get; set; } = new();
         public string Subject   { get; set; } = "";
         public string HtmlBody  { get; set; } = "";
+        /// <summary>Sender display name; filled with the company's sender name when empty.</summary>
+        public string? FromName { get; set; }
         public List<MailAttachment> Attachments { get; set; } = new();
     }
 
@@ -190,7 +193,7 @@ namespace AmpmHrmsPro.Services
 
             if (string.IsNullOrEmpty(tok.RefreshToken))
                 throw new InvalidOperationException(provider == MailProviders.Gmail
-                    ? "Google did not return a refresh token. Remove 'AMPM HRMS' from your Google Account → Security → Third-party access, then connect again."
+                    ? "Google did not return a refresh token. Remove this HRMS app from your Google Account → Security → Third-party access, then connect again."
                     : "Microsoft did not return a refresh token (offline_access). Check the app's API permissions.");
 
             // Who signed in?
@@ -244,6 +247,7 @@ namespace AmpmHrmsPro.Services
             if (acct == null) return (false, "No email account is connected.");
             if (!IsConfigured(acct.Provider))
                 return (false, $"{acct.Provider} app (ClientId/ClientSecret) is not configured on the server.");
+            await _db.ApplyBrandAsync(req);
 
             static List<string> Clean(IEnumerable<string> xs) =>
                 xs.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim())
@@ -325,7 +329,7 @@ namespace AmpmHrmsPro.Services
                 .Replace("__KEY__", GetGmailScriptKey())
                 .Replace("__HRMS__", hrmsBaseUrl.TrimEnd('/'));
 
-        private const string GmailScriptTemplate = @"// AMPM HRMS — Gmail Quick Connect
+        private const string GmailScriptTemplate = @"// HRMS — Gmail Quick Connect
 // Sends HRMS emails from THIS Gmail account, and keeps HRMS awake so
 // scheduled emails go out on time. Paste as-is; don't change anything.
 const KEY = '__KEY__';
@@ -347,7 +351,7 @@ function doPost(e) {
       subject: req.subject || '(no subject)',
       body: 'Please open this email in an HTML-capable email client.',
       htmlBody: req.html || '',
-      name: req.fromName || 'AMPM HRMS'
+      name: req.fromName || 'HRMS'
     };
     if (req.cc && req.cc.length) msg.cc = req.cc.join(',');
     if (req.bcc && req.bcc.length) msg.bcc = req.bcc.join(',');
@@ -363,7 +367,7 @@ function doPost(e) {
   }
 }
 
-function doGet() { return reply({ ok: true, service: 'AMPM HRMS Gmail Quick Connect' }); }
+function doGet() { return reply({ ok: true, service: 'HRMS Gmail Quick Connect' }); }
 
 function reply(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
@@ -423,7 +427,7 @@ function ensureKeepAwake() {
                 ["bcc"]      = bcc,
                 ["subject"]  = req.Subject,
                 ["html"]     = req.HtmlBody,
-                ["fromName"] = "AMPM HRMS",
+                ["fromName"] = req.FromName ?? PlatformBrand.ProductName,
                 ["attachments"] = req.Attachments.Select(a => new Dictionary<string, string>
                 {
                     ["name"] = a.FileName,
@@ -548,7 +552,8 @@ function ensureKeepAwake() {
         {
             var boundary = "=_ampm_" + Guid.NewGuid().ToString("N");
             var sb = new StringBuilder();
-            var fromName = string.IsNullOrWhiteSpace(acct.DisplayName) ? "AMPM HRMS" : acct.DisplayName;
+            var fromName = !string.IsNullOrWhiteSpace(req.FromName) ? req.FromName!
+                         : string.IsNullOrWhiteSpace(acct.DisplayName) ? PlatformBrand.ProductName : acct.DisplayName;
             var fromDisplay = fromName.All(c => c >= 32 && c < 127)
                 ? "\"" + fromName.Replace("\"", "") + "\""
                 : EncodeWord(fromName);
@@ -693,11 +698,13 @@ function ensureKeepAwake() {
     {
         private readonly IConnectedMailService _mail;
         private readonly SmtpEmailSender       _smtp;
+        private readonly AppDbContext          _db;
 
-        public SmartEmailSender(IConnectedMailService mail, SmtpEmailSender smtp)
+        public SmartEmailSender(IConnectedMailService mail, SmtpEmailSender smtp, AppDbContext db)
         {
             _mail = mail;
             _smtp = smtp;
+            _db   = db;
         }
 
         public Task<(bool Success, string Message)> SendAsync(
@@ -713,6 +720,7 @@ function ensureKeepAwake() {
 
         public async Task<(bool Success, string Message)> SendAsync(EmailSettings? settings, MailRequest req)
         {
+            await _db.ApplyBrandAsync(req);
             var acct = await _mail.GetAccountAsync();
             if (acct != null && _mail.IsConfigured(acct.Provider))
                 return await _mail.SendAsync(req);

@@ -1,0 +1,34 @@
+@model List<AppRole>
+@{
+    ViewData["Title"] = "Roles & Permissions";
+    ViewData["Subtitle"] = "Company-defined roles that add rights on top of the login role";
+    var counts = ViewBag.Counts as Dictionary<int, int> ?? new();
+}
+<div class="d-flex mb-3">
+    <a asp-action="Index" class="btn btn-link px-0"><i class="bi bi-arrow-left"></i> Users &amp; Access</a>
+    <a asp-action="Role" class="btn btn-primary ms-auto"><i class="bi bi-plus-lg me-1"></i> New role</a>
+</div>
+<div class="card">
+    <div class="table-responsive">
+        <table class="table align-middle mb-0">
+            <thead><tr><th>Role</th><th>Permissions</th><th>Users</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+            @foreach (var r in Model)
+            {
+                var perms = Modules.Parse(r.Permissions);
+                <tr>
+                    <td><b>@r.Name</b><div class="small text-muted">@r.Description</div></td>
+                    <td class="small">@string.Join(", ", Perm.Catalogue.Where(c => perms.Contains(c.Key)).Select(c => c.Label))</td>
+                    <td>@(counts.TryGetValue(r.Id, out var n) ? n : 0)</td>
+                    <td>@if (r.IsActive) { <span class="chip chip-success">Active</span> } else { <span class="chip chip-muted">Off</span> }</td>
+                    <td class="text-end text-nowrap">
+                        <a asp-action="Role" asp-route-id="@r.Id" class="btn btn-sm btn-outline-primary">Edit</a>
+                        <form method="post" asp-action="DeleteRole" asp-route-id="@r.Id" class="d-inline" onsubmit="return confirm('Delete role @r.Name? Users keep their login role.');">@Html.AntiForgeryToken()<button class="btn btn-sm btn-outline-danger">Delete</button></form>
+                    </td>
+                </tr>
+            }
+            @if (Model.Count == 0) { <tr><td colspan="5" class="empty-state"><i class="bi bi-people"></i>No custom roles yet — e.g. "Payroll Executive" or "Plant Supervisor".</td></tr> }
+            </tbody>
+        </table>
+    </div>
+</div>

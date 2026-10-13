@@ -1,0 +1,81 @@
+@model Company
+@{
+    ViewData["Title"] = "Company Profile";
+    ViewData["Subtitle"] = "Branding shown on every page, login screen and email";
+    var info = CompanyInfoService.From(Model);
+    var mods = Modules.Parse(Model.Modules);
+}
+<form method="post" asp-action="Company" enctype="multipart/form-data">
+    @Html.AntiForgeryToken()
+    <div class="row g-3">
+        <div class="col-lg-7">
+            <div class="card mb-3">
+                <div class="card-header"><i class="bi bi-building me-1"></i> Company details</div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <div class="col-md-6"><label class="form-label">Display name</label><input name="name" value="@Model.Name" class="form-control" required /></div>
+                        <div class="col-md-6"><label class="form-label">Legal name</label><input name="legalName" value="@Model.LegalName" class="form-control" /></div>
+                        <div class="col-md-4"><label class="form-label">Contact person</label><input name="contactName" value="@Model.ContactName" class="form-control" /></div>
+                        <div class="col-md-4"><label class="form-label">Contact email</label><input type="email" name="contactEmail" value="@Model.ContactEmail" class="form-control" /></div>
+                        <div class="col-md-4"><label class="form-label">Phone</label><input name="contactPhone" value="@Model.ContactPhone" class="form-control" /></div>
+                        <div class="col-12"><label class="form-label">Address</label><input name="address" value="@Model.Address" class="form-control" /></div>
+                        <div class="col-md-6"><label class="form-label">GSTIN</label><input name="gstin" value="@Model.Gstin" class="form-control" /></div>
+                        <div class="col-md-6"><label class="form-label">Website</label><input name="website" value="@Model.Website" class="form-control" /></div>
+                    </div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header"><i class="bi bi-envelope me-1"></i> Emails</div>
+                <div class="card-body">
+                    <div class="mb-3"><label class="form-label">Sender name</label><input name="emailSenderName" value="@Model.EmailSenderName" class="form-control" placeholder="@Model.Name HR" /><div class="form-text">Shown as the "from" name on notification emails.</div></div>
+                    <div><label class="form-label">Email footer</label><input name="emailFooter" value="@Model.EmailFooter" class="form-control" placeholder="This is an automated message from @Model.Name HR." /></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-5">
+            <div class="card mb-3">
+                <div class="card-header"><i class="bi bi-palette me-1"></i> Branding</div>
+                <div class="card-body">
+                    <div class="d-flex gap-3 align-items-center mb-3">
+                        @if (!string.IsNullOrEmpty(Model.LogoDataUrl))
+                        {
+                            <img src="@Model.LogoDataUrl" alt="Logo" style="max-height:64px;max-width:160px;border:1px solid var(--border);border-radius:10px;padding:6px;background:#fff;" />
+                        }
+                        else
+                        {
+                            <div class="logo-mark" style="width:56px;height:56px;border-radius:14px;background:linear-gradient(135deg,var(--primary),var(--accent));color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:22px;">@info.Initial</div>
+                        }
+                        <div class="flex-grow-1">
+                            <label class="form-label">Logo (PNG/JPG/WEBP, max 300 KB)</label>
+                            <input type="file" name="logo" accept="image/png,image/jpeg,image/webp" class="form-control form-control-sm" />
+                            @if (!string.IsNullOrEmpty(Model.LogoDataUrl))
+                            {
+                                <label class="form-check mt-1 small"><input type="checkbox" name="removeLogo" value="true" class="form-check-input" /> Remove logo</label>
+                            }
+                        </div>
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-6"><label class="form-label">Main colour</label><input type="color" name="primaryColor" value="@Model.PrimaryColor" class="form-control form-control-color w-100" /></div>
+                        <div class="col-6"><label class="form-label">Accent colour</label><input type="color" name="accentColor" value="@Model.AccentColor" class="form-control form-control-color w-100" /></div>
+                    </div>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header"><i class="bi bi-box-seam me-1"></i> Your plan</div>
+                <div class="card-body small">
+                    <div class="d-flex justify-content-between mb-1"><span class="text-muted">Plan</span><b>@Model.Plan</b></div>
+                    <div class="d-flex justify-content-between mb-1"><span class="text-muted">Active employees</span><b>@ViewBag.ActiveEmployees @(Model.MaxEmployees > 0 ? "/ " + Model.MaxEmployees : "(unlimited)")</b></div>
+                    <div class="d-flex justify-content-between mb-2"><span class="text-muted">Valid till</span><b>@(info.EndsAt is DateTime e ? IndiaTime.FromUtc(e).ToString("dd MMM yyyy") : "—")</b></div>
+                    <div class="d-flex flex-wrap gap-1">
+                        @foreach (var m in Modules.All)
+                        {
+                            <span class="chip @(mods.Contains(m.Key) ? "" : "chip-muted")" title="@(mods.Contains(m.Key) ? "Included" : "Not in your plan")">@(mods.Contains(m.Key) ? "✓" : "–") @m.Label</span>
+                        }
+                    </div>
+                    <div class="text-muted mt-2">Company code for login: <code>@Model.Code</code>. To change plan or add modules, contact your HRMS provider.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <button class="btn btn-primary mt-3"><i class="bi bi-check2 me-1"></i> Save</button>
+</form>

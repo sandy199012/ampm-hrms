@@ -1,3 +1,4 @@
+using AmpmHrmsPro.Services.Tenancy;
 // ─────────────────────────────────────────────────────────────────────────────
 // Services/GapAnalysisEmail.cs
 //
@@ -153,7 +154,7 @@ namespace AmpmHrmsPro.Services
 <tr><td style='padding:8px 24px 20px;font-size:11px;color:{Muted};line-height:1.5;'>
   Late = in after planned in-time + buffer · Hrs not completed = worked less than planned hours (incl. missed punch) ·
   Extra = 30+ min over planned hours, or work on a week off / holiday · Absent = rostered working day with no punch and no planned leave.<br>
-  Automated email from AMPM HRMS — please do not reply.
+  Automated email from {{BRAND}} — please do not reply.
 </td></tr>
 </table></td></tr></table></body></html>");
             return sb.ToString();

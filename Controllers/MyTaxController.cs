@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using AmpmHrmsPro.Services.Tenancy;
 using System.Security.Claims;
 using AmpmHrmsPro.Data;
 using AmpmHrmsPro.Services;
@@ -23,6 +24,7 @@ namespace AmpmHrmsPro.Controllers
     // so both surfaces always behave identically.
     // ═══════════════════════════════════════════
     [Authorize]
+    [RequireModule(Modules.Payroll)]
     public class MyTaxController : Controller
     {
         readonly AppDbContext _db;

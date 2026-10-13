@@ -2,8 +2,11 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
+using Microsoft.EntityFrameworkCore;
 using AmpmHrmsPro.Data;
+using AmpmHrmsPro.Models;
 using AmpmHrmsPro.Services;
+using AmpmHrmsPro.Services.Tenancy;
 
 namespace AmpmHrmsPro.Controllers.Api
 {
@@ -20,16 +23,58 @@ namespace AmpmHrmsPro.Controllers.Api
     {
         readonly AppDbContext _db;
         readonly IJwtService _jwt;
-        public MobileAuthController(AppDbContext db, IJwtService jwt) { _db = db; _jwt = jwt; }
+        readonly ITenantContext _tenant;
+        public MobileAuthController(AppDbContext db, IJwtService jwt, ITenantContext tenant) { _db = db; _jwt = jwt; _tenant = tenant; }
 
-        public record LoginRequest(string EmpCode, string Password);
+        // CompanyCode is optional so the existing app keeps working: when it's
+        // missing, the employee code must be unique across all companies.
+        public record LoginRequest(string EmpCode, string Password, string? CompanyCode = null);
 
         [HttpPost("login")]
-        public IActionResult Login(LoginRequest req)
+        public async Task<IActionResult> Login(LoginRequest req)
         {
-            var emp = _db.Employees.FirstOrDefault(e => e.EmpCode == req.EmpCode && e.IsActive);
-            if (emp == null || !BCrypt.Net.BCrypt.Verify(req.Password, emp.PasswordHash))
-                return Unauthorized(new { message = "Invalid employee code or password." });
+            const string invalid = "Invalid company code, employee code or password.";
+            var empCode = (req.EmpCode ?? "").Trim();
+            var code = CompanyProvisioning.NormalizeCode(req.CompanyCode);
+            Company? company;
+            if (code.Length > 0)
+                company = await _db.Companies.FirstOrDefaultAsync(c => c.Code == code);
+            else
+            {
+                var ids = await _db.Employees.IgnoreQueryFilters()
+                    .Where(e => e.EmpCode == empCode && e.IsActive)
+                    .Select(e => EF.Property<int>(e, AppDbContext.TenantColumn)).Distinct().ToListAsync();
+                if (ids.Count > 1) return Unauthorized(new { message = "Please enter your company code." });
+                company = ids.Count == 1 ? await _db.Companies.FirstOrDefaultAsync(c => c.Id == ids[0]) : null;
+            }
+            if (company == null) return Unauthorized(new { message = invalid });
+            var info = CompanyInfoService.From(company);
+            if (!info.CanUse) return Unauthorized(new { message = info.IsSuspended ? "Company account suspended." : "Subscription expired." });
+            if (!Modules.Parse(company.Modules).Contains(Modules.MobileApp))
+                return Unauthorized(new { message = "The mobile app is not part of your company's plan." });
+
+            _tenant.Use(company.Id);
+            var emp = await _db.Employees.FirstOrDefaultAsync(e => e.EmpCode == empCode && e.IsActive);
+            if (emp == null) return Unauthorized(new { message = invalid });
+            if (emp.LockoutUntil.HasValue && emp.LockoutUntil > DateTime.UtcNow)
+                return Unauthorized(new { message = "Account locked after too many wrong attempts. Try again later." });
+            if (!BCrypt.Net.BCrypt.Verify(req.Password ?? "", emp.PasswordHash))
+            {
+                emp.FailedLoginCount++;
+                if (company.MaxFailedLogins > 0 && emp.FailedLoginCount >= company.MaxFailedLogins)
+                {
+                    emp.LockoutUntil = DateTime.UtcNow.AddMinutes(Math.Max(1, company.LockoutMinutes));
+                    emp.FailedLoginCount = 0;
+                }
+                _db.Audit("LoginFailed", $"Mobile: wrong password for {emp.EmpCode}", "Employee", emp.Id.ToString(), userId: emp.Id, userName: emp.Name);
+                await _db.SaveChangesAsync();
+                return Unauthorized(new { message = invalid });
+            }
+            emp.FailedLoginCount = 0;
+            emp.LockoutUntil = null;
+            emp.LastLoginAt = DateTime.UtcNow;
+            _db.Audit("Login", $"Mobile: {emp.Name} ({emp.EmpCode}) signed in", "Employee", emp.Id.ToString(), userId: emp.Id, userName: emp.Name);
+            await _db.SaveChangesAsync();
 
             // A manager's mobile dashboard also needs to know if they're a
             // Department Head (App.cs's escalation rule routes an
@@ -43,7 +88,9 @@ namespace AmpmHrmsPro.Controllers.Api
 
             return Ok(new
             {
-                token = _jwt.GenerateToken(emp),
+                token = _jwt.GenerateToken(emp, company),
+                companyCode = company.Code,
+                companyName = company.Name,
                 employeeId = emp.Id,
                 empCode = emp.EmpCode,
                 name = emp.Name,

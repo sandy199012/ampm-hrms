@@ -5,6 +5,8 @@ using Microsoft.EntityFrameworkCore;
 using AmpmHrmsPro.Data;
 using AmpmHrmsPro.Models;
 
+using AmpmHrmsPro.Services.Tenancy;
+
 namespace AmpmHrmsPro.Services
 {
     // ═══════════════════════════════════════════
@@ -69,7 +71,7 @@ namespace AmpmHrmsPro.Services
 
                 using var msg = new MailMessage
                 {
-                    From = new MailAddress(settings.FromEmail!, string.IsNullOrWhiteSpace(settings.FromName) ? "AMPM HRMS" : settings.FromName),
+                    From = new MailAddress(settings.FromEmail!, !string.IsNullOrWhiteSpace(req.FromName) ? req.FromName : string.IsNullOrWhiteSpace(settings.FromName) ? PlatformBrand.ProductName : settings.FromName),
                     Subject = req.Subject,
                     Body = req.HtmlBody,
                     IsBodyHtml = true,
@@ -193,7 +195,7 @@ namespace AmpmHrmsPro.Services
             sb.Append(Section("Miss Punch", missPunch.Count, "#7C3AED",
                 missPunch.Select(r => $"{Esc(r.Employee!.Name)} ({Esc(r.Employee.EmpCode)}) — {Esc(r.EffectiveStatus)}")));
 
-            sb.Append("<p style='color:#999;font-size:12px;margin-top:24px'>Automated message from AMPM HRMS. Please do not reply to this email.</p>");
+            sb.Append("<p style='color:#999;font-size:12px;margin-top:24px'>Automated message from {{BRAND}}. Please do not reply to this email.</p>");
             sb.Append("</div>");
             return sb.ToString();
         }
@@ -268,7 +270,7 @@ namespace AmpmHrmsPro.Services
             sb.Append("<h1 style='color:#7C3AED;margin-bottom:4px'>Happy Birthday!</h1>");
             foreach (var p in people)
                 sb.Append($"<p style='font-size:18px;font-weight:600;margin:6px 0'>{Esc(p.Name)}</p>");
-            sb.Append("<p style='color:#555;margin-top:16px'>Wishing you a wonderful day ahead, from everyone at AMPM Fashions!</p>");
+            sb.Append("<p style='color:#555;margin-top:16px'>Wishing you a wonderful day ahead, from everyone at {{COMPANY}}!</p>");
             sb.Append("</div>");
             return sb.ToString();
         }
@@ -357,7 +359,7 @@ namespace AmpmHrmsPro.Services
                 sb.Append("</tr>");
             }
             sb.Append("</table>");
-            sb.Append("<p style='color:#999;font-size:12px;margin-top:24px'>Automated message from AMPM HRMS. Please do not reply to this email.</p>");
+            sb.Append("<p style='color:#999;font-size:12px;margin-top:24px'>Automated message from {{BRAND}}. Please do not reply to this email.</p>");
             sb.Append("</div>");
             return sb.ToString();
         }
@@ -412,11 +414,20 @@ namespace AmpmHrmsPro.Services
             }
         }
 
-        async Task RunOnceAsync(CancellationToken stoppingToken)
+        // Runs the schedule below once per active company (each has its own
+        // Email Notification settings and its own connected mailbox).
+        Task RunOnceAsync(CancellationToken stoppingToken) =>
+            TenantJobs.ForEachActiveCompanyAsync(_services, async (sp, companyId) =>
+            {
+                var db = sp.GetRequiredService<AppDbContext>();
+                var modules = await db.Companies.Where(c => c.Id == companyId).Select(c => c.Modules).FirstOrDefaultAsync(stoppingToken);
+                if (!Modules.Parse(modules).Contains(Modules.EmailAlerts)) return;
+                await RunForCompanyAsync(sp, db, stoppingToken);
+            }, null, stoppingToken);
+
+        async Task RunForCompanyAsync(IServiceProvider sp, AppDbContext db, CancellationToken stoppingToken)
         {
-            using var scope = _services.CreateScope();
-            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            var notifier = scope.ServiceProvider.GetRequiredService<IHrEmailNotificationService>();
+            var notifier = sp.GetRequiredService<IHrEmailNotificationService>();
 
             var settings = await db.EmailSettingsList.FirstOrDefaultAsync(stoppingToken);
             if (settings == null || !settings.IsEnabled) return;

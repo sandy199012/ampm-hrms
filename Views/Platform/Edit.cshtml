@@ -1,0 +1,89 @@
+@model Company
+@{
+    ViewData["Title"] = Model.Name;
+    var mods = Modules.Parse(Model.Modules);
+    var audit = ViewBag.Audit as List<AuditLog> ?? new();
+    var info = CompanyInfoService.From(Model);
+}
+<div class="d-flex align-items-center mb-3 flex-wrap gap-2">
+    <div>
+        <h1 class="h4 mb-0">@Model.Name <code class="ms-1">@Model.Code</code></h1>
+        <div class="text-muted small">Created @IndiaTime.FromUtc(Model.CreatedAt).ToString("dd MMM yyyy") · @ViewBag.ActiveEmployees active employees</div>
+    </div>
+    <div class="ms-auto d-flex gap-2">
+        <form method="post" asp-action="Impersonate" asp-route-id="@Model.Id">@Html.AntiForgeryToken()<button class="btn btn-outline-secondary"><i class="bi bi-box-arrow-in-right me-1"></i> Open as admin</button></form>
+        <form method="post" asp-action="ResetAdmin" asp-route-id="@Model.Id" onsubmit="return confirm('Reset the company admin password?');">@Html.AntiForgeryToken()<button class="btn btn-outline-secondary"><i class="bi bi-key me-1"></i> Reset admin password</button></form>
+    </div>
+</div>
+<form method="post" asp-action="Edit" asp-route-id="@Model.Id">
+    @Html.AntiForgeryToken()
+    <div class="row g-3">
+        <div class="col-lg-6">
+            <div class="card h-100"><div class="card-header">Company &amp; contact</div><div class="card-body">
+                <div class="mb-3"><label class="form-label">Name</label><input name="name" value="@Model.Name" class="form-control" /></div>
+                <div class="row g-3">
+                    <div class="col-6"><label class="form-label">Contact person</label><input name="contactName" value="@Model.ContactName" class="form-control" /></div>
+                    <div class="col-6"><label class="form-label">Phone</label><input name="contactPhone" value="@Model.ContactPhone" class="form-control" /></div>
+                    <div class="col-12"><label class="form-label">Email</label><input name="contactEmail" value="@Model.ContactEmail" class="form-control" /></div>
+                    <div class="col-12"><label class="form-label">Internal notes</label><textarea name="notes" class="form-control" rows="2">@Model.Notes</textarea></div>
+                </div>
+            </div></div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card h-100"><div class="card-header">Subscription</div><div class="card-body">
+                <div class="row g-3">
+                    <div class="col-6">
+                        <label class="form-label">Plan</label>
+                        <select name="plan" class="form-select">@foreach (var p in Plans.All) { <option selected="@(p.Name == Model.Plan)">@p.Name</option> }</select>
+                    </div>
+                    <div class="col-6"><label class="form-label">Max active employees</label><input type="number" min="0" name="maxEmployees" value="@Model.MaxEmployees" class="form-control" /><div class="form-text">0 = unlimited · now @ViewBag.ActiveEmployees</div></div>
+                    <div class="col-6"><label class="form-label">Trial ends</label><input type="date" name="trialEndsAt" value="@Model.TrialEndsAt?.ToString("yyyy-MM-dd")" class="form-control" /></div>
+                    <div class="col-6"><label class="form-label">Paid until</label><input type="date" name="subscriptionEndsAt" value="@Model.SubscriptionEndsAt?.ToString("yyyy-MM-dd")" class="form-control" /></div>
+                    <div class="col-6">
+                        <label class="form-label">Status</label>
+                        <select name="status" class="form-select"><option selected="@(Model.Status=="Active")">Active</option><option selected="@(Model.Status=="Suspended")">Suspended</option></select>
+                    </div>
+                    <div class="col-6 d-flex align-items-end">
+                        @if (info.IsExpired) { <span class="chip chip-warning">Expired</span> }
+                        else if (info.DaysLeft is int d) { <span class="chip">@d day(s) left</span> }
+                        else { <span class="chip chip-muted">No end date</span> }
+                    </div>
+                </div>
+            </div></div>
+        </div>
+        <div class="col-12">
+            <div class="card"><div class="card-header">Modules in this plan</div><div class="card-body">
+                <div class="row g-2">
+                @foreach (var m in Modules.All)
+                {
+                    <div class="col-md-4">
+                        <label class="form-check p-2 border rounded d-flex gap-2 align-items-start" style="cursor:pointer;">
+                            <input type="checkbox" name="modules" value="@m.Key" class="form-check-input ms-0 mt-1" checked="@mods.Contains(m.Key)" />
+                            <span><b>@m.Label</b><br /><span class="small text-muted">@m.Hint</span></span>
+                        </label>
+                    </div>
+                }
+                </div>
+                <div class="form-text">Employees, masters, applications, users/roles and audit log are always included.</div>
+            </div></div>
+        </div>
+    </div>
+    <button class="btn btn-primary mt-3">Save changes</button>
+</form>
+<div class="d-flex gap-2 mt-3">
+    <form method="post" asp-action="Extend" asp-route-id="@Model.Id">@Html.AntiForgeryToken()<input type="hidden" name="days" value="30" /><button class="btn btn-outline-primary btn-sm">+30 days</button></form>
+    <form method="post" asp-action="Extend" asp-route-id="@Model.Id">@Html.AntiForgeryToken()<input type="hidden" name="days" value="365" /><button class="btn btn-outline-primary btn-sm">+1 year</button></form>
+</div>
+<div class="card mt-4">
+    <div class="card-header">Recent activity</div>
+    <div class="table-responsive"><table class="table table-sm mb-0">
+        <thead><tr><th>When</th><th>Who</th><th>What</th></tr></thead>
+        <tbody>
+        @foreach (var a in audit)
+        {
+            <tr><td class="small text-nowrap">@IndiaTime.FromUtc(a.At).ToString("dd MMM HH:mm")</td><td class="small">@a.UserName</td><td class="small">@a.Summary</td></tr>
+        }
+        @if (audit.Count == 0) { <tr><td colspan="3" class="text-muted small">No activity yet.</td></tr> }
+        </tbody>
+    </table></div>
+</div>

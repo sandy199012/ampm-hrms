@@ -5,6 +5,8 @@ using Microsoft.EntityFrameworkCore;
 using AmpmHrmsPro.Data;
 using AmpmHrmsPro.Models;
 
+using AmpmHrmsPro.Services.Tenancy;
+
 namespace AmpmHrmsPro.Services
 {
     public interface IBiometricSyncService
@@ -214,31 +216,35 @@ namespace AmpmHrmsPro.Services
         readonly IServiceProvider _services;
         public BiometricSyncHostedService(IServiceProvider services) => _services = services;
 
+        // Each company has its own API settings and interval — the loop wakes
+        // every 5 minutes and syncs whichever companies are due.
+        readonly Dictionary<int, DateTime> _lastRun = new();
+
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             while (!stoppingToken.IsCancellationRequested)
             {
-                int intervalMin = 15;
                 try
                 {
-                    using var scope = _services.CreateScope();
-                    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                    var sync = scope.ServiceProvider.GetRequiredService<IBiometricSyncService>();
-                    var settings = await db.BiometricApiSettingsList.FirstOrDefaultAsync(stoppingToken);
-                    if (settings != null)
+                    await TenantJobs.ForEachActiveCompanyAsync(_services, async (sp, companyId) =>
                     {
-                        intervalMin = Math.Max(5, settings.SyncIntervalMinutes);
-                        if (settings.IsEnabled)
-                        {
-                            var today = DateTime.Today;
-                            await sync.SyncAsync(db, today.AddDays(-1), today);
-                        }
-                    }
+                        var db = sp.GetRequiredService<AppDbContext>();
+                        var modules = await db.Companies.Where(c => c.Id == companyId).Select(c => c.Modules).FirstOrDefaultAsync(stoppingToken);
+                        if (!Modules.Parse(modules).Contains(Modules.Attendance)) return;
+                        var settings = await db.BiometricApiSettingsList.FirstOrDefaultAsync(stoppingToken);
+                        if (settings == null || !settings.IsEnabled) return;
+                        var interval = TimeSpan.FromMinutes(Math.Max(5, settings.SyncIntervalMinutes));
+                        if (_lastRun.TryGetValue(companyId, out var last) && DateTime.UtcNow - last < interval - TimeSpan.FromSeconds(30)) return;
+                        _lastRun[companyId] = DateTime.UtcNow;
+                        var sync = sp.GetRequiredService<IBiometricSyncService>();
+                        var today = DateTime.Today;
+                        await sync.SyncAsync(db, today.AddDays(-1), today);
+                    }, null, stoppingToken);
                 }
                 catch (OperationCanceledException) { break; }
-                catch { /* swallow — this is a background poller; a bad cycle just retries next interval, LastSyncStatus already records the failure for Admin to see */ }
+                catch { /* swallow — a bad cycle just retries; LastSyncStatus records failures for Admin to see */ }
 
-                try { await Task.Delay(TimeSpan.FromMinutes(intervalMin), stoppingToken); }
+                try { await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken); }
                 catch (OperationCanceledException) { break; }
             }
         }

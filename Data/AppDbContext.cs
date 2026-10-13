@@ -1,12 +1,28 @@
+using System.Reflection;
 using Microsoft.AspNetCore.DataProtection.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using AmpmHrmsPro.Models;
+using AmpmHrmsPro.Services.Tenancy;
 
 namespace AmpmHrmsPro.Data
 {
-    public class AppDbContext : DbContext, IDataProtectionKeyContext
+    public partial class AppDbContext : DbContext, IDataProtectionKeyContext
     {
-        public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
+        private readonly ITenantContext? _tenant;
+        private readonly IHttpContextAccessor? _http;
+
+        public AppDbContext(DbContextOptions<AppDbContext> options, ITenantContext? tenant = null, IHttpContextAccessor? http = null)
+            : base(options)
+        {
+            _tenant = tenant;
+            _http   = http;
+        }
+
+        // ── Multi-company ──
+        public DbSet<Company>      Companies     { get; set; }
+        public DbSet<PlatformUser> PlatformUsers { get; set; }
+        public DbSet<AppRole>      AppRoles      { get; set; }
+        public DbSet<AuditLog>     AuditLogs     { get; set; }
 
         // ── DataProtection keys — persisted to DB so keys survive container
         // restarts on Render free tier (otherwise every restart invalidates
@@ -77,18 +93,30 @@ namespace AmpmHrmsPro.Data
 
         protected override void OnModelCreating(ModelBuilder mb)
         {
+            // Every company-owned table gets a hidden CompanyId column + a
+            // query filter (see AppDbContext.Tenancy.cs). Runs first so the
+            // per-company unique indexes below can reference the column, and
+            // again at the end for any type discovered along the way.
+            ConfigureTenancy(mb);
+
+            // Global (cross-company) tables
+            mb.Entity<Company>().HasIndex(c => c.Code).IsUnique();
+            mb.Entity<PlatformUser>().HasIndex(u => u.Email).IsUnique();
+            mb.Entity<AppRole>().HasIndex(TenantColumn, nameof(AppRole.Name)).IsUnique();
+            mb.Entity<AuditLog>().HasIndex(TenantColumn, nameof(AuditLog.At));
+
             // Unique indexes
-            mb.Entity<Employee>().HasIndex(e => e.EmpCode).IsUnique();
-            mb.Entity<Employee>().HasIndex(e => e.Email).IsUnique();
-            mb.Entity<Department>().HasIndex(d => d.Name).IsUnique();
-            mb.Entity<Designation>().HasIndex(d => d.Name).IsUnique();
-            mb.Entity<Grade>().HasIndex(g => g.Name).IsUnique();
-            mb.Entity<EmploymentType>().HasIndex(t => t.Name).IsUnique();
-            mb.Entity<Location>().HasIndex(l => l.Name).IsUnique();
-            mb.Entity<WeekOffPolicy>().HasIndex(w => w.Name).IsUnique();
-            mb.Entity<LeaveType>().HasIndex(t => t.Alias).IsUnique();
+            mb.Entity<Employee>().HasIndex(TenantColumn, nameof(Employee.EmpCode)).IsUnique();
+            mb.Entity<Employee>().HasIndex(TenantColumn, nameof(Employee.Email)).IsUnique();
+            mb.Entity<Department>().HasIndex(TenantColumn, nameof(Department.Name)).IsUnique();
+            mb.Entity<Designation>().HasIndex(TenantColumn, nameof(Designation.Name)).IsUnique();
+            mb.Entity<Grade>().HasIndex(TenantColumn, nameof(Grade.Name)).IsUnique();
+            mb.Entity<EmploymentType>().HasIndex(TenantColumn, nameof(EmploymentType.Name)).IsUnique();
+            mb.Entity<Location>().HasIndex(TenantColumn, nameof(Location.Name)).IsUnique();
+            mb.Entity<WeekOffPolicy>().HasIndex(TenantColumn, nameof(WeekOffPolicy.Name)).IsUnique();
+            mb.Entity<LeaveType>().HasIndex(TenantColumn, nameof(LeaveType.Alias)).IsUnique();
             mb.Entity<Holiday>().HasIndex(h => h.Date);
-            mb.Entity<LeavePolicy>().HasIndex(p => p.Name).IsUnique();
+            mb.Entity<LeavePolicy>().HasIndex(TenantColumn, nameof(LeavePolicy.Name)).IsUnique();
 
             // Decimal precision
             mb.Entity<Shift>().Property(s => s.HalfDayThresholdHours).HasPrecision(4, 1);
@@ -211,9 +239,9 @@ namespace AmpmHrmsPro.Data
             mb.Entity<TaxDeclarationItem>().Property(i => i.ApprovedAmount).HasPrecision(12, 2);
 
             // Uniqueness
-            mb.Entity<SalaryStructureTemplate>().HasIndex(t => t.Name).IsUnique();
-            mb.Entity<TaxSectionMaster>().HasIndex(s => s.Code).IsUnique();
-            mb.Entity<TaxSlabSettings>().HasIndex(s => new { s.FinancialYear, s.Regime }).IsUnique();
+            mb.Entity<SalaryStructureTemplate>().HasIndex(TenantColumn, nameof(SalaryStructureTemplate.Name)).IsUnique();
+            mb.Entity<TaxSectionMaster>().HasIndex(TenantColumn, nameof(TaxSectionMaster.Code)).IsUnique();
+            mb.Entity<TaxSlabSettings>().HasIndex(TenantColumn, nameof(TaxSlabSettings.FinancialYear), nameof(TaxSlabSettings.Regime)).IsUnique();
             mb.Entity<TaxDeclarationHeader>().HasIndex(h => new { h.EmployeeId, h.FinancialYear }).IsUnique(); // one declaration header per employee per FY
 
             // Optional lookup — same SetNull-on-delete convention as every
@@ -259,7 +287,7 @@ namespace AmpmHrmsPro.Data
             mb.Entity<EmployeeSalaryStructure>().HasIndex(s => new { s.EmployeeId, s.EffectiveTo }); // fast "current structure" lookup
 
             // ── Comp-Off Rule ──
-            mb.Entity<CompOffRule>().HasIndex(r => r.Name).IsUnique();
+            mb.Entity<CompOffRule>().HasIndex(TenantColumn, nameof(CompOffRule.Name)).IsUnique();
             mb.Entity<CompOffRule>().Property(r => r.MinHoursForFullDay).HasPrecision(4, 1);
             mb.Entity<CompOffRule>().Property(r => r.MinHoursForHalfDay).HasPrecision(4, 1);
             mb.Entity<CompOffRule>().Property(r => r.MaxOpenBalance).HasPrecision(5, 1);
@@ -341,6 +369,8 @@ namespace AmpmHrmsPro.Data
             // Connected Outlook/Gmail sender — keeps its original table name
             // from the Outlook-only version so existing connections survive.
             mb.Entity<ConnectedMailAccount>().ToTable("OutlookMailAccounts");
+
+            ConfigureTenancy(mb);
         }
     }
 }

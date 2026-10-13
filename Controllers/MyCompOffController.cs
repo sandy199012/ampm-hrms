@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using AmpmHrmsPro.Services.Tenancy;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 using AmpmHrmsPro.Data;
@@ -14,6 +15,7 @@ namespace AmpmHrmsPro.Controllers
     // header comment) — no posted employeeId is ever trusted here.
     // ═══════════════════════════════════════════
     [Authorize]
+    [RequireModule(Modules.CompOff)]
     public class MyCompOffController : Controller
     {
         readonly AppDbContext _db;

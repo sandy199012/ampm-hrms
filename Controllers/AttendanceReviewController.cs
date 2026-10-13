@@ -4,10 +4,12 @@ using AmpmHrmsPro.Models;
 using AmpmHrmsPro.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using AmpmHrmsPro.Services.Tenancy;
 
 namespace AmpmHrmsPro.Controllers
 {
-    [Authorize(Roles = "admin,hr")]
+    [Authorize]
+    [RequirePermission(Perm.ReviewView, Perm.ReviewManage)]
     public class AttendanceReviewController : Controller
     {
         private readonly IAttendanceReviewService _svc;

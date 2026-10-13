@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using AmpmHrmsPro.Services.Tenancy;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Cryptography;
 using AmpmHrmsPro.Data;
@@ -16,7 +17,8 @@ namespace AmpmHrmsPro.Controllers
     // mapping is fully configurable rather than hardcoded to one vendor).
     // Reports that READ this data live in ReportsController instead.
     // ═══════════════════════════════════════════
-    [Authorize(Roles = "admin,hr")]
+    [Authorize]
+    [RequirePermission(Perm.AttendanceView, Perm.AttendanceManage)]
     public class AttendanceController : Controller
     {
         readonly AppDbContext _db;
@@ -34,6 +36,7 @@ namespace AmpmHrmsPro.Controllers
         // ═══════════════════════════════════════════
         // BIOMETRIC API SETTINGS
         // ═══════════════════════════════════════════
+        [RequirePermission(Perm.Settings)]
         public IActionResult ApiSettings()
         {
             var settings = _db.BiometricApiSettingsList.FirstOrDefault();
@@ -46,6 +49,7 @@ namespace AmpmHrmsPro.Controllers
             return View(settings);
         }
 
+        [RequirePermission(Perm.Settings)]
         [HttpPost, ValidateAntiForgeryToken]
         public IActionResult SaveApiSettings(BiometricApiSettings model)
         {
@@ -76,6 +80,7 @@ namespace AmpmHrmsPro.Controllers
             return RedirectToAction("ApiSettings");
         }
 
+        [RequirePermission(Perm.Settings)]
         [HttpPost, ValidateAntiForgeryToken]
         public async Task<IActionResult> SyncNow(DateTime? from, DateTime? to)
         {
@@ -93,6 +98,7 @@ namespace AmpmHrmsPro.Controllers
         // default: until a real vendor is configured here, mobile punches
         // are accepted without face verification rather than blocked.
         // ═══════════════════════════════════════════
+        [RequirePermission(Perm.Settings)]
         public IActionResult FaceMatchSettings()
         {
             var settings = _db.FaceMatchApiSettingsList.FirstOrDefault();
@@ -105,6 +111,7 @@ namespace AmpmHrmsPro.Controllers
             return View(settings);
         }
 
+        [RequirePermission(Perm.Settings)]
         [HttpPost, ValidateAntiForgeryToken]
         public IActionResult SaveFaceMatchSettings(FaceMatchApiSettings model)
         {
@@ -136,11 +143,13 @@ namespace AmpmHrmsPro.Controllers
         // AdminController, kept here instead since kiosks are an Attendance
         // concern.
         // ═══════════════════════════════════════════
+        [RequirePermission(Perm.Settings)]
         public IActionResult KioskDevices()
         {
             return View(_db.KioskDevices.OrderByDescending(k => k.CreatedAt).ToList());
         }
 
+        [RequirePermission(Perm.Settings)]
         [HttpPost, ValidateAntiForgeryToken]
         public IActionResult SaveKioskDevice(int id, string deviceName, string? locationLabel)
         {
@@ -175,6 +184,7 @@ namespace AmpmHrmsPro.Controllers
             return RedirectToAction("KioskDevices");
         }
 
+        [RequirePermission(Perm.Settings)]
         [HttpPost]
         public IActionResult ToggleKioskDevice(int id)
         {
@@ -188,6 +198,7 @@ namespace AmpmHrmsPro.Controllers
         // Issues a fresh key for a device that's lost/being redeployed —
         // the old key stops working the moment this saves, so the kiosk
         // app on the physical device needs the new key re-entered.
+        [RequirePermission(Perm.Settings)]
         [HttpPost]
         public IActionResult RegenerateKioskKey(int id)
         {
@@ -198,6 +209,7 @@ namespace AmpmHrmsPro.Controllers
             return Json(new { success = true, apiKey = device.ApiKey });
         }
 
+        [RequirePermission(Perm.Settings)]
         [HttpPost]
         public IActionResult DeleteKioskDevice(int id)
         {
@@ -505,7 +517,7 @@ namespace AmpmHrmsPro.Controllers
             ws.Columns().AdjustToContents();
             using var stream = new MemoryStream();
             wb.SaveAs(stream);
-            return File(stream.ToArray(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "AMPM_Attendance_Import_Template.xlsx");
+            return File(stream.ToArray(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Attendance_Import_Template.xlsx");
         }
 
         // ═══════════════════════════════════════════
@@ -560,6 +572,7 @@ namespace AmpmHrmsPro.Controllers
         // HrNotificationHostedService on the schedule configured here, or
         // right now via the three "Run Now" buttons for testing.
         // ═══════════════════════════════════════════
+        [RequirePermission(Perm.Settings), RequireModule(Modules.EmailAlerts)]
         public IActionResult EmailSettings()
         {
             var settings = _db.EmailSettingsList.FirstOrDefault();
@@ -572,6 +585,7 @@ namespace AmpmHrmsPro.Controllers
             return View(settings);
         }
 
+        [RequirePermission(Perm.Settings), RequireModule(Modules.EmailAlerts)]
         [HttpPost, ValidateAntiForgeryToken]
         public IActionResult SaveEmailSettings(EmailSettings model)
         {
@@ -589,7 +603,7 @@ namespace AmpmHrmsPro.Controllers
             if (!string.IsNullOrEmpty(model.SmtpPassword)) existing.SmtpPassword = model.SmtpPassword;
             existing.SmtpUseSsl = model.SmtpUseSsl;
             existing.FromEmail = model.FromEmail;
-            existing.FromName = string.IsNullOrWhiteSpace(model.FromName) ? "AMPM HRMS" : model.FromName;
+            existing.FromName = string.IsNullOrWhiteSpace(model.FromName) ? null : model.FromName;
 
             existing.DailyAttendanceAlertEnabled = model.DailyAttendanceAlertEnabled;
             existing.DailyAttendanceAlertTime = model.DailyAttendanceAlertTime;
@@ -606,6 +620,7 @@ namespace AmpmHrmsPro.Controllers
             return RedirectToAction("EmailSettings");
         }
 
+        [RequirePermission(Perm.Settings), RequireModule(Modules.EmailAlerts)]
         [HttpPost, ValidateAntiForgeryToken]
         public async Task<IActionResult> SendTestEmail(string to)
         {
@@ -613,8 +628,8 @@ namespace AmpmHrmsPro.Controllers
             if (settings == null) { TempData["Error"] = "Save email settings first."; return RedirectToAction("EmailSettings"); }
             if (string.IsNullOrWhiteSpace(to)) { TempData["Error"] = "Enter an address to send the test to."; return RedirectToAction("EmailSettings"); }
 
-            var (ok, msg) = await _emailSender.SendAsync(settings, new[] { to.Trim() }, "AMPM HRMS — Test Email",
-                "<p>This is a test email from AMPM HRMS. If you're reading this, your SMTP settings are working correctly.</p>");
+            var (ok, msg) = await _emailSender.SendAsync(settings, new[] { to.Trim() }, "{{BRAND}} — Test Email",
+                "<p>This is a test email from {{BRAND}}. If you're reading this, your SMTP settings are working correctly.</p>");
             TempData[ok ? "Success" : "Error"] = ok ? $"Test email sent to {to}." : $"Test email failed: {msg}";
             return RedirectToAction("EmailSettings");
         }
@@ -624,6 +639,7 @@ namespace AmpmHrmsPro.Controllers
         // without waiting for the actual scheduled time. Does NOT update
         // LastXRunDate, so the normal scheduled run for today still fires
         // on time afterward (this is a preview send, not a replacement).
+        [RequirePermission(Perm.Settings), RequireModule(Modules.EmailAlerts)]
         [HttpPost, ValidateAntiForgeryToken]
         public async Task<IActionResult> RunDailyAlertNow()
         {
@@ -634,6 +650,7 @@ namespace AmpmHrmsPro.Controllers
             return RedirectToAction("EmailSettings");
         }
 
+        [RequirePermission(Perm.Settings), RequireModule(Modules.EmailAlerts)]
         [HttpPost, ValidateAntiForgeryToken]
         public async Task<IActionResult> RunBirthdayNow()
         {
@@ -644,6 +661,7 @@ namespace AmpmHrmsPro.Controllers
             return RedirectToAction("EmailSettings");
         }
 
+        [RequirePermission(Perm.Settings), RequireModule(Modules.EmailAlerts)]
         [HttpPost, ValidateAntiForgeryToken]
         public async Task<IActionResult> RunWeeklyReportNow()
         {
@@ -706,9 +724,10 @@ namespace AmpmHrmsPro.Controllers
                 int empCount = await _db.Employees.CountAsync(e => e.IsActive);
                 var fromCopy = from;
                 var toCopy = to;
+                var companyId = _db.CurrentCompanyId;
                 _ = Task.Run(async () =>
                 {
-                    using var scope = _scopeFactory.CreateScope();
+                    using var scope = _scopeFactory.CreateScopeFor(companyId);
                     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
                     try { await AttendanceEngine.RecomputeAllAsync(db, fromCopy, toCopy); }
                     catch { /* errors logged inside engine; do not crash background thread */ }

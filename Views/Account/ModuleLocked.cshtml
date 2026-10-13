@@ -1,0 +1,10 @@
+@{
+    Layout = "_AuthLayout";
+    ViewData["Title"] = "Not in your plan";
+}
+<div class="text-center">
+    <div class="mb-3" style="font-size:56px;color:var(--warning);"><i class="bi bi-box-seam"></i></div>
+    <h2>@(ViewBag.Module ?? "This module") is not in your plan</h2>
+    <p class="sub">Contact your HRMS provider to add it to your subscription.</p>
+    <a href="/" class="btn btn-primary">Back to dashboard</a>
+</div>

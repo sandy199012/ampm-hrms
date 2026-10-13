@@ -8,6 +8,8 @@
 // only sends gaps that haven't been emailed yet.
 using Microsoft.Extensions.Options;
 
+using AmpmHrmsPro.Services.Tenancy;
+
 namespace AmpmHrmsPro.Services
 {
     public class AttendanceReviewEmailHostedService : BackgroundService
@@ -51,12 +53,18 @@ namespace AmpmHrmsPro.Services
         {
             try
             {
-                using var scope = _scopeFactory.CreateScope();
-                var svc = scope.ServiceProvider.GetRequiredService<IAttendanceReviewService>();
-                var (sent, failed) = await svc.SendDailyEmailsAsync(ct);
-                if (sent > 0 || failed > 0)
-                    _log.LogInformation("AttendanceReview daily run — sent: {Sent}, failed: {Failed} ({Error})",
-                        sent, failed, svc.LastSendError);
+                using var root = _scopeFactory.CreateScope();
+                await TenantJobs.ForEachActiveCompanyAsync(root.ServiceProvider, async (sp, companyId) =>
+                {
+                    var db = sp.GetRequiredService<AmpmHrmsPro.Data.AppDbContext>();
+                    var modules = db.Companies.Where(c => c.Id == companyId).Select(c => c.Modules).FirstOrDefault();
+                    if (!Modules.Parse(modules).Contains(Modules.AttendanceReview)) return;
+                    var svc = sp.GetRequiredService<IAttendanceReviewService>();
+                    var (sent, failed) = await svc.SendDailyEmailsAsync(ct);
+                    if (sent > 0 || failed > 0)
+                        _log.LogInformation("AttendanceReview daily run (company {Company}) — sent: {Sent}, failed: {Failed} ({Error})",
+                            companyId, sent, failed, svc.LastSendError);
+                }, _log, ct);
             }
             catch (Exception ex)
             {

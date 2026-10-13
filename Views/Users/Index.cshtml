@@ -1,0 +1,79 @@
+@model List<AmpmHrmsPro.Controllers.UsersController.UserRow>
+@{
+    ViewData["Title"] = "Users & Access";
+    ViewData["Subtitle"] = "Login roles, custom roles, lockouts and 2-step verification";
+    var roles = ViewBag.Roles as List<AppRole> ?? new();
+    string filter = ViewBag.Filter;
+    string RoleChip(string r) => r switch { "admin" => "chip-danger", "hr" => "chip-warning", "manager" => "", _ => "chip-muted" };
+}
+<div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+    <form method="get" class="d-flex gap-2">
+        <input name="q" value="@ViewBag.Q" class="form-control" placeholder="Name, code or email" style="max-width:260px;" />
+        <select name="filter" class="form-select" style="max-width:190px;" onchange="this.form.submit()">
+            <option value="active" selected="@(filter=="active")">Active employees</option>
+            <option value="privileged" selected="@(filter=="privileged")">Admin / HR / custom roles</option>
+            <option value="locked" selected="@(filter=="locked")">Locked out</option>
+            <option value="inactive" selected="@(filter=="inactive")">Inactive</option>
+        </select>
+        <button class="btn btn-outline-primary">Search</button>
+    </form>
+    <a asp-action="Roles" class="btn btn-outline-secondary ms-auto"><i class="bi bi-people me-1"></i> Roles &amp; permissions</a>
+</div>
+<div class="alert alert-info small">
+    <b>Login role</b> decides the basics: <b>Admin</b> = everything · <b>HR</b> = everything except deleting employees, users/roles and audit log · <b>Manager / Employee</b> = self-service.
+    A <b>custom role</b> adds extra rights on top (e.g. give a supervisor "View attendance" + "Reports").
+</div>
+<div class="card">
+    <div class="table-responsive">
+        <table class="table align-middle mb-0">
+            <thead><tr><th>Employee</th><th>Login role</th><th>Custom role</th><th>Security</th><th>Last login</th><th style="width:330px;">Change access</th><th></th></tr></thead>
+            <tbody>
+            @foreach (var u in Model)
+            {
+                <tr>
+                    <td><b>@u.Name</b><div class="small text-muted">@u.EmpCode @(u.Department != null ? "· " + u.Department : "")</div></td>
+                    <td><span class="chip @RoleChip(u.Role)">@u.Role</span></td>
+                    <td>@(u.CustomRole ?? "—")</td>
+                    <td class="small">
+                        @if (u.Locked) { <span class="chip chip-danger">Locked</span> }
+                        @if (u.TwoFactor) { <span class="chip chip-success">2-step</span> }
+                        @if (u.MustChange) { <span class="chip chip-warning">Must change pwd</span> }
+                        @if (!u.IsActive) { <span class="chip chip-muted">Inactive</span> }
+                    </td>
+                    <td class="small text-muted">@(u.LastLogin is DateTime ll ? IndiaTime.FromUtc(ll).ToString("dd MMM, HH:mm") : "never")</td>
+                    <td>
+                        <form method="post" asp-action="SetAccess" asp-route-id="@u.Id" class="d-flex gap-1">
+                            @Html.AntiForgeryToken()
+                            <select name="role" class="form-select form-select-sm" style="max-width:110px;">
+                                @foreach (var r in new[] { "employee", "manager", "hr", "admin" }) { <option value="@r" selected="@(u.Role == r)">@r</option> }
+                            </select>
+                            <select name="customRoleId" class="form-select form-select-sm">
+                                <option value="">— no custom role —</option>
+                                @foreach (var r in roles) { <option value="@r.Id" selected="@(u.CustomRole == r.Name)">@r.Name</option> }
+                            </select>
+                            <button class="btn btn-sm btn-primary">Save</button>
+                        </form>
+                    </td>
+                    <td class="text-nowrap">
+                        <div class="dropdown">
+                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">More</button>
+                            <div class="dropdown-menu dropdown-menu-end">
+                                @if (u.Locked)
+                                {
+                                    <form method="post" asp-action="Unlock" asp-route-id="@u.Id">@Html.AntiForgeryToken()<button class="dropdown-item">Unlock</button></form>
+                                }
+                                <form method="post" asp-action="ResetPassword" asp-route-id="@u.Id" onsubmit="return confirm('Create a new temporary password for @u.Name?');">@Html.AntiForgeryToken()<button class="dropdown-item">Reset password</button></form>
+                                @if (u.TwoFactor)
+                                {
+                                    <form method="post" asp-action="Reset2FA" asp-route-id="@u.Id" onsubmit="return confirm('Remove 2-step verification for @u.Name?');">@Html.AntiForgeryToken()<button class="dropdown-item">Reset 2-step verification</button></form>
+                                }
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+            }
+            @if (Model.Count == 0) { <tr><td colspan="7" class="empty-state">No users match.</td></tr> }
+            </tbody>
+        </table>
+    </div>
+</div>

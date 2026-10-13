@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using AmpmHrmsPro.Services.Tenancy;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 using AmpmHrmsPro.Data;
@@ -27,7 +28,8 @@ namespace AmpmHrmsPro.Controllers
     // MobileManagerController's Approve actions, both of which call
     // CompOffEngine.TryConsumeAsync. Nothing here writes UsedDays directly.
     // ═══════════════════════════════════════════
-    [Authorize(Roles = "admin,hr")]
+    [Authorize]
+    [RequirePermission(Perm.CompOffView, Perm.CompOffManage)]
     public class CompOffController : Controller
     {
         readonly AppDbContext _db;

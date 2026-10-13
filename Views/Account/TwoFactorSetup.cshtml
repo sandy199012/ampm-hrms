@@ -1,0 +1,42 @@
+@model Employee
+@{
+    ViewData["Title"] = "Set up 2-step verification";
+    bool forced = ViewBag.Forced == true;
+}
+<div class="page-header">
+    <div>
+        <h1>Set up 2-step verification</h1>
+        <p>@(forced ? "Your company requires 2-step verification for admin and HR users." : "Adds a 6-digit code from your phone to every login.")</p>
+    </div>
+</div>
+<div class="card" style="max-width:640px;">
+    <div class="card-body">
+        <ol class="mb-4">
+            <li class="mb-2">Install <b>Google Authenticator</b> or <b>Microsoft Authenticator</b> on your phone.</li>
+            <li class="mb-2">In the app tap <b>+</b> → <b>Scan a QR code</b> and scan this:</li>
+        </ol>
+        <div class="d-flex gap-4 flex-wrap align-items-center mb-4">
+            <div id="qr" style="background:#fff;padding:10px;border:1px solid var(--border);border-radius:10px;"></div>
+            <div>
+                <div class="small text-muted mb-1">Can't scan? Enter this key manually:</div>
+                <code style="font-size:15px;letter-spacing:.08em;">@ViewBag.Secret</code>
+            </div>
+        </div>
+        <form method="post" asp-action="TwoFactorSetup" class="d-flex gap-2 align-items-end flex-wrap">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="token" value="@ViewBag.Token" />
+            <div>
+                <label class="form-label">3. Enter the 6-digit code shown in the app</label>
+                <input type="text" name="code" inputmode="numeric" maxlength="7" class="form-control otp-input" style="max-width:220px;" placeholder="000000" required autofocus />
+            </div>
+            <button class="btn btn-primary">Verify &amp; turn on</button>
+            @if (forced) { <a asp-action="Logout" class="btn btn-link">Sign out</a> }
+        </form>
+    </div>
+</div>
+@section Scripts {
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script>
+        new QRCode(document.getElementById('qr'), { text: @Html.Raw(System.Text.Json.JsonSerializer.Serialize((string)ViewBag.OtpUri)), width: 180, height: 180 });
+    </script>
+}

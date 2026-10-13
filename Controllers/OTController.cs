@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using AmpmHrmsPro.Services.Tenancy;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 using AmpmHrmsPro.Data;
@@ -16,7 +17,8 @@ namespace AmpmHrmsPro.Controllers
     //             Employee.OTRuleId directly).
     //   Ledger  — per-employee OT history; approve, mark-paid, manual entry.
     // ═══════════════════════════════════════════
-    [Authorize(Roles = "admin,hr")]
+    [Authorize]
+    [RequirePermission(Perm.OTView, Perm.OTManage)]
     public class OTController : Controller
     {
         readonly AppDbContext _db;

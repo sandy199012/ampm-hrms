@@ -1,3 +1,4 @@
+using AmpmHrmsPro.Services.Tenancy;
 // ─────────────────────────────────────────────────────────────────────────────
 // Services/AttendanceReviewService.cs
 // Requires NuGet: ClosedXML (0.102+)  — add to .csproj:
@@ -264,7 +265,8 @@ namespace AmpmHrmsPro.Services
                 .Where(r => r.InTime.HasValue)
                 .Select(r => (r.EmpCode, r.Date, r.InTime, r.OutTime))
                 .ToList();
-            _ = Task.Run(() => SyncPunchesToHrmsAsync(punchRows, dates.Min(), dates.Max()));
+            var companyId = _db.CurrentCompanyId;
+            _ = Task.Run(() => SyncPunchesToHrmsAsync(companyId, punchRows, dates.Min(), dates.Max()));
 
             return import.Id;
         }
@@ -272,13 +274,13 @@ namespace AmpmHrmsPro.Services
         // ── Presence 360 upload → HRMS attendance (shared with Biometric API) ──
         private const string UploadPunchSource = "P360Upload";
 
-        private async Task SyncPunchesToHrmsAsync(
+        private async Task SyncPunchesToHrmsAsync(int companyId,
             List<(string EmpCode, DateOnly Date, TimeOnly? InTime, TimeOnly? OutTime)> rows,
             DateOnly fromDate, DateOnly toDate)
         {
             try
             {
-                using var scope = _scopeFactory.CreateScope();
+                using var scope = _scopeFactory.CreateScopeFor(companyId);
                 var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
                 // Employee code → Id ("00109" also matches "109").
@@ -641,7 +643,7 @@ namespace AmpmHrmsPro.Services
 <div style='font-family:Arial,sans-serif;font-size:14px;color:#222;'>
   <p>Dear {System.Net.WebUtility.HtmlEncode(hodName)},</p>
   <p>Please find attached the <b>Gap Analysis</b> for your team for <b>{dateRange}</b>.</p>
-  <p style='margin-top:24px;color:#888;font-size:11px;'>Automated email from AMPM HRMS. Please do not reply.</p>
+  <p style='margin-top:24px;color:#888;font-size:11px;'>Automated email from {{BRAND}}. Please do not reply.</p>
 </div>";
 
         private static string SafeFileName(string name)

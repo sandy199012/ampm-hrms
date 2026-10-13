@@ -1,0 +1,50 @@
+@model Employee
+@{
+    ViewData["Title"] = "My Security";
+    var company = ViewBag.Company as Company;
+}
+<div class="page-header">
+    <div>
+        <h1>My security</h1>
+        <p>Password and 2-step verification for @Model.Name (@Model.EmpCode)</p>
+    </div>
+</div>
+<div class="row g-3">
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header"><i class="bi bi-key me-1"></i> Password</div>
+            <div class="card-body">
+                <p class="text-muted small mb-2">Last changed: @(Model.PasswordChangedAt is DateTime pc ? IndiaTime.FromUtc(pc).ToString("dd MMM yyyy") : "—")</p>
+                @if ((company?.PasswordExpiryDays ?? 0) > 0)
+                {
+                    <p class="text-muted small">Your company asks for a new password every @company!.PasswordExpiryDays days.</p>
+                }
+                <a asp-action="ChangePassword" class="btn btn-primary btn-sm">Change password</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header"><i class="bi bi-shield-lock me-1"></i> 2-step verification</div>
+            <div class="card-body">
+                @if (Model.TwoFactorEnabled)
+                {
+                    <p><span class="chip chip-success">ON</span> A code from your authenticator app is needed at every login.</p>
+                    <form method="post" asp-action="TwoFactorDisable" class="d-flex gap-2 align-items-end">
+                        @Html.AntiForgeryToken()
+                        <div class="flex-grow-1">
+                            <label class="form-label small">Password to turn off</label>
+                            <input type="password" name="currentPassword" class="form-control form-control-sm" required />
+                        </div>
+                        <button class="btn btn-outline-danger btn-sm">Turn off</button>
+                    </form>
+                }
+                else
+                {
+                    <p><span class="chip chip-muted">OFF</span> Protect your account with a 6-digit code from Google or Microsoft Authenticator.</p>
+                    <a asp-action="TwoFactorSetup" class="btn btn-primary btn-sm">Turn on</a>
+                }
+            </div>
+        </div>
+    </div>
+</div>

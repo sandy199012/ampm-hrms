@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using AmpmHrmsPro.Services.Tenancy;
 using Microsoft.EntityFrameworkCore;
 using AmpmHrmsPro.Data;
 using AmpmHrmsPro.Models;
@@ -7,7 +8,8 @@ using ClosedXML.Excel;
 
 namespace AmpmHrmsPro.Controllers
 {
-    [Authorize(Roles = "admin,hr")]
+    [Authorize]
+    [RequirePermission(Perm.LeaveView, Perm.LeaveManage)]
     public class LeaveBalanceController : Controller
     {
         private readonly AppDbContext _db;

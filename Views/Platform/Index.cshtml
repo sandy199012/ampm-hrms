@@ -1,0 +1,61 @@
+@model List<AmpmHrmsPro.Controllers.PlatformController.CompanyRow>
+@{
+    ViewData["Title"] = "Companies";
+    var active = Model.Count(r => r.Company.Status == "Active" && !(CompanyInfoService.From(r.Company).IsExpired));
+    var expiring = Model.Count(r => CompanyInfoService.From(r.Company).DaysLeft is int d && d >= 0 && d <= 15);
+}
+<div class="d-flex align-items-center mb-3 flex-wrap gap-2">
+    <div>
+        <h1 class="h4 mb-0">Client companies</h1>
+        <div class="text-muted small">Every company has its own separate data, users and settings.</div>
+    </div>
+    <a asp-action="Create" class="btn btn-primary ms-auto"><i class="bi bi-plus-lg me-1"></i> New company</a>
+</div>
+<div class="row g-3 mb-3">
+    <div class="col-6 col-md-3"><div class="stat"><div class="n">@Model.Count</div><div class="l">Companies</div></div></div>
+    <div class="col-6 col-md-3"><div class="stat"><div class="n">@active</div><div class="l">Active</div></div></div>
+    <div class="col-6 col-md-3"><div class="stat"><div class="n">@expiring</div><div class="l">Ending in 15 days</div></div></div>
+    <div class="col-6 col-md-3"><div class="stat"><div class="n">@Model.Sum(r => r.ActiveEmployees).ToString("N0")</div><div class="l">Active employees (all)</div></div></div>
+</div>
+<form class="mb-3" method="get" style="max-width:340px;">
+    <input name="q" value="@ViewBag.Q" class="form-control" placeholder="Search name or code…" />
+</form>
+<div class="card">
+    <div class="table-responsive">
+        <table class="table mb-0 align-middle">
+            <thead><tr><th>Company</th><th>Code</th><th>Plan</th><th>Employees</th><th>Ends</th><th>Status</th><th>Last login</th><th></th></tr></thead>
+            <tbody>
+            @foreach (var r in Model)
+            {
+                var info = CompanyInfoService.From(r.Company);
+                <tr>
+                    <td><a asp-action="Edit" asp-route-id="@r.Company.Id" class="fw-semibold">@r.Company.Name</a><div class="small text-muted">@r.Company.ContactEmail</div></td>
+                    <td><code>@r.Company.Code</code></td>
+                    <td><span class="chip">@r.Company.Plan</span></td>
+                    <td>@r.ActiveEmployees @(r.Company.MaxEmployees > 0 ? $"/ {r.Company.MaxEmployees}" : "") </td>
+                    <td>
+                        @if (info.EndsAt is DateTime e)
+                        {
+                            <span class="@(info.IsExpired ? "text-danger fw-semibold" : info.DaysLeft <= 15 ? "text-warning fw-semibold" : "")">@IndiaTime.FromUtc(e).ToString("dd MMM yyyy")</span>
+                        }
+                        else { <span class="text-muted">—</span> }
+                    </td>
+                    <td>
+                        @if (info.IsSuspended) { <span class="chip chip-danger">Suspended</span> }
+                        else if (info.IsExpired) { <span class="chip chip-warning">Expired</span> }
+                        else { <span class="chip chip-success">Active</span> }
+                    </td>
+                    <td class="small text-muted">@(r.LastLogin is DateTime ll ? IndiaTime.FromUtc(ll).ToString("dd MMM, HH:mm") : "—")</td>
+                    <td class="text-end text-nowrap">
+                        <form method="post" asp-action="Impersonate" asp-route-id="@r.Company.Id" class="d-inline">
+                            @Html.AntiForgeryToken()
+                            <button class="btn btn-sm btn-outline-secondary" title="Open as company admin for support"><i class="bi bi-box-arrow-in-right"></i> Open</button>
+                        </form>
+                        <a asp-action="Edit" asp-route-id="@r.Company.Id" class="btn btn-sm btn-outline-primary">Manage</a>
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+</div>

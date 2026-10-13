@@ -1,0 +1,38 @@
+@model AppRole
+@{
+    ViewData["Title"] = Model.Id == 0 ? "New Role" : "Edit Role";
+    var perms = Modules.Parse(Model.Permissions);
+    var mods = ViewBag.Modules as HashSet<string> ?? new();
+}
+<a asp-action="Roles" class="btn btn-link px-0 mb-2"><i class="bi bi-arrow-left"></i> Roles</a>
+<form method="post" asp-action="Role" asp-route-id="@Model.Id">
+    @Html.AntiForgeryToken()
+    <div class="card mb-3" style="max-width:820px;">
+        <div class="card-body row g-3">
+            <div class="col-md-5"><label class="form-label">Role name</label><input name="name" value="@Model.Name" class="form-control" required placeholder="e.g. Payroll Executive" /></div>
+            <div class="col-md-5"><label class="form-label">Description</label><input name="description" value="@Model.Description" class="form-control" /></div>
+            <div class="col-md-2 d-flex align-items-end"><label class="form-check"><input type="checkbox" name="isActive" value="true" class="form-check-input" checked="@(Model.Id == 0 || Model.IsActive)" /> Active</label></div>
+        </div>
+    </div>
+    <div class="card" style="max-width:820px;">
+        <div class="card-header">Permissions</div>
+        <table class="table perm-grid mb-0">
+            <tbody>
+            @foreach (var g in Perm.Catalogue.Where(c => c.Key != Perm.Users).GroupBy(c => c.Group))
+            {
+                <tr class="table-light"><th colspan="2">@g.Key</th></tr>
+                @foreach (var p in g)
+                {
+                    var inPlan = p.Module == null || mods.Contains(p.Module);
+                    <tr>
+                        <td style="width:46px;"><input type="checkbox" name="permissions" value="@p.Key" class="form-check-input" checked="@perms.Contains(p.Key)" id="p_@p.Key.Replace(".", "_")" /></td>
+                        <td><label for="p_@p.Key.Replace(".", "_")">@p.Label</label> @if (!inPlan) { <span class="chip chip-muted ms-1">not in plan</span> }</td>
+                    </tr>
+                }
+            }
+            </tbody>
+        </table>
+    </div>
+    <p class="small text-muted mt-2" style="max-width:820px;">"Manage" rights include "View". Managing users &amp; roles is only possible for the Admin login role.</p>
+    <button class="btn btn-primary"><i class="bi bi-check2 me-1"></i> Save role</button>
+</form>

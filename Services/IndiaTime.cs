@@ -19,5 +19,9 @@ namespace AmpmHrmsPro.Services
 
         public static DateTime Now   => TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, Zone);
         public static DateTime Today => Now.Date;
+
+        /// <summary>UTC timestamp (as stored) → India time for display.</summary>
+        public static DateTime FromUtc(DateTime utc) =>
+            TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), Zone);
     }
 }

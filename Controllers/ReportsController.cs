@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using AmpmHrmsPro.Services.Tenancy;
 using Microsoft.EntityFrameworkCore;
 using AmpmHrmsPro.Data;
 using AmpmHrmsPro.Models;
@@ -15,7 +16,8 @@ namespace AmpmHrmsPro.Controllers
     // that Excel file is the pixel/color-exact deliverable; these pages
     // are the fast on-screen equivalent for day-to-day use.
     // ═══════════════════════════════════════════
-    [Authorize(Roles = "admin,hr")]
+    [Authorize]
+    [RequirePermission(Perm.Reports, Perm.Reports)]
     public class ReportsController : Controller
     {
         readonly AppDbContext _db;
@@ -52,7 +54,7 @@ namespace AmpmHrmsPro.Controllers
         {
             int y = year ?? DateTime.Today.Year, m = month ?? DateTime.Today.Month;
             var bytes = ExcelReportBuilder.BuildMonthlyReport(_db, y, m);
-            var name = $"AMPM_{new DateTime(y, m, 1):MMMM_yyyy}_Report.xlsx";
+            var name = $"{User.FindFirst(TenantClaims.CompanyCode)?.Value ?? "HR"}_{new DateTime(y, m, 1):MMMM_yyyy}_Report.xlsx";
             return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", name);
         }
 

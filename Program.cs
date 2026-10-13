@@ -15,6 +15,8 @@ using System.Net.Sockets;
 using AmpmHrmsPro.Data;
 using AmpmHrmsPro.Models;
 using AmpmHrmsPro.Services;
+using AmpmHrmsPro.Services.Tenancy;
+using Microsoft.AspNetCore.Authentication;
 using BCrypt.Net;
 
 // Npgsql 8.x strict timestamp mode rejects DateTime.Now (Kind=Local).
@@ -29,7 +31,20 @@ if (!string.IsNullOrEmpty(renderPort))
     builder.WebHost.UseUrls($"http://+:{renderPort}");
 
 // ── Services ──
-builder.Services.AddControllersWithViews();
+// AccessFilter enforces [RequirePermission]/[RequireModule] (custom roles +
+// the company's subscription plan) on every MVC action.
+builder.Services.AddControllersWithViews(o => o.Filters.Add<AccessFilter>());
+builder.Services.AddMemoryCache();
+
+// ── Multi-company (SaaS) ──
+// ITenantContext = "which company is this request for" (from the login
+// cookie / JWT, or set explicitly by background jobs). AppDbContext filters
+// every query by it. See Services/Tenancy/*.
+PlatformBrand.ProductName = builder.Configuration["Platform:ProductName"] ?? "HRMS Pro";
+builder.Services.AddScoped<ITenantContext, TenantContext>();
+builder.Services.AddScoped<IAccessService, AccessService>();
+builder.Services.AddSingleton<ICompanyInfoService, CompanyInfoService>();
+builder.Services.AddScoped<ICompanyProvisioning, CompanyProvisioning>();
 
 // ── DataProtection — persist encryption keys to Postgres so they survive
 // container restarts on Render free tier. Without this, every restart
@@ -103,6 +118,42 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.SlidingExpiration = true;
         options.Cookie.Name     = "AmpmHrmsPro";
         options.Cookie.HttpOnly = true;
+        options.Cookie.SameSite = SameSiteMode.Lax;
+        options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+        options.Events.OnValidatePrincipal = async ctx =>
+        {
+            var p = ctx.Principal;
+            if (p == null) return;
+            int timeout = 60;
+            if (!p.IsPlatformAdmin())
+            {
+                var cid = p.GetCompanyId();
+                if (cid == 0)   // cookie from before multi-company support
+                {
+                    ctx.RejectPrincipal();
+                    await ctx.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                    return;
+                }
+                var info = await ctx.HttpContext.RequestServices.GetRequiredService<ICompanyInfoService>().GetAsync(cid);
+                timeout = info?.SessionTimeoutMinutes ?? 60;
+            }
+            if (timeout <= 0) return;
+            // Idle timeout: "la" = last activity, refreshed at most once a minute.
+            DateTime? last = ctx.Properties.Items.TryGetValue("la", out var la) && long.TryParse(la, out var ticks)
+                ? new DateTime(ticks, DateTimeKind.Utc) : ctx.Properties.IssuedUtc?.UtcDateTime;
+            var now = DateTime.UtcNow;
+            if (last.HasValue && now - last.Value > TimeSpan.FromMinutes(timeout))
+            {
+                ctx.RejectPrincipal();
+                await ctx.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+                return;
+            }
+            if (!last.HasValue || now - last.Value > TimeSpan.FromMinutes(1))
+            {
+                ctx.Properties.Items["la"] = now.Ticks.ToString();
+                ctx.ShouldRenew = true;
+            }
+        };
     })
     .AddJwtBearer(JwtBearerDefaults.AuthenticationScheme, options =>
     {
@@ -117,6 +168,18 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
             ValidateLifetime = true,
             ClockSkew = TimeSpan.FromMinutes(2),
+        };
+        // Mobile tokens must belong to an active company (tokens issued
+        // before multi-company support have no CompanyId → log in again).
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = async ctx =>
+            {
+                var cid = ctx.Principal?.GetCompanyId() ?? 0;
+                if (cid == 0) { ctx.Fail("Please log in again."); return; }
+                var info = await ctx.HttpContext.RequestServices.GetRequiredService<ICompanyInfoService>().GetAsync(cid);
+                if (info == null || !info.CanUse) ctx.Fail(info?.IsSuspended == true ? "Company account suspended." : "Subscription expired.");
+            }
         };
     });
 
@@ -212,18 +275,21 @@ if (!app.Environment.IsDevelopment())
 app.UseStaticFiles();
 app.UseRouting();
 app.UseAuthentication();
+app.UseMiddleware<TenantGuardMiddleware>();
 app.UseAuthorization();
 
 app.MapControllerRoute(
     name: "default",
     pattern: "{controller=Home}/{action=Index}/{id?}");
 
-app.MapGet("/api/health", () => Results.Ok(new { status = "ok", server = "AmpmHrmsPro", time = DateTime.Now }));
+app.MapGet("/api/health", () => Results.Ok(new { status = "ok", server = PlatformBrand.ProductName, time = DateTime.Now }));
 
 // ── DB Init + Seed ──
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var tenant = scope.ServiceProvider.GetRequiredService<ITenantContext>();
+    int defaultCompanyId = 1;
 
     // ── 1. Schema ──────────────────────────────────────────────────────────
     try
@@ -232,15 +298,21 @@ using (var scope = app.Services.CreateScope())
         if (!creator.Exists())
             creator.Create();
 
-        // Generate full EF Core DDL and inject IF NOT EXISTS on every
-        // CREATE statement so re-runs on a partially-created Supabase DB
-        // are always safe. Execute via raw ADO.NET (avoids EF parameter
-        // parsing misreading '@' chars in PostgreSQL DDL).
-        Console.WriteLine("⚙️  Applying schema (IF NOT EXISTS)...");
-        var script = db.Database.GenerateCreateScript();
         var conn = db.Database.GetDbConnection();
         if (conn.State != System.Data.ConnectionState.Open) conn.Open();
 
+        // a) Existing tables: add any new columns (CompanyId on every table,
+        //    security fields …) BEFORE the create script builds indexes on them.
+        SchemaUpgrader.AddMissingColumns(db, conn);
+        // b) Unique indexes are now per company (two companies may both have
+        //    an employee "E001" or a department "HR") — drop the old ones.
+        SchemaUpgrader.DropSingleCompanyUniqueIndexes(db, conn);
+
+        // c) Generate full EF Core DDL and inject IF NOT EXISTS on every
+        //    CREATE statement so re-runs are always safe. Execute via raw
+        //    ADO.NET (avoids EF parameter parsing misreading '@' chars).
+        Console.WriteLine("⚙️  Applying schema (IF NOT EXISTS)...");
+        var script = db.Database.GenerateCreateScript();
         int ok = 0, skipped = 0;
         foreach (var rawSql in script.Split(';').Select(s => s.Trim()).Where(s => s.Length > 0))
         {
@@ -262,32 +334,54 @@ using (var scope = app.Services.CreateScope())
             }
             catch (Exception stmtEx)
             {
-                Console.WriteLine($"  ⚠️ Skipped: {stmtEx.Message.Split('\n')[0].Trim()}");
+                if (!stmtEx.Message.Contains("already exists", StringComparison.OrdinalIgnoreCase))
+                    Console.WriteLine($"  ⚠️ Skipped: {stmtEx.Message.Split('\n')[0].Trim()}");
                 skipped++;
             }
         }
         Console.WriteLine($"✅ Schema: {ok} applied, {skipped} already existed");
+        SchemaUpgrader.AddMissingColumns(db, conn);
 
-        // Columns added after a table already exists — CREATE TABLE IF NOT
-        // EXISTS won't add them, so add them here (errors = already there).
-        string[] addColumns =
+        // d) The first company. Everything already in the database (from the
+        //    single-company version) belongs to it — the CompanyId columns
+        //    added above default to 1, and this is the first row (Id 1).
+        var first = db.Companies.OrderBy(c => c.Id).FirstOrDefault();
+        if (first == null)
         {
-            db.Database.IsNpgsql()
-                ? "ALTER TABLE \"AttendanceGapLogs\" ADD COLUMN IF NOT EXISTS \"HodName\" character varying(120) NULL"
-                : "ALTER TABLE \"AttendanceGapLogs\" ADD COLUMN \"HodName\" TEXT NULL",
-            db.Database.IsNpgsql()
-                ? "ALTER TABLE \"OutlookMailAccounts\" ADD COLUMN IF NOT EXISTS \"Provider\" character varying(20) NOT NULL DEFAULT 'Outlook'"
-                : "ALTER TABLE \"OutlookMailAccounts\" ADD COLUMN \"Provider\" TEXT NOT NULL DEFAULT 'Outlook'"
-        };
-        foreach (var sql in addColumns)
-        {
-            try
+            first = new Company
             {
-                using var cmd = conn.CreateCommand();
-                cmd.CommandText = sql;
-                cmd.ExecuteNonQuery();
+                Code = CompanyProvisioning.NormalizeCode(app.Configuration["DefaultCompany:Code"] ?? "AMPM"),
+                Name = app.Configuration["DefaultCompany:Name"] ?? "AMPM Fashions Pvt Ltd",
+                Plan = "Enterprise",
+                MaxEmployees = 0,
+                Modules = Modules.AllKeys,
+                Status = "Active",
+                EmailSenderName = app.Configuration["DefaultCompany:Name"] ?? "AMPM Fashions Pvt Ltd",
+            };
+            db.Companies.Add(first);
+            db.SaveChanges();
+            Console.WriteLine($"✅ Company #{first.Id} '{first.Code}' created — existing data assigned to it");
+            if (first.Id != 1)
+            {
+                foreach (var t in db.Model.GetRelationalModel().Tables.Where(t => t.Columns.Any(c => c.Name == AppDbContext.TenantColumn)))
+                    SchemaUpgrader.Exec(conn, $"UPDATE \"{t.Name}\" SET \"{AppDbContext.TenantColumn}\" = {first.Id} WHERE \"{AppDbContext.TenantColumn}\" = 1");
             }
-            catch { /* column already exists */ }
+        }
+        defaultCompanyId = first.Id;
+
+        // e) Platform owner login for /Platform (create companies, plans …).
+        if (!db.PlatformUsers.Any())
+        {
+            var ownerPwd = app.Configuration["Platform:OwnerPassword"] ?? Environment.GetEnvironmentVariable("PLATFORM_OWNER_PASSWORD");
+            db.PlatformUsers.Add(new PlatformUser
+            {
+                Email = app.Configuration["Platform:OwnerEmail"] ?? Environment.GetEnvironmentVariable("PLATFORM_OWNER_EMAIL") ?? "owner",
+                Name = "Platform Owner",
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(ownerPwd ?? "Owner@12345"),
+                MustChangePassword = string.IsNullOrEmpty(ownerPwd),
+            });
+            db.SaveChanges();
+            Console.WriteLine("✅ Platform owner created — /Platform/Login (change the password on first login)");
         }
     }
     catch (Exception ex)
@@ -295,6 +389,10 @@ using (var scope = app.Services.CreateScope())
         Console.WriteLine("❌ Schema init failed:"); Console.WriteLine(ex);
         if (app.Environment.IsDevelopment()) throw;
     }
+
+    // Everything below works inside the first company.
+    tenant.Use(defaultCompanyId);
+    db.AuditEnabled = false;
 
     // ── 2. Reference data (best-effort) ────────────────────────────────────
     try
@@ -309,7 +407,7 @@ using (var scope = app.Services.CreateScope())
         Console.WriteLine($"⚠️ SeedData partial: {seedEx.Message.Split('\n')[0]}");
     }
 
-    // ── 3. Admin user guarantee ─────────────────────────────────────────────
+    // ── 3. Admin user guarantee (first company) ────────────────────────────
     // Runs in its own block so a SeedData failure never locks out the app.
     // Idempotent: skips insert when ADMIN001 already exists.
     try
@@ -345,7 +443,7 @@ using (var scope = app.Services.CreateScope())
     Console.WriteLine("✅ Database ready");
 }
 
-Console.WriteLine("\n🚀 AMPM Fashions HRMS Pro — LOCAL TESTING MODE");
+Console.WriteLine($"\n🚀 {PlatformBrand.ProductName} — multi-company HRMS");
 Console.WriteLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 Console.WriteLine("   On this PC:");
 Console.WriteLine("     App:        http://localhost:9090");
@@ -360,7 +458,7 @@ try
 }
 catch { /* best-effort only */ }
 Console.WriteLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-Console.WriteLine("   Login: ADMIN001 / AMPM@Admin123\n");
+Console.WriteLine("   Company login: /Account/Login   ·   Owner console: /Platform/Login\n");
 
 if (app.Environment.IsDevelopment())
 {

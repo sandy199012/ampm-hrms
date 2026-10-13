@@ -9,11 +9,13 @@ using AmpmHrmsPro.Models;
 using AmpmHrmsPro.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using AmpmHrmsPro.Services.Tenancy;
 using Microsoft.Extensions.Options;
 
 namespace AmpmHrmsPro.Controllers
 {
-    [Authorize(Roles = "admin,hr")]
+    [Authorize]
+    [RequirePermission(Perm.Settings, Perm.Settings)]
     public class MailAccountController : Controller
     {
         private const string StateCookie = "ampm_mail_state";
@@ -148,8 +150,8 @@ namespace AmpmHrmsPro.Controllers
             var (ok, msg) = await _mail.SendAsync(new MailRequest
             {
                 To       = new List<string> { to.Trim() },
-                Subject  = "AMPM HRMS — test email",
-                HtmlBody = "<p>This is a test email from AMPM HRMS, sent through the connected email account.</p>"
+                Subject  = "{{BRAND}} — test email",
+                HtmlBody = "<p>This is a test email from {{BRAND}}, sent through the connected email account.</p>"
             });
             TempData[ok ? "Success" : "Error"] = ok ? $"Test email sent. {msg}" : msg;
             return BackToSettings();

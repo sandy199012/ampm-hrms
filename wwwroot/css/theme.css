@@ -257,3 +257,20 @@ table.table tbody tr:hover { background: #fafbfe; }
   .sidebar { transform: translateX(-100%); }
   .main-col { margin-left: 0; }
 }
+
+/* ── Multi-company branding ───────────────────────────────── */
+.logo-mark.has-img { background: #fff !important; padding: 4px; overflow: hidden; }
+.logo-mark.has-img img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+.alert-warning { background: var(--warning-light); color: var(--warning); }
+.alert-info { background: var(--info-light); color: var(--info); }
+.impersonation-bar { background: #fff4d6; color: #7a4d00; border-bottom: 1px solid #f1d28a; padding: 7px 18px; font-size: 13px; display: flex; gap: 12px; align-items: center; justify-content: center; flex-wrap: wrap; }
+.plan-bar { background: var(--info-light); color: var(--info); padding: 6px 18px; font-size: 12.5px; text-align: center; }
+.perm-grid td, .perm-grid th { vertical-align: middle; }
+.chip { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 600; background: var(--primary-light); color: var(--primary-dark); }
+.chip-muted { background: #eef0f5; color: var(--text-muted); }
+.chip-danger { background: var(--danger-light); color: var(--danger); }
+.chip-success { background: var(--success-light); color: var(--success); }
+.chip-warning { background: var(--warning-light); color: var(--warning); }
+.auth-card { max-width: 440px; width: 100%; }
+.otp-input { letter-spacing: .5em; font-size: 22px; text-align: center; font-weight: 700; }
+.audit-changes { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px; color: var(--text-muted); white-space: pre-wrap; word-break: break-word; max-width: 520px; }

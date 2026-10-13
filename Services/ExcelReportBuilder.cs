@@ -1,3 +1,4 @@
+using AmpmHrmsPro.Services.Tenancy;
 using ClosedXML.Excel;
 using Microsoft.EntityFrameworkCore;
 using AmpmHrmsPro.Data;
@@ -62,7 +63,8 @@ namespace AmpmHrmsPro.Services
                 .Where(a => string.Compare(a.FromDate, monthEndStr) <= 0 && string.Compare(a.ToDate, monthStartStr) >= 0)
                 .OrderBy(a => a.FromDate).ToList();
 
-            BuildDashboard(wb, employees, dailyByEmp, year, month);
+            var company = db.CompanyName();
+            BuildDashboard(wb, employees, dailyByEmp, year, month, company);
             BuildAttendanceRegister(wb, employees, dailyByEmp, applications, year, month, daysInMonth);
             BuildApplicationTracker(wb, applications);
             BuildEmployeeSummary(wb, employees, dailyByEmp, applications);
@@ -72,7 +74,7 @@ namespace AmpmHrmsPro.Services
             BuildOTDepartmentSummary(wb, employees, dailyByEmp, daysInMonth);
             BuildOTWorkerDetails(wb, employees, dailyByEmp);
             BuildOTDailyRegister(wb, employees, dailyByEmp);
-            BuildOTRulesLegend(wb);
+            BuildOTRulesLegend(wb, company);
 
             using var stream = new MemoryStream();
             wb.SaveAs(stream);
@@ -128,10 +130,10 @@ namespace AmpmHrmsPro.Services
         }
 
         // ═══ SHEET 1 — DASHBOARD ═══
-        static void BuildDashboard(XLWorkbook wb, List<Employee> employees, ILookup<int, AttendanceDaily> dailyByEmp, int year, int month)
+        static void BuildDashboard(XLWorkbook wb, List<Employee> employees, ILookup<int, AttendanceDaily> dailyByEmp, int year, int month, string company)
         {
             var ws = wb.Worksheets.Add("📊 Dashboard");
-            ws.Cell(1, 1).Value = "AMPM Fashions Pvt. Ltd — HR Dashboard";
+            ws.Cell(1, 1).Value = $"{company} — HR Dashboard";
             ws.Range(1, 1, 1, 10).Merge(); Fill(ws.Cell(1, 1), ClrNavy);
             ws.Cell(1, 1).Style.Font.FontColor = XLColor.White; ws.Cell(1, 1).Style.Font.Bold = true; ws.Cell(1, 1).Style.Font.FontSize = 14;
             ws.Cell(2, 1).Value = $"{new DateTime(year, month, 1):MMMM yyyy} — Generated {DateTime.Now:dd-MMM-yyyy}";
@@ -643,10 +645,10 @@ namespace AmpmHrmsPro.Services
         }
 
         // ═══ SHEET 11 — OT RULES & LEGEND (static content) ═══
-        static void BuildOTRulesLegend(XLWorkbook wb)
+        static void BuildOTRulesLegend(XLWorkbook wb, string company)
         {
             var ws = wb.Worksheets.Add("📋 OT Rules & Legend");
-            ws.Cell(1, 1).Value = "AMPM Fashions Pvt. Ltd — OT Policy & Attendance Legend";
+            ws.Cell(1, 1).Value = $"{company} — OT Policy & Attendance Legend";
             ws.Cell(1, 1).Style.Font.Bold = true; ws.Cell(1, 1).Style.Font.FontSize = 13;
             ws.Cell(1, 1).Style.Font.FontColor = XLColor.FromHtml("#1565C0");
 

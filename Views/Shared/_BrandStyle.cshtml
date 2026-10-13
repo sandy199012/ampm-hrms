@@ -1,0 +1,17 @@
+@model AmpmHrmsPro.Services.Tenancy.CompanyInfo?
+@{
+    // Company colours → theme variables. Only plain #RRGGBB values are
+    // accepted so nothing else can be injected into the page's CSS.
+    static bool Hex(string? c) => c != null && System.Text.RegularExpressions.Regex.IsMatch(c, "^#[0-9a-fA-F]{6}$");
+    var p = Hex(Model?.PrimaryColor) ? Model!.PrimaryColor : null;
+    var a = Hex(Model?.AccentColor) ? Model!.AccentColor : null;
+}
+@if (p != null || a != null)
+{
+    <style>
+        :root {
+            @if (p != null) { <text>--primary: @p; --primary-dark: color-mix(in srgb, @p 80%, #000); --primary-light: color-mix(in srgb, @p 10%, #fff);</text> }
+            @if (a != null) { <text>--accent: @a; --accent-light: color-mix(in srgb, @a 12%, #fff);</text> }
+        }
+    </style>
+}

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using AmpmHrmsPro.Services.Tenancy;
 using Microsoft.EntityFrameworkCore;
 using AmpmHrmsPro.Data;
 using AmpmHrmsPro.Models;
@@ -7,6 +8,7 @@ using AmpmHrmsPro.Models;
 namespace AmpmHrmsPro.Controllers
 {
     [Authorize]
+    [RequireModule(Modules.Leave)]
     public class MyLeaveController : Controller
     {
         private readonly AppDbContext _db;

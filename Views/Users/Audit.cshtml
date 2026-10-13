@@ -1,0 +1,50 @@
+@model List<AuditLog>
+@{
+    ViewData["Title"] = "Audit Log";
+    ViewData["Subtitle"] = "Every change, login and security event in your company";
+    int total = ViewBag.Total, pg = ViewBag.Page, size = ViewBag.Size;
+    var pages = (int)Math.Ceiling(total / (double)size);
+    var actions = ViewBag.Actions as List<string> ?? new();
+    object Route(int p, bool export = false) => new { from = (ViewBag.From as DateTime?)?.ToString("yyyy-MM-dd"), to = (ViewBag.To as DateTime?)?.ToString("yyyy-MM-dd"), user = ViewBag.User, action = ViewBag.Action, q = ViewBag.Q, page = p, export };
+}
+<form method="get" class="card mb-3">
+    <div class="card-body row g-2 align-items-end">
+        <div class="col-6 col-md-2"><label class="form-label small">From</label><input type="date" name="from" value="@((ViewBag.From as DateTime?)?.ToString("yyyy-MM-dd"))" class="form-control form-control-sm" /></div>
+        <div class="col-6 col-md-2"><label class="form-label small">To</label><input type="date" name="to" value="@((ViewBag.To as DateTime?)?.ToString("yyyy-MM-dd"))" class="form-control form-control-sm" /></div>
+        <div class="col-6 col-md-2"><label class="form-label small">User</label><input name="user" value="@ViewBag.User" class="form-control form-control-sm" /></div>
+        <div class="col-6 col-md-2">
+            <label class="form-label small">Action</label>
+            <select name="action" class="form-select form-select-sm"><option value="">All</option>@foreach (var a in actions) { <option selected="@(a == (string?)ViewBag.Action)">@a</option> }</select>
+        </div>
+        <div class="col-8 col-md-2"><label class="form-label small">Text</label><input name="q" value="@ViewBag.Q" class="form-control form-control-sm" placeholder="name, code, field…" /></div>
+        <div class="col-4 col-md-2 d-flex gap-1"><button class="btn btn-sm btn-primary">Filter</button><a href="@Url.Action("Audit", Route(1, true))" class="btn btn-sm btn-outline-secondary" title="Download CSV"><i class="bi bi-download"></i></a></div>
+    </div>
+</form>
+<div class="card">
+    <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+            <thead><tr><th style="width:130px;">When (IST)</th><th>User</th><th>Action</th><th>Summary</th><th>Details</th></tr></thead>
+            <tbody>
+            @foreach (var a in Model)
+            {
+                <tr>
+                    <td class="small text-nowrap">@IndiaTime.FromUtc(a.At).ToString("dd MMM yy, HH:mm")</td>
+                    <td class="small">@(a.UserName ?? "—")<div class="text-muted" style="font-size:11px;">@a.IpAddress</div></td>
+                    <td><span class="chip @(a.Action.Contains("Fail") || a.Action == "Lockout" || a.Action == "Delete" ? "chip-danger" : a.Action == "Login" ? "chip-success" : "")">@a.Action</span></td>
+                    <td class="small">@a.Summary</td>
+                    <td>@if (!string.IsNullOrEmpty(a.Changes) && a.Changes != "{}") { <div class="audit-changes">@a.Changes</div> }</td>
+                </tr>
+            }
+            @if (Model.Count == 0) { <tr><td colspan="5" class="empty-state">Nothing recorded for this filter.</td></tr> }
+            </tbody>
+        </table>
+    </div>
+</div>
+@if (pages > 1)
+{
+    <div class="d-flex gap-2 align-items-center mt-3">
+        @if (pg > 1) { <a href="@Url.Action("Audit", Route(pg - 1))" class="btn btn-sm btn-outline-secondary">‹ Newer</a> }
+        <span class="small text-muted">Page @pg of @pages · @total entries</span>
+        @if (pg < pages) { <a href="@Url.Action("Audit", Route(pg + 1))" class="btn btn-sm btn-outline-secondary">Older ›</a> }
+    </div>
+}

@@ -1,0 +1,20 @@
+@model CompanyInfo?
+@{
+    Layout = "_AuthLayout";
+    ViewData["Title"] = "Subscription";
+    ViewBag.Company = Model;
+}
+<div class="text-center">
+    <div class="mb-3" style="font-size:56px;color:var(--danger);"><i class="bi bi-pause-circle"></i></div>
+    @if (Model?.IsSuspended == true)
+    {
+        <h2>Account suspended</h2>
+        <p class="sub">@Model.Name's HRMS account is currently suspended. Please contact your HRMS provider.</p>
+    }
+    else
+    {
+        <h2>Subscription expired</h2>
+        <p class="sub">@(Model?.Name ?? "Your company")'s subscription ended on @(Model?.EndsAt?.ToString("dd MMM yyyy") ?? "—"). Please contact your HRMS provider to renew. Your data is safe.</p>
+    }
+    <a asp-action="Logout" class="btn btn-outline-secondary">Sign out</a>
+</div>

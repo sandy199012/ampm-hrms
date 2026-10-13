@@ -1,0 +1,20 @@
+@{
+    Layout = "_AuthLayout";
+    ViewData["Title"] = "Owner sign in";
+    ViewData["BrandHeading"] = PlatformBrand.ProductName + " — Owner Console";
+}
+<h2>Owner console</h2>
+<p class="sub">For the HRMS provider only. Company users sign in <a href="/Account/Login">here</a>.</p>
+@if (ViewBag.Error != null) { <div class="alert alert-danger mb-3"><i class="bi bi-exclamation-circle-fill me-1"></i> @ViewBag.Error</div> }
+<form method="post" asp-action="Login">
+    @Html.AntiForgeryToken()
+    <div class="mb-3">
+        <label class="form-label">Login</label>
+        <input name="email" class="form-control" required autofocus autocomplete="username" />
+    </div>
+    <div class="mb-4">
+        <label class="form-label">Password</label>
+        <input type="password" name="password" class="form-control" required autocomplete="current-password" />
+    </div>
+    <button class="btn btn-primary w-100 py-2">Sign in</button>
+</form>

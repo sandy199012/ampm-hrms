@@ -79,6 +79,18 @@ namespace AmpmHrmsPro.Models
 
         public DateTime CreatedAt { get; set; } = DateTime.Now;
 
+        // ── Access & security (multi-company / enterprise) ──
+        // Optional company-defined role (AppRole) granting extra permissions
+        // on top of the base login Role above.
+        public int? CustomRoleId { get; set; }
+        public int FailedLoginCount { get; set; }
+        public DateTime? LockoutUntil { get; set; }
+        public DateTime? LastLoginAt { get; set; }
+        public DateTime? PasswordChangedAt { get; set; }
+        public bool MustChangePassword { get; set; }
+        public bool TwoFactorEnabled { get; set; }
+        [MaxLength(64)] public string? TwoFactorSecret { get; set; }
+
         // ═══════════════════════════════════════════
         // EXTENDED PROFILE — matches the company's existing HR data-export
         // report column-for-column, so that file can be used as a bulk

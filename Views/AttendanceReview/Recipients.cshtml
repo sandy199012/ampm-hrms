@@ -103,7 +103,7 @@ function addHodRow() {
     const tr = document.createElement('tr');
     tr.innerHTML =
         '<td><input type="text" name="hodNames[' + i + ']" class="form-control form-control-sm" placeholder="HoD name (as in Presence 360 Manager Name)" required /></td>' +
-        '<td><input type="email" name="emails[' + i + ']" class="form-control form-control-sm" placeholder="email@ampm.in" required /></td>' +
+        '<td><input type="email" name="emails[' + i + ']" class="form-control form-control-sm" placeholder="name@company.com" required /></td>' +
         '<td><button type="button" class="btn btn-sm btn-light text-danger" onclick="this.closest(\'tr\').remove()"><i class="bi bi-x-lg"></i></button></td>';
     tbody.appendChild(tr);
     tr.querySelector('input').focus();

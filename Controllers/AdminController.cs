@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using AmpmHrmsPro.Services.Tenancy;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 using AmpmHrmsPro.Data;
@@ -8,7 +9,8 @@ using AmpmHrmsPro.Services;
 
 namespace AmpmHrmsPro.Controllers
 {
-    [Authorize(Roles = "admin,hr")]
+    [Authorize]
+    [RequirePermission(Perm.EmployeesView, Perm.EmployeesManage)]
     public class AdminController : Controller
     {
         private readonly AppDbContext _db;
@@ -16,7 +18,15 @@ namespace AmpmHrmsPro.Controllers
 
         int CurrentEmpId => int.Parse(User.FindFirst(ClaimTypes.NameIdentifier)!.Value);
 
+        // Only users who manage access may hand out the Admin / HR login roles.
+        async Task<bool> CanGrantPrivilegedRolesAsync() =>
+            (await HttpContext.RequestServices.GetRequiredService<IAccessService>().GetAsync(User)).Can(Perm.Users);
+        static bool IsPrivileged(string? role) => role is "admin" or "hr";
+        Task<string?> EmployeeLimitAsync(int adding) =>
+            HttpContext.RequestServices.GetRequiredService<ICompanyProvisioning>().CheckEmployeeLimitAsync(adding);
+
         // ── DASHBOARD ──
+        [RequirePermission(Perm.Dashboard)]
         public IActionResult Index()
         {
             ViewBag.TotalEmployees = _db.Employees.Count(e => e.IsActive);
@@ -118,15 +128,20 @@ namespace AmpmHrmsPro.Controllers
         }
 
         [HttpPost, ValidateAntiForgeryToken]
-        public IActionResult AddEmployee(Employee model, string password)
+        public async Task<IActionResult> AddEmployee(Employee model, string password)
         {
             if (_db.Employees.Any(e => e.EmpCode == model.EmpCode))
             {
                 TempData["Error"] = $"Employee code '{model.EmpCode}' already exists.";
                 return RedirectToAction("AddEmployee");
             }
+            var limit = await EmployeeLimitAsync(1);
+            if (limit != null) { TempData["Error"] = limit; return RedirectToAction("Employees"); }
+            if (IsPrivileged(model.Role) && !await CanGrantPrivilegedRolesAsync()) model.Role = "employee";
             model.Id = 0;
             model.PasswordHash = BCrypt.Net.BCrypt.HashPassword(string.IsNullOrWhiteSpace(password) ? "Welcome@123" : password);
+            model.MustChangePassword = true;   // first login asks for a personal password
+            model.PasswordChangedAt = DateTime.UtcNow;
             model.IsActive = true;
             model.CreatedAt = DateTime.Now;
             if (string.IsNullOrWhiteSpace(model.Status)) model.Status = "Active";
@@ -149,10 +164,17 @@ namespace AmpmHrmsPro.Controllers
         }
 
         [HttpPost, ValidateAntiForgeryToken]
-        public IActionResult EditEmployee(Employee model)
+        public async Task<IActionResult> EditEmployee(Employee model)
         {
             var existing = _db.Employees.Find(model.Id);
             if (existing == null) return NotFound();
+            if (!existing.IsActive && model.Status == "Active")
+            {
+                var limit = await EmployeeLimitAsync(1);
+                if (limit != null) { TempData["Error"] = limit; return RedirectToAction("EditEmployee", new { id = model.Id }); }
+            }
+            if ((IsPrivileged(model.Role) || IsPrivileged(existing.Role)) && model.Role != existing.Role && !await CanGrantPrivilegedRolesAsync())
+                model.Role = existing.Role;   // role escalation needs "Manage users, roles & security"
 
             existing.Name               = model.Name;
             existing.Email               = model.Email;
@@ -177,6 +199,7 @@ namespace AmpmHrmsPro.Controllers
             existing.IsActive            = model.Status == "Active";
             CopyExtendedProfile(model, existing);
             _db.SaveChanges();
+            HttpContext.RequestServices.GetRequiredService<IAccessService>().Invalidate(User.GetCompanyId());
             TempData["Success"] = $"'{existing.Name}' updated.";
             return RedirectToAction("Employees");
         }
@@ -300,8 +323,13 @@ namespace AmpmHrmsPro.Controllers
         {
             var emp = _db.Employees.Find(id);
             if (emp == null) return Json(new { success = false });
-            var newPassword = "Welcome@123";
+            var newPassword = PasswordPolicy.Generate();
             emp.PasswordHash = BCrypt.Net.BCrypt.HashPassword(newPassword);
+            emp.MustChangePassword = true;     // employee picks their own at next login
+            emp.PasswordChangedAt = DateTime.UtcNow;
+            emp.FailedLoginCount = 0;
+            emp.LockoutUntil = null;
+            _db.Audit("PasswordReset", $"Password reset for {emp.Name} ({emp.EmpCode})", "Employee", emp.Id.ToString());
             _db.SaveChanges();
             return Json(new { success = true, password = newPassword });
         }
@@ -313,7 +341,7 @@ namespace AmpmHrmsPro.Controllers
         // Admin only; the admin must type the employee code to confirm.
         // See Services/EmployeeDeletionService.cs for the exact order.
         // ═══════════════════════════════════════════
-        [Authorize(Roles = "admin")]
+        [RequirePermission(Perm.EmployeesDelete)]
         public async Task<IActionResult> DeleteEmployeePreview(int id, [FromServices] IEmployeeDeletionService deleter)
         {
             var p = await deleter.PreviewAsync(id);
@@ -329,7 +357,7 @@ namespace AmpmHrmsPro.Controllers
             });
         }
 
-        [HttpPost, ValidateAntiForgeryToken, Authorize(Roles = "admin")]
+        [HttpPost, ValidateAntiForgeryToken, RequirePermission(Perm.EmployeesDelete)]
         public async Task<IActionResult> DeleteEmployee(int id, string? confirmCode, [FromServices] IEmployeeDeletionService deleter)
         {
             if (id == CurrentEmpId)
@@ -357,7 +385,7 @@ namespace AmpmHrmsPro.Controllers
 
         // ── Bulk delete: tick employees on All Employees → "Delete selected".
         // The admin confirms by typing  DELETE <count>  (e.g. "DELETE 12").
-        [Authorize(Roles = "admin")]
+        [RequirePermission(Perm.EmployeesDelete)]
         public async Task<IActionResult> BulkDeleteEmployeesPreview([FromQuery] int[] ids, [FromServices] IEmployeeDeletionService deleter)
         {
             var selfSelected = ids.Contains(CurrentEmpId);
@@ -379,7 +407,7 @@ namespace AmpmHrmsPro.Controllers
             });
         }
 
-        [HttpPost, ValidateAntiForgeryToken, Authorize(Roles = "admin")]
+        [HttpPost, ValidateAntiForgeryToken, RequirePermission(Perm.EmployeesDelete)]
         public async Task<IActionResult> BulkDeleteEmployees(int[] ids, string? confirmText, [FromServices] IEmployeeDeletionService deleter)
         {
             var targetIds = (ids ?? Array.Empty<int>()).Where(i => i != CurrentEmpId).Distinct().ToList();
@@ -533,7 +561,7 @@ namespace AmpmHrmsPro.Controllers
             wb.SaveAs(stream);
             return File(stream.ToArray(),
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                "AMPM_Employee_Bulk_Upload_Template.xlsx");
+                "Employee_Bulk_Upload_Template.xlsx");
         }
 
         static readonly string[] BulkImportColumns =
@@ -682,6 +710,7 @@ namespace AmpmHrmsPro.Controllers
                             EmpCode = Cap(empCode, 20)!,
                             PasswordHash = BCrypt.Net.BCrypt.HashPassword("Welcome@123"),
                             Role = "employee",
+                            MustChangePassword = true,
                             CreatedAt = DateTime.Now
                         };
                         _db.Employees.Add(emp);
@@ -694,7 +723,7 @@ namespace AmpmHrmsPro.Controllers
                     var importedEmail = Cap(S(r, "Email Id"), 120);
                     emp.Email    = !string.IsNullOrWhiteSpace(importedEmail) ? importedEmail!
                                     : !string.IsNullOrWhiteSpace(emp.Email) ? emp.Email
-                                    : $"{empCode}@ampm.in";
+                                    : $"{empCode}@{(User.FindFirst(TenantClaims.CompanyCode)?.Value ?? "company").ToLowerInvariant()}.local";
                     emp.Mobile   = Cap(S(r, "Mobile"), 15);
                     emp.Gender   = Cap(S(r, "Gender"), 10);
                     emp.DOB      = S(r, "DOB");
@@ -777,6 +806,10 @@ namespace AmpmHrmsPro.Controllers
                     if (isNew) result.Created++; else result.Updated++;
                 }
 
+                var adding = _db.ChangeTracker.Entries<Employee>().Count(e => e.State == EntityState.Added && e.Entity.IsActive);
+                var limitMsg = adding > 0 ? EmployeeLimitAsync(adding).GetAwaiter().GetResult() : null;
+                if (limitMsg != null) throw new InvalidOperationException(limitMsg);
+
                 _db.SaveChanges(); // assigns real Ids to new employees + new masters
 
                 var byName = _db.Employees.ToList()
@@ -806,6 +839,7 @@ namespace AmpmHrmsPro.Controllers
         // ═══════════════════════════════════════════
         // SIMPLE MASTERS — Department, Designation, Grade, Employment Type
         // ═══════════════════════════════════════════
+        [RequirePermission(Perm.MastersView, Perm.MastersManage)]
         public IActionResult Masters()
         {
             ViewBag.Departments     = _db.Departments.Include(d => d.Head).OrderBy(d => d.Name).ToList();
@@ -816,6 +850,7 @@ namespace AmpmHrmsPro.Controllers
             return View();
         }
 
+        [RequirePermission(Perm.MastersView, Perm.MastersManage)]
         [HttpPost, ValidateAntiForgeryToken]
         public IActionResult SaveMaster(string masterType, int id, string name, string? code)
         {
@@ -849,6 +884,7 @@ namespace AmpmHrmsPro.Controllers
             return RedirectToAction("Masters");
         }
 
+        [RequirePermission(Perm.MastersView, Perm.MastersManage)]
         [HttpPost]
         public IActionResult ToggleMaster(string masterType, int id)
         {
@@ -865,6 +901,7 @@ namespace AmpmHrmsPro.Controllers
             return Json(new { success = true, isActive = active });
         }
 
+        [RequirePermission(Perm.MastersView, Perm.MastersManage)]
         [HttpPost]
         public IActionResult DeleteMaster(string masterType, int id)
         {
@@ -898,6 +935,7 @@ namespace AmpmHrmsPro.Controllers
             return Json(new { success = true, message = $"{masterType} deleted." });
         }
 
+        [RequirePermission(Perm.MastersView, Perm.MastersManage)]
         [HttpPost, ValidateAntiForgeryToken]
         public IActionResult SetDepartmentHead(int departmentId, int? headEmployeeId)
         {
@@ -912,11 +950,13 @@ namespace AmpmHrmsPro.Controllers
         // ═══════════════════════════════════════════
         // LOCATIONS
         // ═══════════════════════════════════════════
+        [RequirePermission(Perm.MastersView, Perm.MastersManage)]
         public IActionResult Locations()
         {
             return View(_db.Locations.OrderBy(l => l.Name).ToList());
         }
 
+        [RequirePermission(Perm.MastersView, Perm.MastersManage)]
         [HttpPost, ValidateAntiForgeryToken]
         public IActionResult SaveLocation(Location model)
         {
@@ -937,6 +977,7 @@ namespace AmpmHrmsPro.Controllers
             return RedirectToAction("Locations");
         }
 
+        [RequirePermission(Perm.MastersView, Perm.MastersManage)]
         [HttpPost]
         public IActionResult ToggleLocation(int id)
         {
@@ -947,6 +988,7 @@ namespace AmpmHrmsPro.Controllers
             return Json(new { success = true, isActive = loc.IsActive });
         }
 
+        [RequirePermission(Perm.MastersView, Perm.MastersManage)]
         [HttpPost]
         public IActionResult DeleteLocation(int id)
         {
@@ -966,6 +1008,7 @@ namespace AmpmHrmsPro.Controllers
         // policy, and assign different policies to different employee
         // groups (e.g. corporate vs. factory staff).
         // ═══════════════════════════════════════════
+        [RequirePermission(Perm.MastersView, Perm.MastersManage)]
         public IActionResult WeekOffPolicies()
         {
             return View(_db.WeekOffPolicies.Include(w => w.Rules).OrderBy(w => w.Name).ToList());
@@ -973,6 +1016,7 @@ namespace AmpmHrmsPro.Controllers
 
         public record WeekOffRuleDto(string Day, string Type, string? Occurrences);
 
+        [RequirePermission(Perm.MastersView, Perm.MastersManage)]
         [HttpPost, ValidateAntiForgeryToken]
         public IActionResult SaveWeekOffPolicy(int id, string name, string? description, string rulesJson)
         {
@@ -1021,6 +1065,7 @@ namespace AmpmHrmsPro.Controllers
         // JSON preview of which dates a policy marks as week-off for a given
         // month — lets Admin visually verify a rule (e.g. "1st & 3rd
         // Saturday") before assigning it to employees.
+        [RequirePermission(Perm.MastersView, Perm.MastersManage)]
         public IActionResult PreviewWeekOff(int id, int year, int month)
         {
             var policy = _db.WeekOffPolicies.Include(w => w.Rules).FirstOrDefault(w => w.Id == id);
@@ -1030,6 +1075,7 @@ namespace AmpmHrmsPro.Controllers
             return Json(new { success = true, dates });
         }
 
+        [RequirePermission(Perm.MastersView, Perm.MastersManage)]
         [HttpPost]
         public IActionResult ToggleWeekOffPolicy(int id)
         {
@@ -1040,6 +1086,7 @@ namespace AmpmHrmsPro.Controllers
             return Json(new { success = true, isActive = w.IsActive });
         }
 
+        [RequirePermission(Perm.MastersView, Perm.MastersManage)]
         [HttpPost]
         public IActionResult DeleteWeekOffPolicy(int id)
         {
@@ -1054,11 +1101,13 @@ namespace AmpmHrmsPro.Controllers
         // ═══════════════════════════════════════════
         // SHIFTS
         // ═══════════════════════════════════════════
+        [RequirePermission(Perm.MastersView, Perm.MastersManage)]
         public IActionResult Shifts()
         {
             return View(_db.Shifts.OrderBy(s => s.StartTime).ToList());
         }
 
+        [RequirePermission(Perm.MastersView, Perm.MastersManage)]
         [HttpPost, ValidateAntiForgeryToken]
         public IActionResult SaveShift(Shift model)
         {
@@ -1080,6 +1129,7 @@ namespace AmpmHrmsPro.Controllers
             return RedirectToAction("Shifts");
         }
 
+        [RequirePermission(Perm.MastersView, Perm.MastersManage)]
         [HttpPost]
         public IActionResult ToggleShift(int id)
         {
@@ -1090,6 +1140,7 @@ namespace AmpmHrmsPro.Controllers
             return Json(new { success = true, isActive = s.IsActive });
         }
 
+        [RequirePermission(Perm.MastersView, Perm.MastersManage)]
         [HttpPost]
         public IActionResult DeleteShift(int id)
         {
@@ -1104,6 +1155,7 @@ namespace AmpmHrmsPro.Controllers
         // ═══════════════════════════════════════════
         // HOLIDAYS
         // ═══════════════════════════════════════════
+        [RequirePermission(Perm.MastersView, Perm.MastersManage)]
         public IActionResult Holidays(string? year)
         {
             year ??= DateTime.Now.Year.ToString();
@@ -1111,6 +1163,7 @@ namespace AmpmHrmsPro.Controllers
             return View(_db.Holidays.Where(h => h.Date.StartsWith(year)).OrderBy(h => h.Date).ToList());
         }
 
+        [RequirePermission(Perm.MastersView, Perm.MastersManage)]
         [HttpPost, ValidateAntiForgeryToken]
         public IActionResult SaveHoliday(Holiday model)
         {
@@ -1130,6 +1183,7 @@ namespace AmpmHrmsPro.Controllers
             return RedirectToAction("Holidays", new { year = model.Date?.Substring(0, 4) });
         }
 
+        [RequirePermission(Perm.MastersView, Perm.MastersManage)]
         [HttpPost]
         public IActionResult DeleteHoliday(int id)
         {
@@ -1143,11 +1197,13 @@ namespace AmpmHrmsPro.Controllers
         // ═══════════════════════════════════════════
         // LEAVE TYPES
         // ═══════════════════════════════════════════
+        [RequirePermission(Perm.MastersView, Perm.MastersManage)]
         public IActionResult LeaveTypes()
         {
             return View(_db.LeaveTypes.OrderBy(t => t.Name).ToList());
         }
 
+        [RequirePermission(Perm.MastersView, Perm.MastersManage)]
         [HttpPost, ValidateAntiForgeryToken]
         public IActionResult SaveLeaveType(LeaveType model)
         {
@@ -1180,6 +1236,7 @@ namespace AmpmHrmsPro.Controllers
             return RedirectToAction("LeaveTypes");
         }
 
+        [RequirePermission(Perm.MastersView, Perm.MastersManage)]
         [HttpPost]
         public IActionResult ToggleLeaveType(int id)
         {
@@ -1190,6 +1247,7 @@ namespace AmpmHrmsPro.Controllers
             return Json(new { success = true, isActive = t.IsActive });
         }
 
+        [RequirePermission(Perm.MastersView, Perm.MastersManage)]
         [HttpPost]
         public IActionResult DeleteLeaveType(int id)
         {
@@ -1212,6 +1270,7 @@ namespace AmpmHrmsPro.Controllers
         // mirrors the Week-Off Policy pattern exactly (dynamic rule-builder,
         // JSON round-trip, "delete all rows & rebuild" on edit).
         // ═══════════════════════════════════════════
+        [RequirePermission(Perm.MastersView, Perm.MastersManage)]
         public IActionResult LeavePolicies()
         {
             ViewBag.LeaveTypeList = _db.LeaveTypes.Where(t => t.IsActive).OrderBy(t => t.Name).ToList();
@@ -1220,6 +1279,7 @@ namespace AmpmHrmsPro.Controllers
 
         public record LeavePolicyRuleDto(int LeaveTypeId, string AccrualMethod, decimal? MonthlyAccrualDays, decimal AnnualEntitlementDays, int CycleStartMonth, decimal? CarryForwardLimit, string ExcessHandling, string EncashmentTrigger);
 
+        [RequirePermission(Perm.MastersView, Perm.MastersManage)]
         [HttpPost, ValidateAntiForgeryToken]
         public IActionResult SaveLeavePolicy(int id, string name, string? description, string rulesJson)
         {
@@ -1274,6 +1334,7 @@ namespace AmpmHrmsPro.Controllers
             return RedirectToAction("LeavePolicies");
         }
 
+        [RequirePermission(Perm.MastersView, Perm.MastersManage)]
         [HttpPost]
         public IActionResult ToggleLeavePolicy(int id)
         {
@@ -1284,6 +1345,7 @@ namespace AmpmHrmsPro.Controllers
             return Json(new { success = true, isActive = p.IsActive });
         }
 
+        [RequirePermission(Perm.MastersView, Perm.MastersManage)]
         [HttpPost]
         public IActionResult DeleteLeavePolicy(int id)
         {

@@ -8,11 +8,20 @@ namespace AmpmHrmsPro.Services
     // or add to any of it from the Masters screens; nothing here is fixed.
     public static class SeedData
     {
-        public static void Run(AppDbContext db, IConfiguration cfg)
+        /// <summary>
+        /// Seeds the reference masters for the CURRENT company (the caller
+        /// selects it via ITenantContext). genericCompany = a new client
+        /// company gets neutral department names instead of AMPM's.
+        /// </summary>
+        public static void Run(AppDbContext db, IConfiguration cfg, bool genericCompany = false, bool seedAdmin = true)
         {
             if (!db.Departments.Any())
             {
-                var names = new[]
+                var names = genericCompany ? new[]
+                {
+                    "MANAGEMENT", "HR", "ADMINISTRATION", "ACCOUNTS & FINANCE", "IT", "SALES", "MARKETING",
+                    "OPERATIONS", "PRODUCTION", "PURCHASE", "WAREHOUSE & LOGISTICS", "CUSTOMER SUPPORT"
+                } : new[]
                 {
                     "PRODUCTION - APPAREL", "PRODUCTION - LEATHER", "PRODUCTION - MTO",
                     "DESIGN - APPAREL", "DESIGN - ACCESSORIES", "SAMPLING - APPAREL",
@@ -55,9 +64,9 @@ namespace AmpmHrmsPro.Services
                 {
                     Name = "Head Office",
                     Code = "HO",
-                    Address = cfg["CompanyAddress"] ?? "",
-                    City = "Noida",
-                    State = "Uttar Pradesh"
+                    Address = genericCompany ? "" : cfg["CompanyAddress"] ?? "",
+                    City = genericCompany ? "" : "Noida",
+                    State = genericCompany ? "" : "Uttar Pradesh"
                 });
                 db.SaveChanges();
                 Console.WriteLine("✅ Default location seeded");
@@ -219,7 +228,7 @@ namespace AmpmHrmsPro.Services
                 Console.WriteLine("✅ Tax slab settings seeded (FY 2026-27, Old + New Regime)");
             }
 
-            if (!db.Employees.Any(e => e.Role == "admin"))
+            if (seedAdmin && !db.Employees.Any(e => e.Role == "admin"))
             {
                 var admin = cfg["AdminDepartmentCode"]; // reserved for future use
                 var adminDept = db.Departments.FirstOrDefault(d => d.Name == "ADMINISTRATION");

@@ -1,0 +1,40 @@
+@model Company
+@{
+    ViewData["Title"] = "Security Policy";
+    ViewData["Subtitle"] = "Applies to every login in your company";
+}
+<form method="post" asp-action="Security">
+    @Html.AntiForgeryToken()
+    <div class="row g-3">
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header"><i class="bi bi-key me-1"></i> Passwords</div>
+                <div class="card-body">
+                    <div class="mb-3"><label class="form-label">Minimum length</label><input type="number" min="6" max="32" name="passwordMinLength" value="@Model.PasswordMinLength" class="form-control" style="max-width:140px;" /></div>
+                    <div class="form-check mb-3">
+                        <input type="checkbox" name="passwordRequireComplex" value="true" id="cx" class="form-check-input" checked="@Model.PasswordRequireComplex" />
+                        <label for="cx" class="form-check-label">Require capital + small letter, number and symbol</label>
+                    </div>
+                    <div><label class="form-label">Ask for a new password every (days)</label><input type="number" min="0" max="365" name="passwordExpiryDays" value="@Model.PasswordExpiryDays" class="form-control" style="max-width:140px;" /><div class="form-text">0 = never expires</div></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header"><i class="bi bi-shield-lock me-1"></i> Sign-in protection</div>
+                <div class="card-body">
+                    <div class="row g-3 mb-3">
+                        <div class="col-6"><label class="form-label">Lock after wrong attempts</label><input type="number" min="0" max="20" name="maxFailedLogins" value="@Model.MaxFailedLogins" class="form-control" /><div class="form-text">0 = never lock</div></div>
+                        <div class="col-6"><label class="form-label">Lock for (minutes)</label><input type="number" min="1" max="1440" name="lockoutMinutes" value="@Model.LockoutMinutes" class="form-control" /></div>
+                        <div class="col-6"><label class="form-label">Sign out after idle (minutes)</label><input type="number" min="0" max="1440" name="sessionTimeoutMinutes" value="@Model.SessionTimeoutMinutes" class="form-control" /><div class="form-text">0 = 8-hour session only</div></div>
+                    </div>
+                    <div class="form-check">
+                        <input type="checkbox" name="require2FAForAdmins" value="true" id="tfa" class="form-check-input" checked="@Model.Require2FAForAdmins" />
+                        <label for="tfa" class="form-check-label">Require 2-step verification (authenticator app) for Admin and HR users</label>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <button class="btn btn-primary mt-3"><i class="bi bi-check2 me-1"></i> Save policy</button>
+</form>

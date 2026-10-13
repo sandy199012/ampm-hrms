@@ -1,0 +1,63 @@
+@{
+    var company = ViewBag.Company as CompanyInfo;
+    var product = PlatformBrand.ProductName;
+    var heading = ViewData["BrandHeading"] as string;
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@ViewData["Title"] — @(company?.Name ?? product)</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="~/css/theme.css" />
+    <partial name="_BrandStyle" model="company" />
+</head>
+<body>
+    <div class="login-shell">
+        <div class="login-brand-panel">
+            @if (!string.IsNullOrEmpty(company?.LogoDataUrl))
+            {
+                <div class="logo-mark has-img"><img src="@company.LogoDataUrl" alt="@company.Name logo" /></div>
+            }
+            else
+            {
+                <div class="logo-mark">@(company?.Initial ?? product[..1])</div>
+            }
+            @if (heading != null)
+            {
+                <h1>@heading</h1>
+            }
+            else if (company != null)
+            {
+                <h1>@company.Name</h1>
+                <p>Attendance, leave, shifts, payroll and approvals — all in one place.</p>
+            }
+            else
+            {
+                <h1>Welcome to<br />@product</h1>
+                <p>One platform for attendance, leave, shifts, payroll and workforce management.</p>
+            }
+            <div class="login-feature-list">
+                <div><i class="bi bi-check-circle-fill"></i> Real-time attendance &amp; shift tracking</div>
+                <div><i class="bi bi-check-circle-fill"></i> Multi-level leave &amp; regularization approvals</div>
+                <div><i class="bi bi-check-circle-fill"></i> Roles, audit trail &amp; 2-step verification</div>
+                <div><i class="bi bi-check-circle-fill"></i> Mobile app &amp; face-recognition kiosk</div>
+            </div>
+        </div>
+        <div class="login-form-panel">
+            <div class="login-form-box">
+                @RenderBody()
+                <div class="divider"></div>
+                <p class="text-soft text-center" style="font-size:12px;">© @DateTime.Now.Year @(company?.Name ?? product) · Powered by @product</p>
+            </div>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

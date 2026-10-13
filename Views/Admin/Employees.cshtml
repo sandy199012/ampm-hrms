@@ -1,8 +1,9 @@
+@inject IAccessService AccessSvc
 @model List<Employee>
 @{
     ViewData["Title"] = "Employees";
     ViewData["Subtitle"] = "Employee Master";
-    var canDelete = User.IsInRole("admin");
+    var canDelete = (await AccessSvc.GetAsync(User)).Can(Perm.EmployeesDelete);
 }
 
 <div class="page-header">

@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Text;
 using Microsoft.IdentityModel.Tokens;
 using AmpmHrmsPro.Models;
+using AmpmHrmsPro.Services.Tenancy;
 
 namespace AmpmHrmsPro.Services
 {
@@ -17,7 +18,7 @@ namespace AmpmHrmsPro.Services
     // ═══════════════════════════════════════════
     public interface IJwtService
     {
-        string GenerateToken(Employee employee);
+        string GenerateToken(Employee employee, Company company);
     }
 
     public class JwtService : IJwtService
@@ -25,7 +26,7 @@ namespace AmpmHrmsPro.Services
         readonly IConfiguration _config;
         public JwtService(IConfiguration config) => _config = config;
 
-        public string GenerateToken(Employee employee)
+        public string GenerateToken(Employee employee, Company company)
         {
             var claims = new List<Claim>
             {
@@ -33,6 +34,8 @@ namespace AmpmHrmsPro.Services
                 new(ClaimTypes.Name, employee.Name),
                 new(ClaimTypes.Role, employee.Role),
                 new("EmpCode", employee.EmpCode),
+                new(TenantClaims.CompanyId, company.Id.ToString()),
+                new(TenantClaims.CompanyCode, company.Code),
             };
 
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"] ?? "AMPM-HRMS-Mobile-Fallback-Key-Please-Configure-32chars+"));
