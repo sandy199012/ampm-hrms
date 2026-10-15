@@ -56,6 +56,19 @@ else
         </div>
     }
 
+    @if (Model.Warnings.Any())
+    {
+        <div class="card mb-3">
+            <div class="card-header">Please check</div>
+            <div class="card-body">
+                @foreach (var w in Model.Warnings)
+                {
+                    <div class="mb-1" style="font-size:13px;"><i class="bi bi-exclamation-circle text-warning me-1"></i>@w</div>
+                }
+            </div>
+        </div>
+    }
+
     @if (Model.ManagerNotFound.Any())
     {
         <div class="card mb-3">

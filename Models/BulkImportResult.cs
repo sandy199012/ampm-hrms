@@ -11,5 +11,7 @@ namespace AmpmHrmsPro.Models
         public int Updated { get; set; }
         public List<string> MastersCreated { get; set; } = new();
         public List<string> ManagerNotFound { get; set; } = new();
+        /// <summary>Rows imported with a small fix-up the admin should know about (e.g. email already used by someone else).</summary>
+        public List<string> Warnings { get; set; } = new();
     }
 }

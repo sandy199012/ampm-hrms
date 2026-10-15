@@ -639,16 +639,35 @@ namespace AmpmHrmsPro.Controllers
                 bool B(int r, string header) => string.Equals(S(r, header), "Yes", StringComparison.OrdinalIgnoreCase);
                 string? Cap(string? s, int max) => s == null ? null : (s.Length > max ? s.Substring(0, max) : s);
 
-                var deptCache  = _db.Departments.ToDictionary(x => x.Name.Trim().ToLower(), x => x, StringComparer.OrdinalIgnoreCase);
-                var desigCache = _db.Designations.ToDictionary(x => x.Name.Trim().ToLower(), x => x, StringComparer.OrdinalIgnoreCase);
-                var gradeCache = _db.Grades.ToDictionary(x => x.Name.Trim().ToLower(), x => x, StringComparer.OrdinalIgnoreCase);
-                var locCache   = _db.Locations.ToDictionary(x => x.Name.Trim().ToLower(), x => x, StringComparer.OrdinalIgnoreCase);
-                var shiftCache = _db.Shifts.ToDictionary(x => x.Name.Trim().ToLower(), x => x, StringComparer.OrdinalIgnoreCase);
+                // "Accounts And Finance", "ACCOUNTS & FINANCE" and "Accounts & Finance"
+                // are the same department — match on letters/digits only so an
+                // upload never creates near-duplicate masters.
+                static string MKey(string s) => System.Text.RegularExpressions.Regex.Replace(
+                    s.ToUpperInvariant().Replace("&", " AND "), "[^A-Z0-9]", "");
+                Dictionary<string, T> Cache<T>(IEnumerable<T> items, Func<T, string> name)
+                {
+                    var d = new Dictionary<string, T>();
+                    foreach (var x in items) d.TryAdd(MKey(name(x)), x);
+                    return d;
+                }
+                var deptCache  = Cache(_db.Departments.ToList(),  x => x.Name);
+                var desigCache = Cache(_db.Designations.ToList(), x => x.Name);
+                var gradeCache = Cache(_db.Grades.ToList(),       x => x.Name);
+                var locCache   = Cache(_db.Locations.ToList(),    x => x.Name);
+                var shiftCache = Cache(_db.Shifts.ToList(),       x => x.Name);
+
+                // Existing employees by code — "00555" and "555" are the same person.
+                static string CodeKey(string c) { var t = c.Trim().TrimStart('0'); return t.Length == 0 ? "0" : t.ToUpperInvariant(); }
+                var allEmps = _db.Employees.ToList();
+                var byCode = new Dictionary<string, Employee>();
+                foreach (var e0 in allEmps.OrderBy(e => e.Id)) byCode.TryAdd(CodeKey(e0.EmpCode), e0);
+                var emailOwner = new Dictionary<string, Employee>(StringComparer.OrdinalIgnoreCase);
+                foreach (var e0 in allEmps.Where(e => !string.IsNullOrWhiteSpace(e.Email))) emailOwner.TryAdd(e0.Email.Trim(), e0);
 
                 Department? FindOrCreateDept(string? name)
                 {
                     if (string.IsNullOrWhiteSpace(name)) return null;
-                    var key = name.Trim().ToLower();
+                    var key = MKey(name);
                     if (deptCache.TryGetValue(key, out var d)) return d;
                     var nd = new Department { Name = Cap(name.Trim(), 80)! };
                     _db.Departments.Add(nd); deptCache[key] = nd; result.MastersCreated.Add($"Department: {nd.Name}");
@@ -657,7 +676,7 @@ namespace AmpmHrmsPro.Controllers
                 Designation? FindOrCreateDesig(string? name)
                 {
                     if (string.IsNullOrWhiteSpace(name)) return null;
-                    var key = name.Trim().ToLower();
+                    var key = MKey(name);
                     if (desigCache.TryGetValue(key, out var d)) return d;
                     var nd = new Designation { Name = Cap(name.Trim(), 80)! };
                     _db.Designations.Add(nd); desigCache[key] = nd; result.MastersCreated.Add($"Designation: {nd.Name}");
@@ -666,7 +685,7 @@ namespace AmpmHrmsPro.Controllers
                 Grade? FindOrCreateGrade(string? name)
                 {
                     if (string.IsNullOrWhiteSpace(name)) return null;
-                    var key = name.Trim().ToLower();
+                    var key = MKey(name);
                     if (gradeCache.TryGetValue(key, out var d)) return d;
                     var nd = new Grade { Name = Cap(name.Trim(), 40)! };
                     _db.Grades.Add(nd); gradeCache[key] = nd; result.MastersCreated.Add($"Grade: {nd.Name}");
@@ -675,7 +694,7 @@ namespace AmpmHrmsPro.Controllers
                 Location? FindOrCreateLoc(string? name)
                 {
                     if (string.IsNullOrWhiteSpace(name)) return null;
-                    var key = name.Trim().ToLower();
+                    var key = MKey(name);
                     if (locCache.TryGetValue(key, out var d)) return d;
                     var nd = new Location { Name = Cap(name.Trim(), 80)! };
                     _db.Locations.Add(nd); locCache[key] = nd; result.MastersCreated.Add($"Location: {nd.Name}");
@@ -684,7 +703,7 @@ namespace AmpmHrmsPro.Controllers
                 Shift? FindOrCreateShift(string? name)
                 {
                     if (string.IsNullOrWhiteSpace(name)) return null;
-                    var key = name.Trim().ToLower();
+                    var key = MKey(name);
                     if (shiftCache.TryGetValue(key, out var d)) return d;
                     var nd = new Shift { Name = Cap(name.Trim(), 50)! };
                     _db.Shifts.Add(nd); shiftCache[key] = nd; result.MastersCreated.Add($"Shift: {nd.Name}");
@@ -700,8 +719,7 @@ namespace AmpmHrmsPro.Controllers
                     if (string.IsNullOrWhiteSpace(empCode) || string.IsNullOrWhiteSpace(name))
                         continue; // blank/trailing row
 
-                    var emp = _db.Employees.Local.FirstOrDefault(e => e.EmpCode == empCode)
-                              ?? _db.Employees.FirstOrDefault(e => e.EmpCode == empCode);
+                    byCode.TryGetValue(CodeKey(empCode), out var emp);
                     bool isNew = emp == null;
                     if (isNew)
                     {
@@ -714,16 +732,28 @@ namespace AmpmHrmsPro.Controllers
                             CreatedAt = DateTime.Now
                         };
                         _db.Employees.Add(emp);
+                        byCode[CodeKey(empCode)] = emp;
                     }
+                    else if (emp!.EmpCode != empCode)
+                        result.Warnings.Add($"{empCode} matched existing employee code {emp.EmpCode} ({name}) — updated that employee; login code stays {emp.EmpCode}.");
 
                     emp!.Name    = Cap(name, 100)!;
                     // emp.Email defaults to "" (not null) for a brand-new
                     // employee, so a plain ?? chain would never reach the
                     // generated fallback — check for blank explicitly.
-                    var importedEmail = Cap(S(r, "Email Id"), 120);
+                    var importedEmail = Cap(S(r, "Email Id"), 120)?.Trim();
+                    // Email must be unique inside the company — never let one
+                    // clash fail the whole upload.
+                    if (!string.IsNullOrWhiteSpace(importedEmail) &&
+                        emailOwner.TryGetValue(importedEmail, out var owner) && !ReferenceEquals(owner, emp))
+                    {
+                        result.Warnings.Add($"{empCode} {name}: email {importedEmail} is already used by {owner.EmpCode} {owner.Name} — kept the old email for {empCode}.");
+                        importedEmail = null;
+                    }
                     emp.Email    = !string.IsNullOrWhiteSpace(importedEmail) ? importedEmail!
                                     : !string.IsNullOrWhiteSpace(emp.Email) ? emp.Email
                                     : $"{empCode}@{(User.FindFirst(TenantClaims.CompanyCode)?.Value ?? "company").ToLowerInvariant()}.local";
+                    if (!string.IsNullOrWhiteSpace(emp.Email)) emailOwner[emp.Email.Trim()] = emp;
                     emp.Mobile   = Cap(S(r, "Mobile"), 15);
                     emp.Gender   = Cap(S(r, "Gender"), 10);
                     emp.DOB      = S(r, "DOB");
@@ -812,13 +842,16 @@ namespace AmpmHrmsPro.Controllers
 
                 _db.SaveChanges(); // assigns real Ids to new employees + new masters
 
+                // Manager names matched on letters only ("KAPIL - SANGWAN" = "Kapil Sangwan").
+                static string NKey(string n) => System.Text.RegularExpressions.Regex.Replace(n.ToUpperInvariant(), "[^A-Z]", "");
                 var byName = _db.Employees.ToList()
-                    .GroupBy(e => e.Name.Trim(), StringComparer.OrdinalIgnoreCase)
-                    .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+                    .OrderByDescending(e => e.IsActive)
+                    .GroupBy(e => NKey(e.Name))
+                    .ToDictionary(g => g.Key, g => g.First());
 
                 foreach (var (employee, managerName) in pendingManagers)
                 {
-                    if (byName.TryGetValue(managerName.Trim(), out var mgr) && mgr.Id != employee.Id)
+                    if (byName.TryGetValue(NKey(managerName), out var mgr) && mgr.Id != employee.Id)
                         employee.ReportingManagerId = mgr.Id;
                     else
                         result.ManagerNotFound.Add($"{employee.Name} → \"{managerName}\"");
