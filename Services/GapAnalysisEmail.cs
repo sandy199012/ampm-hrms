@@ -38,7 +38,8 @@ namespace AmpmHrmsPro.Services
         private static string Hm(int m) => (m < 0 ? "-" : "") + $"{Math.Abs(m) / 60}:{Math.Abs(m) % 60:00}";
         private static string D(DateOnly d, string f) => d.ToString(f, CultureInfo.InvariantCulture);
 
-        public static string BuildHtml(string hodName, List<MtdRow> rows, DateOnly upto)
+        /// <param name="fullReport">true = the all-employees copy for management (no "your team" wording).</param>
+        public static string BuildHtml(string hodName, List<MtdRow> rows, DateOnly upto, bool fullReport = false)
         {
             var from = new DateOnly(upto.Year, upto.Month, 1);
             var period = from == upto ? D(upto, "dd MMM yyyy") : $"{D(from, "dd MMM")} – {D(upto, "dd MMM yyyy")}";
@@ -64,10 +65,12 @@ namespace AmpmHrmsPro.Services
 <tr><td style='background:{Navy};padding:18px 24px;color:#ffffff;'>
   <div style='font-size:12px;letter-spacing:.5px;text-transform:uppercase;opacity:.85;'>Gap Analysis · Month to date</div>
   <div style='font-size:20px;font-weight:600;margin-top:4px;'>{E(hodName)}</div>
-  <div style='font-size:13px;margin-top:4px;opacity:.9;'>{period} &nbsp;·&nbsp; {people.Count} team member{(people.Count == 1 ? "" : "s")}</div>
+  <div style='font-size:13px;margin-top:4px;opacity:.9;'>{period} &nbsp;·&nbsp; {people.Count} {(fullReport ? "employee" : "team member")}{(people.Count == 1 ? "" : "s")}</div>
 </td></tr>
 <tr><td style='padding:18px 24px 4px;font-size:14px;line-height:1.5;'>
-  Dear {E(hodName)}, here is your team's attendance gap summary. The complete day-by-day detail is in the attached Excel.
+  {(fullReport
+      ? "Hello, here is the attendance gap summary for <b>all employees</b> (every HoD's team). The complete day-by-day detail is in the attached Excel."
+      : $"Dear {E(hodName)}, here is your team's attendance gap summary. The complete day-by-day detail is in the attached Excel.")}
 </td></tr>");
 
             // KPI tiles

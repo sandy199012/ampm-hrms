@@ -86,6 +86,7 @@
                 <label class="form-label small mb-1">HoD</label>
                 <select name="hod" class="form-select form-select-sm" required>
                     <option value="">— choose HoD —</option>
+                    <option value="@AmpmHrmsPro.Services.AttendanceReviewService.FullReportKey" selected="@(testHod == AmpmHrmsPro.Services.AttendanceReviewService.FullReportKey)">★ @AmpmHrmsPro.Services.AttendanceReviewService.FullReportLabel</option>
                     @foreach (var h in hodNames)
                     {
                         if (string.Equals(h, testHod, StringComparison.OrdinalIgnoreCase))

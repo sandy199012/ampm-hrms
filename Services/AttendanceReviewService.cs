@@ -79,6 +79,10 @@ namespace AmpmHrmsPro.Services
         /// <summary>Send one HoD's Gap Analysis to a test address only (nothing to the HoD, nothing marked sent).</summary>
         Task<(bool Ok, string Message)> SendTestEmailAsync(int importId, string hodName, string testEmail, CancellationToken ct = default);
 
+        /// <summary>Addresses that get the FULL report (all employees) every day — e.g. HR head / management.</summary>
+        Task<List<string>> GetFullReportEmailsAsync(CancellationToken ct = default);
+        Task SaveFullReportEmailsAsync(string? emails, CancellationToken ct = default);
+
         /// <summary>Reason the last failed email failed, if any.</summary>
         string? LastSendError { get; }
     }
@@ -530,7 +534,8 @@ namespace AmpmHrmsPro.Services
         private async Task<(int Sent, int Failed)> SendMtdReportsAsync(DateOnly upto, CancellationToken ct)
         {
             var settings   = await _db.EmailSettingsList.FirstOrDefaultAsync(ct);
-            var recipients = await _db.GapReportRecipients.AsNoTracking().ToListAsync(ct);
+            var recipients = (await _db.GapReportRecipients.AsNoTracking().ToListAsync(ct))
+                .Where(r => r.HodName != FullReportKey).ToList();
             var alreadySent = (await _db.GapReportSends.AsNoTracking()
                     .Where(x => x.ReportDate == upto).Select(x => x.HodName).ToListAsync(ct))
                 .Select(NormName).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -574,7 +579,86 @@ namespace AmpmHrmsPro.Services
                     failed++;
                 }
             }
+
+            // Full report (all employees) — one email to every "full report" address.
+            var fullTo = await GetFullReportEmailsAsync(ct);
+            if (fullTo.Count > 0 && !alreadySent.Contains(NormName(FullReportKey)))
+            {
+                var req = await BuildFullReportEmailAsync(fullTo, upto, isTest: false, ct);
+                if (req != null)
+                {
+                    var (ok, message) = await _email.SendAsync(settings, req);
+                    if (ok)
+                    {
+                        _db.GapReportSends.Add(new GapReportSend
+                        {
+                            HodName = FullReportKey, ReportDate = upto, Email = Trunc(string.Join(", ", fullTo), 200), SentAt = DateTime.UtcNow
+                        });
+                        await _db.SaveChangesAsync(ct);
+                        sent++;
+                    }
+                    else
+                    {
+                        _log.LogError("Gap Analysis full report: failed to send to {Email}: {Msg}", string.Join(", ", fullTo), message);
+                        LastSendError = message;
+                        failed++;
+                    }
+                }
+            }
             return (sent, failed);
+        }
+
+        // ── Full report (all employees) ──────────────────────────────────────
+        // Stored as GapReportRecipient rows with this special "HoD" name, so no
+        // new table is needed. One row per address.
+        public const string FullReportKey = "__ALL_EMPLOYEES__";
+        public const string FullReportLabel = "All employees (full report)";
+
+        public async Task<List<string>> GetFullReportEmailsAsync(CancellationToken ct = default) =>
+            (await _db.GapReportRecipients.AsNoTracking().Where(r => r.HodName == FullReportKey).OrderBy(r => r.Id).ToListAsync(ct))
+                .Select(r => r.Email.Trim()).Where(e => e.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+        public async Task SaveFullReportEmailsAsync(string? emails, CancellationToken ct = default)
+        {
+            var list = (emails ?? "").Split(new[] { ',', ';', '\n', '\r', ' ' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            var bad = list.Where(e => !System.Net.Mail.MailAddress.TryCreate(e, out _)).ToList();
+            if (bad.Count > 0) throw new InvalidOperationException("Invalid full-report email — " + string.Join(", ", bad));
+
+            _db.GapReportRecipients.RemoveRange(_db.GapReportRecipients.Where(r => r.HodName == FullReportKey));
+            foreach (var e in list)
+                _db.GapReportRecipients.Add(new GapReportRecipient { HodName = FullReportKey, Email = e, UpdatedAt = DateTime.UtcNow });
+            await _db.SaveChangesAsync(ct);
+        }
+
+        private async Task<MailRequest?> BuildFullReportEmailAsync(List<string> to, DateOnly upto, bool isTest, CancellationToken ct)
+        {
+            var scope = await _report.ResolveScopeAsync(null, upto, ct);
+            if (scope.Count == 0) return null;
+            var rows = await _report.BuildRowsAsync(scope, upto, ct);
+            if (rows.Count == 0) return null;
+
+            var dateLabel = upto.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture);
+            var html = GapAnalysisEmail.BuildHtml("All Employees", rows, upto, fullReport: true);
+            if (isTest)
+                html = html.Replace("<body style='margin:0;padding:0;background:#f3f4f6;'>",
+                    "<body style='margin:0;padding:0;background:#f3f4f6;'>" +
+                    "<div style='background:#fff3cd;color:#664d03;font-family:Arial,sans-serif;font-size:13px;padding:10px 16px;text-align:center;'>" +
+                    "<b>TEST EMAIL</b> — this is exactly what the full-report recipients will receive. It was sent only to you.</div>");
+            return new MailRequest
+            {
+                To       = to.Take(1).ToList(),
+                Cc       = to.Skip(1).ToList(),
+                Subject  = (isTest ? "[TEST] " : "") + $"Gap Analysis — All Employees — {dateLabel}",
+                HtmlBody = html,
+                Attachments =
+                {
+                    new MailAttachment($"ALL_Employees_Attendance_MTD_{dateLabel}.xlsx",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        _report.BuildWorkbook(rows, upto))
+                }
+            };
         }
 
         // The exact Gap Analysis email a HoD gets (dashboard body + their team's
@@ -623,6 +707,16 @@ namespace AmpmHrmsPro.Services
             var import = await _db.AttendanceImports.FindAsync(new object[] { importId }, ct);
             if (import == null) return (false, "Import not found.");
 
+            if (hodName == FullReportKey)
+            {
+                var full = await BuildFullReportEmailAsync(new List<string> { testEmail }, import.ToDate, isTest: true, ct);
+                if (full == null) return (false, $"No attendance found up to {import.ToDate:dd-MMM-yyyy}.");
+                var (fok, fmsg) = await _email.SendAsync(await _db.EmailSettingsList.FirstOrDefaultAsync(ct), full);
+                return fok
+                    ? (true, $"Test of the full report (all employees) sent to {testEmail}. Nothing was sent to anyone else.")
+                    : (false, $"Test email failed — {fmsg}");
+            }
+
             var (req, scope) = await BuildHodEmailAsync(hodName, testEmail, import.ToDate, isTest: true, ct);
             if (req == null)
                 return (false, $"No team found for {hodName} on {import.ToDate:dd-MMM-yyyy}. Check the Master Sheet / Roster uploads.");
@@ -659,7 +753,7 @@ namespace AmpmHrmsPro.Services
         public async Task<Dictionary<string, string>> GetRecipientMapAsync(CancellationToken ct = default)
         {
             var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var r in await _db.GapReportRecipients.AsNoTracking().ToListAsync(ct))
+            foreach (var r in await _db.GapReportRecipients.AsNoTracking().Where(r => r.HodName != FullReportKey).ToListAsync(ct))
                 if (!string.IsNullOrWhiteSpace(r.Email))
                     map[NormName(r.HodName)] = r.Email.Trim();
             return map;
@@ -667,7 +761,7 @@ namespace AmpmHrmsPro.Services
 
         public async Task<List<HodRecipientRow>> GetRecipientRowsAsync(CancellationToken ct = default)
         {
-            var saved = await _db.GapReportRecipients.AsNoTracking().ToListAsync(ct);
+            var saved = await _db.GapReportRecipients.AsNoTracking().Where(r => r.HodName != FullReportKey).ToListAsync(ct);
 
             // Every HoD we know of: configured HoDs + anyone saved + HoDs seen in imports.
             var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -715,7 +809,7 @@ namespace AmpmHrmsPro.Services
             if (bad.Count > 0)
                 throw new InvalidOperationException("Invalid email address — " + string.Join("; ", bad));
 
-            _db.GapReportRecipients.RemoveRange(_db.GapReportRecipients);
+            _db.GapReportRecipients.RemoveRange(_db.GapReportRecipients.Where(r => r.HodName != FullReportKey));
             foreach (var v in clean.Values)
                 _db.GapReportRecipients.Add(new GapReportRecipient { HodName = v.Name, Email = v.Email, UpdatedAt = DateTime.UtcNow });
             await _db.SaveChangesAsync(ct);

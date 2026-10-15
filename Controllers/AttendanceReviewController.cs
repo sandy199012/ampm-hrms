@@ -108,7 +108,7 @@ namespace AmpmHrmsPro.Controllers
                 else if (sent == 0)
                     TempData["Error"] = "No emails sent — either they were already sent, or none of these HoDs has an email added on the HoD Emails page.";
                 else
-                    TempData["Success"] = $"Gap Analysis emailed to {sent} HoD(s).";
+                    TempData["Success"] = $"Gap Analysis sent — {sent} email(s) (HoDs + full report, if set).";
             }
             catch (Exception ex)
             {
@@ -123,19 +123,23 @@ namespace AmpmHrmsPro.Controllers
         {
             ViewData["Title"]    = "HoD Emails";
             ViewData["Subtitle"] = "Who receives the Gap Analysis email";
+            ViewBag.FullReportEmails = string.Join(", ", await _svc.GetFullReportEmailsAsync());
             return View(await _svc.GetRecipientRowsAsync());
         }
 
         // POST /AttendanceReview/Recipients — hodNames[i] ↔ emails[i]
         [HttpPost, ValidateAntiForgeryToken]
-        public async Task<IActionResult> Recipients(List<string> hodNames, List<string?> emails)
+        public async Task<IActionResult> Recipients(List<string> hodNames, List<string?> emails, string? fullReportEmails)
         {
             try
             {
+                await _svc.SaveFullReportEmailsAsync(fullReportEmails);
                 var rows = hodNames.Select((n, i) => (n, i < emails.Count ? emails[i] : null));
                 await _svc.SaveRecipientsAsync(rows);
                 var count = (await _svc.GetRecipientMapAsync()).Count;
-                TempData["Success"] = $"Saved. Gap Analysis emails will go to {count} HoD(s) — everyone else gets nothing.";
+                var full = (await _svc.GetFullReportEmailsAsync()).Count;
+                TempData["Success"] = $"Saved. Gap Analysis emails will go to {count} HoD(s)"
+                    + (full > 0 ? $", and the full all-employee report to {full} address(es)." : " — everyone else gets nothing.");
             }
             catch (InvalidOperationException ex)
             {

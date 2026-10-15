@@ -28,6 +28,19 @@
 
 <form method="post" asp-action="Recipients" onsubmit="renumberRows()">
     @Html.AntiForgeryToken()
+    <div class="card mb-3" style="border-left:4px solid var(--primary);">
+        <div class="card-header">
+            <i class="bi bi-people-fill me-1" style="color:var(--primary);"></i> Full report — all employees (CC)
+        </div>
+        <div class="card-body">
+            <p class="text-muted small mb-2">
+                These addresses get <b>one</b> email with the Gap Analysis of <b>every employee</b> (all HoDs' teams together) —
+                dashboard in the email + the complete Excel. Use it for HR head / management. Separate several emails with a comma.
+            </p>
+            <input type="text" name="fullReportEmails" value="@ViewBag.FullReportEmails" class="form-control"
+                   placeholder="e.g. hrhead@company.com, md@company.com" />
+        </div>
+    </div>
     <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center">
             <span><i class="bi bi-envelope-paper-fill me-1" style="color:var(--primary);"></i> HoD → email</span>
@@ -85,7 +98,8 @@
 
 <p class="text-muted small mt-3">
     What each HoD receives: subject <em>"Gap Analysis — &lt;HoD&gt; — &lt;date&gt;"</em>, a two-line message, and the Excel
-    <em>"Gap Analysis - &lt;HoD&gt; - &lt;date&gt;.xlsx"</em> covering everyone in their reporting line. No CC.
+    <em>"Gap Analysis - &lt;HoD&gt; - &lt;date&gt;.xlsx"</em> covering everyone in their reporting line. HoDs never see other teams;
+    only the full-report addresses above get everyone.
 </p>
 
 @section Scripts {
