@@ -233,6 +233,9 @@ builder.Services.Configure<AttendanceReviewOptions>(
 builder.Services.AddScoped<IGapAnalysisReport, GapAnalysisReport>();
 builder.Services.AddScoped<IAttendanceReviewService, AttendanceReviewService>();
 builder.Services.AddHostedService<AttendanceReviewEmailHostedService>();
+// Self-healing attendance: finishes any recompute a server restart cut short
+// and keeps HRMS attendance equal to the Presence 360 status.
+builder.Services.AddHostedService<AttendanceSyncHostedService>();
 
 var app = builder.Build();
 

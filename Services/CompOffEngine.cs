@@ -176,7 +176,7 @@ namespace AmpmHrmsPro.Services
 
             // Create a new Pending Application — routed to the reporting manager (HOD).
             string offDayType = isHoliday ? "Holiday" : "Week-Off";
-            db.Applications.Add(new Application
+            var compOffApp = new Application
             {
                 EmployeeId     = employeeId,
                 Type           = "CompOff",
@@ -190,15 +190,16 @@ namespace AmpmHrmsPro.Services
                 CreatedAt      = DateTime.Now,
                 ApproverEmployeeId = employee!.ReportingManagerId,
                 PendingAt          = employee.ReportingManager?.Name ?? "HR",
-            });
+            };
+            db.Applications.Add(compOffApp);
             await db.SaveChangesAsync();
 
-            // Notify the approver.
+            // Notify the approver (linked to the new request — 0 broke the FK).
             if (employee.ReportingManagerId.HasValue)
                 NotificationHelper.Notify(db, employee.ReportingManagerId.Value,
                     "Comp-Off credit request awaiting approval",
                     $"{employee.Name} worked on {offDayType} ({dateStr}) — {earnedDays:0.#} day(s) comp-off pending approval.",
-                    "Approval", 0);
+                    "Approval", compOffApp.Id);
             await db.SaveChangesAsync();
         }
 
