@@ -78,6 +78,15 @@ namespace AmpmHrmsPro.Services
                             workedMinutes = regMinutes;
                         }
                         break;
+                    case "Leave" when approvedApp.RequestedInTime.HasValue:
+                        // Short leave (a couple of hours, e.g. 09:30–11:30): the day
+                        // still counts as present if they came in; it only covers
+                        // the late coming / early going.
+                        effectiveStatus = inTime.HasValue || outTime.HasValue ? "P (SHL)" : rawStatus;
+                        break;
+                    case "Leave" when (approvedApp.LeaveType?.Name ?? "").Contains("week off", StringComparison.OrdinalIgnoreCase):
+                        effectiveStatus = "WO";   // approved week-off swap (retail rotational week off)
+                        break;
                     case "Leave":
                         string alias = approvedApp.LeaveType?.Alias ?? "L";
                         effectiveStatus = approvedApp.DayPart == "Single" ? $"L ({alias})" : $"HD (L-{alias})";

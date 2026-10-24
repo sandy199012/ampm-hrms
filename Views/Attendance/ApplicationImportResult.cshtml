@@ -1,0 +1,52 @@
+@model AmpmHrmsPro.Services.ApplicationReports.ImportResult
+@{
+    ViewData["Title"] = "Leave / Regularization / WFH / On Duty Import";
+    ViewData["Subtitle"] = "Attendance";
+    var types = new[] { "Leave", "Regularisation", "WFH", "OD" };
+}
+<div class="page-header">
+    <div>
+        <h1>Import complete</h1>
+        <p>@Model.Total request(s) saved from @Model.Files.Count report(s). @(ViewBag.RecomputeDays > 0 ? $"Attendance for {ViewBag.RecomputeDays} approved employee-day(s) is being recalculated in the background (a minute or two)." : "")</p>
+    </div>
+    <div class="d-flex gap-2">
+        <a href="@Url.Action("BulkAttendanceImport")" class="btn btn-light"><i class="bi bi-upload me-1"></i> Upload more</a>
+        <a href="@Url.Action("ApplicationReports", "Reports")" class="btn btn-primary"><i class="bi bi-file-earmark-spreadsheet me-1"></i> View reports</a>
+    </div>
+</div>
+<div class="row g-3 mb-3">
+    @foreach (var t in types.Where(t => Model.Created.ContainsKey(t)))
+    {
+        <div class="col-md-3">
+            <div class="card h-100"><div class="card-body">
+                <div class="text-soft" style="font-size:12px;">@AmpmHrmsPro.Services.ApplicationReports.Title(t)</div>
+                <div style="font-size:24px;font-weight:800;">@(Model.Created[t] + Model.Updated[t])</div>
+                <div class="small text-muted">@Model.Created[t] new · @Model.Updated[t] updated</div>
+            </div></div>
+        </div>
+    }
+</div>
+<div class="card mb-3">
+    <div class="card-header">Files read</div>
+    <div class="card-body small">@foreach (var f in Model.Files) { <div><i class="bi bi-check2 text-success me-1"></i>@f</div> }</div>
+</div>
+@if (Model.NotFound.Any())
+{
+    <div class="card mb-3">
+        <div class="card-header">Employees not found in HRMS (@Model.NotFound.Count) — their rows were skipped</div>
+        <div class="card-body small">
+            <p class="text-muted mb-2">Add these employees (Employee Master → Bulk Upload) and upload the report again.</p>
+            @foreach (var n in Model.NotFound) { <div>@n</div> }
+        </div>
+    </div>
+}
+@if (Model.LeaveTypesCreated.Any())
+{
+    <div class="card mb-3"><div class="card-header">New leave types created</div>
+        <div class="card-body small">@foreach (var n in Model.LeaveTypesCreated) { <div>@n</div> }</div></div>
+}
+@if (Model.Warnings.Any())
+{
+    <div class="card mb-3"><div class="card-header">Please check</div>
+        <div class="card-body small">@foreach (var w in Model.Warnings) { <div><i class="bi bi-exclamation-circle text-warning me-1"></i>@w</div> }</div></div>
+}

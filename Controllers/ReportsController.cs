@@ -172,6 +172,42 @@ namespace AmpmHrmsPro.Controllers
             return View(q.OrderByDescending(a => a.AppliedOn).ToList());
         }
 
+        // ═══ LEAVE / REGULARIZATION / WFH / ON DUTY — Presence 360 report format ═══
+        // Same columns as the Presence 360 exports, from HRMS data (imported
+        // requests + requests applied in HRMS / the mobile app).
+        public IActionResult ApplicationReports(string? type, string? from, string? to, string? status, int? departmentId, bool export = false)
+        {
+            type = type is "Regularisation" or "WFH" or "OD" ? type : "Leave";
+            var today = IndiaTime.Today;
+            var f = DateTime.TryParse(from, out var fd) ? fd : new DateTime(today.Year, today.Month, 1);
+            var t = DateTime.TryParse(to, out var td) ? td : f.AddMonths(1).AddDays(-1);
+            if (t < f) (f, t) = (t, f);
+            string fs = f.ToString("yyyy-MM-dd"), ts = t.ToString("yyyy-MM-dd");
+
+            var q = _db.Applications.AsNoTracking()
+                .Include(a => a.Employee).ThenInclude(e => e!.Department)
+                .Include(a => a.Employee).ThenInclude(e => e!.ReportingManager)
+                .Include(a => a.LeaveType).Include(a => a.Approver).Include(a => a.DecisionBy)
+                .Where(a => a.Type == type && string.Compare(a.FromDate, ts) <= 0 && string.Compare(a.ToDate, fs) >= 0);
+            if (!string.IsNullOrWhiteSpace(status)) q = q.Where(a => a.Status == status);
+            if (departmentId.HasValue) q = q.Where(a => a.Employee!.DepartmentId == departmentId);
+            var apps = q.OrderByDescending(a => a.AppliedOn).ToList();
+
+            if (export)
+            {
+                var company = User.FindFirst(TenantClaims.CompanyCode)?.Value ?? "HR";
+                return File(AmpmHrmsPro.Services.ApplicationReports.BuildWorkbook(type, apps),
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    $"{company}_{AmpmHrmsPro.Services.ApplicationReports.Title(type).Replace(' ', '_')}_{f:dd-MM-yyyy}_to_{t:dd-MM-yyyy}.xlsx");
+            }
+
+            ViewBag.Type = type; ViewBag.From = f; ViewBag.To = t; ViewBag.Status = status; ViewBag.DepartmentId = departmentId;
+            ViewBag.Departments = _db.Departments.Where(d => d.IsActive).OrderBy(d => d.Name).ToList();
+            ViewBag.Counts = _db.Applications.Where(a => string.Compare(a.FromDate, ts) <= 0 && string.Compare(a.ToDate, fs) >= 0)
+                .GroupBy(a => a.Type).Select(g => new { g.Key, N = g.Count() }).ToDictionary(x => x.Key, x => x.N);
+            return View(apps);
+        }
+
         // ═══ EMPLOYEE SUMMARY ═══
         public IActionResult EmployeeSummary(int? year, int? month)
         {

@@ -1,0 +1,82 @@
+@model List<Application>
+@{
+    string type = ViewBag.Type;
+    DateTime from = ViewBag.From, to = ViewBag.To;
+    string? status = ViewBag.Status;
+    int? deptId = ViewBag.DepartmentId;
+    var counts = ViewBag.Counts as Dictionary<string, int> ?? new();
+    ViewData["Title"] = AmpmHrmsPro.Services.ApplicationReports.Title(type);
+    ViewData["Subtitle"] = "Reports · same format as Presence 360";
+    var cols = AmpmHrmsPro.Services.ApplicationReports.Columns(type);
+    var rows = AmpmHrmsPro.Services.ApplicationReports.Rows(type, Model);
+    var tabs = new[] { ("Leave", "Leave"), ("Regularisation", "Regularization"), ("WFH", "Work From Home"), ("OD", "On Duty") };
+    object R(string t, bool export = false) => new { type = t, from = from.ToString("yyyy-MM-dd"), to = to.ToString("yyyy-MM-dd"), status, departmentId = deptId, export };
+    string Chip(string s) => s switch { "Approved" => "chip-success", "Pending" => "chip-warning", "Rejected" or "Revoked" or "Cancelled" => "chip-danger", _ => "chip-muted" };
+    int statusCol = Array.IndexOf(cols, "Status");
+}
+<div class="page-header">
+    <div>
+        <h1>Leave · Regularization · WFH · On Duty</h1>
+        <p>Download in the same Excel format as the Presence 360 reports. Upload new reports from Attendance → Bulk Import.</p>
+    </div>
+    <a href="@Url.Action("ApplicationReports", R(type, true))" class="btn btn-success"><i class="bi bi-file-earmark-excel me-1"></i> Download Excel</a>
+</div>
+
+<ul class="nav nav-tabs mb-3">
+    @foreach (var (key, label) in tabs)
+    {
+        <li class="nav-item">
+            <a class="nav-link @(type == key ? "active" : "")" href="@Url.Action("ApplicationReports", R(key))">@label <span class="chip chip-muted ms-1">@(counts.TryGetValue(key, out var n) ? n : 0)</span></a>
+        </li>
+    }
+</ul>
+
+<form method="get" class="card mb-3">
+    <input type="hidden" name="type" value="@type" />
+    <div class="card-body row g-2 align-items-end">
+        <div class="col-6 col-md-2"><label class="form-label small">From</label><input type="date" name="from" value="@from.ToString("yyyy-MM-dd")" class="form-control form-control-sm" /></div>
+        <div class="col-6 col-md-2"><label class="form-label small">To</label><input type="date" name="to" value="@to.ToString("yyyy-MM-dd")" class="form-control form-control-sm" /></div>
+        <div class="col-6 col-md-2">
+            <label class="form-label small">Status</label>
+            <select name="status" class="form-select form-select-sm">
+                <option value="">All</option>
+                @foreach (var s in new[] { "Approved", "Pending", "Rejected", "Revoked", "Cancelled" }) { <option selected="@(s == status)">@s</option> }
+            </select>
+        </div>
+        <div class="col-6 col-md-3">
+            <label class="form-label small">Department</label>
+            <select name="departmentId" class="form-select form-select-sm">
+                <option value="">All</option>
+                @foreach (var d in (List<Department>)ViewBag.Departments) { <option value="@d.Id" selected="@(d.Id == deptId)">@d.Name</option> }
+            </select>
+        </div>
+        <div class="col-md-2"><button class="btn btn-sm btn-primary w-100">Show</button></div>
+    </div>
+</form>
+
+<div class="card">
+    <div class="card-header d-flex justify-content-between">
+        <span>@ViewData["Title"] — @from.ToString("dd-MM-yyyy") to @to.ToString("dd-MM-yyyy")</span>
+        <span class="text-muted small">@Model.Count request(s) · @Model.Count(a => a.Status == "Approved") approved · @Model.Count(a => a.Status == "Pending") pending</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0 align-middle" style="font-size:12.5px;">
+            <thead><tr>@foreach (var c in cols) { <th class="text-nowrap">@c</th> }</tr></thead>
+            <tbody>
+                @foreach (var row in rows)
+                {
+                    <tr>
+                        @for (int i = 0; i < row.Length; i++)
+                        {
+                            var v = row[i]?.ToString();
+                            if (i == statusCol && v != null) { <td><span class="chip @Chip(v)">@v</span></td> }
+                            else if ((v?.Length ?? 0) > 28) { <td style="min-width:200px;max-width:280px;white-space:normal;">@v</td> }
+                            else { <td class="text-nowrap">@v</td> }
+                        }
+                    </tr>
+                }
+                @if (Model.Count == 0) { <tr><td colspan="@cols.Length" class="empty-state">No requests in this period.</td></tr> }
+            </tbody>
+        </table>
+    </div>
+</div>

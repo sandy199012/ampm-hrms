@@ -59,5 +59,22 @@ namespace AmpmHrmsPro.Models
         [ForeignKey("DecisionByEmployeeId")] public Employee? DecisionBy { get; set; }
 
         public DateTime CreatedAt { get; set; } = DateTime.Now;
+
+        // ── Extra fields carried by the Presence 360 Leave / Regularization /
+        // WFH / On Duty reports, so an imported record can be shown and
+        // exported back in exactly the same report format. ──
+        [MaxLength(20)]  public string? Source        { get; set; }   // null = applied in HRMS, "P360Import" = uploaded
+        [MaxLength(30)]  public string? DurationLabel { get; set; }   // Single, Multiple, First Half Day, Full Day, Second Half …
+        [MaxLength(10)]  public string? ApprovalLevel { get; set; }
+        [MaxLength(300)] public string? FromLocation  { get; set; }
+        [MaxLength(300)] public string? ToLocation    { get; set; }
+        [MaxLength(150)] public string? CustomerName  { get; set; }
+        [MaxLength(40)]  public string? CompensateAs  { get; set; }
+        [MaxLength(10)]  public string? CompOffDate   { get; set; }   // YYYY-MM-DD
+        [MaxLength(10)]  public string? OriginalInTime  { get; set; } // regularisation: the actual punch "HH:mm:ss"
+        [MaxLength(10)]  public string? OriginalOutTime { get; set; }
+        [MaxLength(300)] public string? Attachment    { get; set; }
+        [MaxLength(120)] public string? AppliedBy     { get; set; }
+        [MaxLength(500)] public string? ApproverChain { get; set; }   // "ASHOK KUMAR(approved)"
     }
 }

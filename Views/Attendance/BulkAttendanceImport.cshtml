@@ -12,6 +12,27 @@
     <a href="@Url.Action("ApiSettings")" class="btn btn-light"><i class="bi bi-plug-fill me-1"></i> API Settings instead</a>
 </div>
 
+<div class="card mb-3" style="border-left:4px solid var(--primary);">
+    <div class="card-header"><i class="bi bi-calendar2-check me-1"></i> Leave · Regularization · Work From Home · On Duty</div>
+    <div class="card-body">
+        <p class="text-soft mb-3" style="font-size:12.5px;">
+            Upload the Presence 360 <b>Leave Report</b>, <b>Regularization Data Report</b>, <b>Work From Home Data Report</b> and
+            <b>On Duty Data Report</b> — all four together or one at a time. The report type is detected automatically.
+            <b>Approved</b> requests change attendance (Leave → L (CL) / HD, Regularization → corrected in/out, WFH → P (WFH), On Duty → P (OD));
+            pending / rejected ones are kept for the reports. Upload a newer export any time — the same requests are updated, not duplicated.
+        </p>
+        <form method="post" asp-action="ImportApplications" enctype="multipart/form-data" class="d-flex gap-2 flex-wrap align-items-end">
+            @Html.AntiForgeryToken()
+            <div class="flex-grow-1" style="min-width:260px;">
+                <label class="form-label">Report files (.xlsx)</label>
+                <input type="file" name="files" class="form-control" accept=".xlsx" multiple required />
+            </div>
+            <button type="submit" class="btn btn-primary"><i class="bi bi-upload me-1"></i> Upload</button>
+            <a href="@Url.Action("ApplicationReports", "Reports")" class="btn btn-light"><i class="bi bi-file-earmark-spreadsheet me-1"></i> View reports</a>
+        </form>
+    </div>
+</div>
+
 <div class="row g-3">
     @if (profiles.Any())
     {

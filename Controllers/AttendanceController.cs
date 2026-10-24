@@ -234,6 +234,71 @@ namespace AmpmHrmsPro.Controllers
             return View();
         }
 
+        // ═══════════════════════════════════════════
+        // LEAVE / REGULARIZATION / WFH / ON DUTY upload — the Presence 360
+        // reports go into Applications (type detected from the columns); the
+        // approved ones then change the attendance of those days.
+        // ═══════════════════════════════════════════
+        [HttpPost, ValidateAntiForgeryToken, RequestSizeLimit(40_000_000)]
+        public async Task<IActionResult> ImportApplications(List<IFormFile> files)
+        {
+            files = (files ?? new()).Where(f => f != null && f.Length > 0).ToList();
+            if (files.Count == 0)
+            { TempData["Error"] = "Please choose at least one Leave / Regularization / WFH / On Duty report."; return RedirectToAction("BulkAttendanceImport"); }
+
+            var streams = new List<(string, Stream)>();
+            try
+            {
+                foreach (var f in files)
+                {
+                    var ms = new MemoryStream();
+                    await f.CopyToAsync(ms); ms.Position = 0;
+                    streams.Add((f.FileName, ms));
+                }
+                var result = await ApplicationReports.ImportAsync(_db, streams);
+
+                // Re-calculate attendance for the approved days in the background.
+                var work = result.ToRecompute
+                    .Select(x => (x.EmployeeId, x.From, To: x.To > DateTime.Today ? DateTime.Today : x.To))
+                    .Where(x => x.From <= x.To).Distinct().ToList();
+                if (work.Count > 0)
+                {
+                    var companyId = _db.CurrentCompanyId;
+                    _ = Task.Run(async () =>
+                    {
+                        // One recompute run at a time — two uploads close together
+                        // must not write the same employee-day twice.
+                        await ApplicationReports.RecomputeLock.WaitAsync();
+                        try
+                        {
+                            using var scope = _scopeFactory.CreateScopeFor(companyId);
+                            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                            db.AuditEnabled = false;
+                            foreach (var (empId, from, to) in work)
+                            {
+                                try { await AttendanceEngine.RecomputeRangeAsync(db, empId, from, to); }
+                                catch { db.ChangeTracker.Clear(); /* one bad day must not stop the rest */ }
+                            }
+                        }
+                        finally { ApplicationReports.RecomputeLock.Release(); }
+                    });
+                }
+                ViewBag.RecomputeDays = work.Sum(x => (int)(x.To - x.From).TotalDays + 1);
+                _db.Audit("Import", $"Imported {result.Total} leave / regularization / WFH / on-duty requests from {files.Count} file(s)");
+                await _db.SaveChangesAsync();
+                return View("ApplicationImportResult", result);
+            }
+            catch (Exception ex)
+            {
+                TempData["Error"] = $"Import failed: {ex.Message}";
+                return RedirectToAction("BulkAttendanceImport");
+            }
+            finally
+            {
+                foreach (var (_, st) in streams) st.Dispose();
+            }
+        }
+
         // Step 1 — read the header row only, show the mapping screen.
         [HttpPost, ValidateAntiForgeryToken]
         public IActionResult UploadForMapping(IFormFile file)
