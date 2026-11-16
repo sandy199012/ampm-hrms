@@ -275,7 +275,32 @@ if (!app.Environment.IsDevelopment())
     // HTTPS itself or the browser gets a 400 "Bad Request" loop.
 }
 
-app.UseStaticFiles();
+// ── iPhone / browser version of the mobile app ─────────────────────────────
+// The Flutter web build lives in wwwroot/app → https://<server>/app/
+// Employees open it in Safari and "Add to Home Screen" to use it like an app.
+app.Use(async (ctx, next) =>
+{
+    var p = ctx.Request.Path.Value ?? "";
+    if (p.Equals("/app", StringComparison.OrdinalIgnoreCase)) { ctx.Response.Redirect("/app/"); return; }
+    if (p.Equals("/app/", StringComparison.OrdinalIgnoreCase)) ctx.Request.Path = "/app/index.html";
+    await next();
+});
+var staticTypes = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();
+staticTypes.Mappings[".frag"] = "application/octet-stream";      // Flutter shaders
+staticTypes.Mappings[".symbols"] = "application/octet-stream";
+staticTypes.Mappings[".mjs"] = "text/javascript";
+staticTypes.Mappings[".webmanifest"] = "application/manifest+json";
+app.UseStaticFiles(new StaticFileOptions
+{
+    ContentTypeProvider = staticTypes,
+    OnPrepareResponse = c =>
+    {
+        // The web app keeps the same file names between releases — always
+        // re-check with the server so a new version shows up straight away.
+        if (c.Context.Request.Path.StartsWithSegments("/app"))
+            c.Context.Response.Headers.CacheControl = "no-cache";
+    }
+});
 app.UseRouting();
 app.UseAuthentication();
 app.UseMiddleware<TenantGuardMiddleware>();
