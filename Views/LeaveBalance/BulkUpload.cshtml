@@ -54,7 +54,8 @@
 
 <div class="mt-4 format-box">
     <strong>Expected Excel Column Layout (rows 4 onwards)</strong>
-    <p class="mt-2 mb-1">Use the <strong>EL_BulkUpload_Template.xlsx</strong> or <strong>CL_BulkUpload_Template.xlsx</strong> files as the upload template. The system reads these exact columns:</p>
+    <p class="mt-2 mb-1"><strong>AMPM payroll file</strong> (e.g. <em>EL_DATA_AS_ON_30.09.2026.xlsx</em>): upload it as it is — the "Salary" sheet is read automatically (Paycode, opening, month-wise EARNED / CONSUMED for Jan–Dec). The leave type is taken from the sheet (EL / CL / SL).</p>
+    <p class="mt-2 mb-1">Or use the <strong>EL_BulkUpload_Template.xlsx</strong> or <strong>CL_BulkUpload_Template.xlsx</strong> files as the upload template. The system reads these exact columns:</p>
     <code>A = S.No (ignored)</code>
     <code>B = Employee Code  ← must match the Emp Code in HRMS exactly</code>
     <code>C = Name (ignored)</code>

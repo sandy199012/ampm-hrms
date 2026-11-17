@@ -92,6 +92,19 @@ namespace AmpmHrmsPro.Controllers
 
             using var wb = new XLWorkbook(stream);
 
+            // ── AMPM payroll workbook ("SL/EL/CL DATA AS ON …"): a "Salary" sheet
+            //    with Paycode, opening balance, month-wise EARNED and CONSUMED
+            //    (Jan–Dec) and BAL. Read all 12 months straight from it.
+            foreach (var sheet in wb.Worksheets)
+            {
+                var layout = PayrollLayout.Detect(sheet);
+                if (layout == null) continue;
+                var r = await ImportPayrollSheetAsync(sheet, layout, layout.TypeCode ?? leaveTypeCode, year);
+                TempData["Success"] = r.Message;
+                if (r.Warnings.Count > 0) TempData["UploadErrors"] = string.Join("\n", r.Warnings.Take(40));
+                return RedirectToAction(nameof(Index), new { leaveType = layout.TypeCode ?? leaveTypeCode, year });
+            }
+
             // Use the first sheet (report = "EL Report"/"CL Report", template = "EL Bulk Upload"/"CL Bulk Upload")
             IXLWorksheet ws = wb.Worksheets.First();
 
@@ -250,6 +263,98 @@ namespace AmpmHrmsPro.Controllers
         }
 
         // ── Helper: safely parse a cell as decimal ─────────────────────────
+        // ── Payroll workbook import ───────────────────────────────────────
+        // Payroll workbooks are full of formulas (some pointing at other files):
+        // always read the value Excel saved, never re-calculate.
+        static XLCellValue Val(IXLCell c) { try { return c.HasFormula ? c.CachedValue : c.Value; } catch { return Blank.Value; } }
+        static string Txt(IXLCell c)
+        {
+            var v = Val(c);
+            var s = v.IsText ? v.GetText() : v.IsNumber ? v.GetNumber().ToString(System.Globalization.CultureInfo.InvariantCulture) : v.IsBlank ? "" : v.ToString();
+            return s.Trim();
+        }
+        static decimal Num(IXLCell c)
+        {
+            var v = Val(c);
+            if (v.IsNumber) return (decimal)v.GetNumber();
+            return decimal.TryParse(Txt(c), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : 0;
+        }
+
+        sealed class PayrollLayout
+        {
+            public int HeaderRow, CodeCol, NameCol, OpeningCol;
+            public string? TypeCode;
+            public List<(int Col, int Month)> Earned = new(), Consumed = new();
+
+            public static PayrollLayout? Detect(IXLWorksheet ws)
+            {
+                for (int r = 1; r <= 12; r++)
+                {
+                    var codeCell = ws.Row(r).CellsUsed().FirstOrDefault(c => Txt(c).Equals("Paycode", StringComparison.OrdinalIgnoreCase));
+                    if (codeCell == null) continue;
+                    var months = ws.Row(r).CellsUsed().Where(c => Val(c).IsDateTime).Select(c => (Col: c.Address.ColumnNumber, Month: Val(c).GetDateTime().Month)).OrderBy(x => x.Col).ToList();
+                    if (months.Count == 0 || r == 1) return null;
+                    int earnedStart = 0, consumedStart = 0; string? type = null;
+                    foreach (var g in ws.Row(r - 1).CellsUsed())
+                    {
+                        var t = Txt(g).ToUpperInvariant();
+                        if (t.Contains("EARNED") && earnedStart == 0) { earnedStart = g.Address.ColumnNumber; type ??= t[..2]; }
+                        if (t.Contains("CONSUMED") && consumedStart == 0) { consumedStart = g.Address.ColumnNumber; type ??= t[..2]; }
+                    }
+                    if (consumedStart == 0) return null;
+                    var name = ws.Row(r).CellsUsed().FirstOrDefault(c => Txt(c).Equals("Name", StringComparison.OrdinalIgnoreCase));
+                    return new PayrollLayout
+                    {
+                        HeaderRow = r, CodeCol = codeCell.Address.ColumnNumber, NameCol = name?.Address.ColumnNumber ?? 0,
+                        OpeningCol = months[0].Col - 1,
+                        TypeCode = type is "EL" or "CL" or "SL" ? type : null,
+                        Earned = earnedStart > 0 ? months.Where(m => m.Col >= earnedStart && m.Col < consumedStart).ToList() : new(),
+                        Consumed = months.Where(m => m.Col >= consumedStart).ToList(),
+                    };
+                }
+                return null;
+            }
+        }
+
+        async Task<(string Message, List<string> Warnings)> ImportPayrollSheetAsync(IXLWorksheet ws, PayrollLayout L, string type, int year)
+        {
+            var warnings = new List<string>();
+            var emps = await _db.Employees.AsNoTracking().Select(e => new { e.Id, e.EmpCode, e.Name, e.IsActive }).ToListAsync();
+            var byCode = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            foreach (var e in emps.OrderByDescending(e => e.IsActive))
+                byCode.TryAdd(e.EmpCode.Trim().TrimStart('0'), e.Id);
+            var existing = await _db.LeaveBalances.Where(b => b.LeaveTypeCode == type && b.Year == year).ToListAsync();
+            var done = new HashSet<int>();
+            int inserted = 0, updated = 0, skipped = 0;
+            int last = ws.LastRowUsed()?.RowNumber() ?? L.HeaderRow;
+            for (int r = L.HeaderRow + 1; r <= last; r++)
+            {
+                var raw = Txt(ws.Cell(r, L.CodeCol));
+                if (raw.EndsWith(".0")) raw = raw[..^2];
+                if (raw.Length == 0) continue;
+                var name = L.NameCol > 0 ? Txt(ws.Cell(r, L.NameCol)) : "";
+                // "10749-" etc. is not a clean code — never guess which employee it is.
+                if (!System.Text.RegularExpressions.Regex.IsMatch(raw, "^[0-9A-Za-z]+$") || !byCode.TryGetValue(raw.TrimStart('0'), out var empId))
+                { warnings.Add($"{raw} {name}: not in Employee Master — skipped."); skipped++; continue; }
+                if (!done.Add(empId)) { warnings.Add($"{raw} {name}: code appears twice in the file — second row skipped."); skipped++; continue; }
+
+                var lb = existing.FirstOrDefault(b => b.EmployeeId == empId);
+                if (lb == null) { lb = new LeaveBalance { EmployeeId = empId, LeaveTypeCode = type, Year = year }; _db.LeaveBalances.Add(lb); inserted++; }
+                else updated++;
+                var earned = new decimal[12]; var consumed = new decimal[12];
+                foreach (var (col, m) in L.Earned) earned[m - 1] += Num(ws.Cell(r, col));
+                foreach (var (col, m) in L.Consumed) consumed[m - 1] += Num(ws.Cell(r, col));
+                lb.CarryForward = Num(ws.Cell(r, L.OpeningCol));
+                (lb.EarnedJan, lb.EarnedFeb, lb.EarnedMar, lb.EarnedApr, lb.EarnedMay, lb.EarnedJun) = (earned[0], earned[1], earned[2], earned[3], earned[4], earned[5]);
+                (lb.EarnedJul, lb.EarnedAug, lb.EarnedSep, lb.EarnedOct, lb.EarnedNov, lb.EarnedDec) = (earned[6], earned[7], earned[8], earned[9], earned[10], earned[11]);
+                (lb.ConsumedJan, lb.ConsumedFeb, lb.ConsumedMar, lb.ConsumedApr, lb.ConsumedMay, lb.ConsumedJun) = (consumed[0], consumed[1], consumed[2], consumed[3], consumed[4], consumed[5]);
+                (lb.ConsumedJul, lb.ConsumedAug, lb.ConsumedSep, lb.ConsumedOct, lb.ConsumedNov, lb.ConsumedDec) = (consumed[6], consumed[7], consumed[8], consumed[9], consumed[10], consumed[11]);
+                lb.UpdatedAt = DateTime.Now;
+            }
+            await _db.SaveChangesAsync();
+            return ($"{type} {year} (payroll sheet \"{ws.Name.Trim()}\", Jan–Dec): {inserted} added, {updated} updated, {skipped} skipped.", warnings);
+        }
+
         private static decimal GetDecimal(IXLCell cell)
         {
             try
