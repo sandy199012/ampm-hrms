@@ -191,6 +191,9 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<IBiometricSyncService, BiometricSyncService>();
 builder.Services.AddHostedService<BiometricSyncHostedService>();
+// ── Presence 360 API: attendance + leave + on duty + regularization pull (Admin > Presence 360 API) ──
+builder.Services.AddScoped<IPresence360ApiService, Presence360ApiService>();
+builder.Services.AddHostedService<Presence360SyncHostedService>();
 
 // ── Mobile app support — JWT issuing/validation for the React Native app's
 // login, and the vendor-agnostic face-match verification called from

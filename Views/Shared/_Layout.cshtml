@@ -272,6 +272,9 @@
                 </a>
                 @if (Mod(Modules.Attendance))
                 {
+                <a class="sidebar-link @(IsActive("Attendance","Presence360") ? "active" : "")" asp-controller="Attendance" asp-action="Presence360">
+                    <i class="bi bi-cloud-arrow-down-fill"></i> Presence 360 API
+                </a>
                 <a class="sidebar-link @(IsActive("Attendance","ApiSettings") ? "active" : "")" asp-controller="Attendance" asp-action="ApiSettings">
                     <i class="bi bi-plug-fill"></i> Biometric API
                 </a>

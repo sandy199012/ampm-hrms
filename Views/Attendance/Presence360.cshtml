@@ -1,0 +1,162 @@
+@model P360ApiSettings
+@{
+    ViewData["Title"] = "Presence 360 API";
+    ViewData["Subtitle"] = "Attendance";
+    bool running = ViewBag.Running == true;
+    bool hasSecret = !string.IsNullOrEmpty(Model.ClientSecretEnc);
+    bool hasPassword = !string.IsNullOrEmpty(Model.PasswordEnc);
+    var today = AmpmHrmsPro.Services.IndiaTime.Today;
+}
+
+<div class="page-header">
+    <div>
+        <h1>Presence 360 API</h1>
+        <p>Attendance, leave, on duty and regularization come in from Presence 360 automatically — no more daily file uploads</p>
+    </div>
+    <a href="@Url.Action("BulkAttendanceImport")" class="btn btn-light"><i class="bi bi-file-earmark-arrow-up me-1"></i> File upload instead</a>
+</div>
+
+@if (running)
+{
+    <div class="alert alert-info mb-3"><span class="spinner-border spinner-border-sm me-2"></span>A sync is running now — refresh this page in a minute.</div>
+}
+@if (Model.LastSyncAt.HasValue)
+{
+    <div class="alert @(Model.LastSyncStatus == "Success" ? "alert-success" : "alert-danger") mb-3">
+        <strong>Last run:</strong> @AmpmHrmsPro.Services.IndiaTime.FromUtc(Model.LastSyncAt.Value).ToString("dd-MMM-yyyy hh:mm tt") — @Model.LastSyncStatus<br />
+        <span class="small">@Model.LastSyncMessage</span>
+    </div>
+}
+
+<div class="row g-3">
+    <div class="col-lg-7">
+        <form method="post" asp-action="SavePresence360" autocomplete="off">
+            @Html.AntiForgeryToken()
+            <div class="card mb-3">
+                <div class="card-header">Login (from Presence 360)</div>
+                <div class="card-body">
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" asp-for="IsEnabled" id="isEnabled" />
+                        <label class="form-check-label" for="isEnabled">Enabled — sync automatically in the background</label>
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Admin username / email</label>
+                            <input type="text" asp-for="Username" class="form-control" autocomplete="off" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Admin password</label>
+                            <input type="password" name="password" class="form-control" autocomplete="new-password"
+                                   placeholder="@(hasPassword ? "•••••••• saved — leave blank to keep" : "")" />
+                        </div>
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Client ID</label>
+                            <input type="text" asp-for="ClientId" class="form-control" autocomplete="off" />
+                        </div>
+                        <div class="col-md-8">
+                            <label class="form-label">Client Secret</label>
+                            <input type="password" name="clientSecret" class="form-control" autocomplete="new-password"
+                                   placeholder="@(hasSecret ? "•••••••• saved — leave blank to keep" : "")" />
+                        </div>
+                    </div>
+                    <div class="form-text mb-3"><i class="bi bi-shield-lock me-1"></i>Password and client secret are stored encrypted and are never shown again.</div>
+                    <div class="row g-2">
+                        <div class="col-md-8">
+                            <label class="form-label">API base URL</label>
+                            <input type="text" asp-for="BaseUrl" class="form-control" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Organization</label>
+                            <select asp-for="Organization" class="form-select">
+                                <option value="">Own organization</option>
+                                <option value="all">All organizations</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header">What to bring in</div>
+                <div class="card-body">
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" asp-for="SyncAttendance" id="sa" />
+                        <label class="form-check-label" for="sa"><strong>Attendance</strong> — in / out time of every employee, every day</label>
+                    </div>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" asp-for="SyncLeaves" id="sl" />
+                        <label class="form-check-label" for="sl"><strong>Leave</strong> — leave requests with status (approved leave shows in attendance)</label>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" asp-for="SyncRequests" id="sr" />
+                        <label class="form-check-label" for="sr"><strong>On Duty &amp; Regularization</strong> requests</label>
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <label class="form-label">Sync every (minutes)</label>
+                            <input type="number" asp-for="SyncIntervalMinutes" class="form-control" min="10" max="1440" />
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">Re-check past days</label>
+                            <input type="number" asp-for="DaysBack" class="form-control" min="0" max="31" />
+                            <div class="form-text">Catches late approvals &amp; corrected punches.</div>
+                        </div>
+                    </div>
+                    <div class="form-text mt-2">Work From Home is not in the Presence 360 API — keep uploading the WFH report file for that.</div>
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary"><i class="bi bi-check2 me-1"></i> Save settings</button>
+        </form>
+    </div>
+
+    <div class="col-lg-5">
+        <div class="card mb-3">
+            <div class="card-header">Check the connection</div>
+            <div class="card-body">
+                <p class="small text-muted mb-3">Logs in to Presence 360 with the saved details and reads yesterday's and today's attendance.</p>
+                <form method="post" asp-action="TestPresence360">
+                    @Html.AntiForgeryToken()
+                    <button type="submit" class="btn btn-outline-primary w-100" @(string.IsNullOrEmpty(Model.Username) ? "disabled" : "")>
+                        <i class="bi bi-plug me-1"></i> Test connection
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-header">Sync now</div>
+            <div class="card-body">
+                <form method="post" asp-action="SyncPresence360">
+                    @Html.AntiForgeryToken()
+                    <div class="row g-2 mb-3">
+                        <div class="col-6">
+                            <label class="form-label">From</label>
+                            <input type="date" name="from" class="form-control" value="@(new DateTime(today.Year, today.Month, 1).ToString("yyyy-MM-dd"))" />
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label">To</label>
+                            <input type="date" name="to" class="form-control" value="@today.ToString("yyyy-MM-dd")" />
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100" @(string.IsNullOrEmpty(Model.Username) || running ? "disabled" : "")>
+                        <i class="bi bi-arrow-repeat me-1"></i> Sync this period
+                    </button>
+                    <div class="form-text">Up to 62 days at a time. Safe to repeat — nothing is duplicated.</div>
+                </form>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrEmpty(Model.LastSampleResponse))
+        {
+            <div class="card">
+                <div class="card-header">Last response from Presence 360 <span class="text-muted small">(for troubleshooting)</span></div>
+                <div class="card-body p-0">
+                    <pre class="small mb-0 p-3" style="max-height:280px;overflow:auto;white-space:pre-wrap;word-break:break-all">@Model.LastSampleResponse</pre>
+                </div>
+            </div>
+        }
+    </div>
+</div>

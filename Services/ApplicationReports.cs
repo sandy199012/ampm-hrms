@@ -82,12 +82,19 @@ namespace AmpmHrmsPro.Services
             if (c.IsEmpty()) return null;
             if (c.Value.IsDateTime) return c.Value.GetDateTime();
             if (c.Value.IsNumber) { var n = c.Value.GetNumber(); return n > 20000 && n < 80000 ? DateTime.FromOADate(n) : null; }
-            var s = c.GetString().Trim();
-            // Short leave: "22-10-2026 (09:30)"
+            return ParseDateText(c.GetString());
+        }
+
+        /// <summary>"22-10-2026", "22-10-2026 09:30", "2026-10-22 09:30:00", short leave "22-10-2026 (09:30)".</summary>
+        public static DateTime? ParseDateText(string? text)
+        {
+            var s = (text ?? "").Trim();
+            if (s.Length == 0 || s == "-") return null;
             var m = Regex.Match(s, @"^(.+?)\s*\((\d{1,2}:\d{2})\)$");
             if (m.Success) s = m.Groups[1].Value + " " + m.Groups[2].Value;
             if (DateTime.TryParseExact(s, DateTimeFormats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt)) return dt;
             if (DateTime.TryParseExact(s, DateFormats, CultureInfo.InvariantCulture, DateTimeStyles.None, out dt)) return dt;
+            if (DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.None, out dt)) return dt;
             return null;
         }
 
@@ -122,16 +129,95 @@ namespace AmpmHrmsPro.Services
             return m.Count > 0 ? m[^1].Groups[1].Value.Trim() : null;
         }
 
-        public static async Task<ImportResult> ImportAsync(AppDbContext db, IEnumerable<(string FileName, Stream Data)> files)
+        // ── One report row, whether it came from an Excel export or the API ──
+        public interface IReportRow
         {
-            var result = new ImportResult();
-            var emps = await db.Employees.AsNoTracking().Select(e => new { e.Id, e.EmpCode, e.Name, e.IsActive }).ToListAsync();
-            var byCode = new Dictionary<string, int>();
-            foreach (var e in emps.OrderByDescending(e => e.IsActive)) byCode.TryAdd(CodeKey(e.EmpCode), e.Id);
-            var byName = emps.GroupBy(e => NameKey(e.Name)).Where(g => g.Count() == 1).ToDictionary(g => g.Key, g => g.First().Id);
-            var leaveTypes = await db.LeaveTypes.ToListAsync();
-            var existing = await db.Applications.ToListAsync();
-            var notFound = new HashSet<string>();
+            bool Has(string header);
+            string? Text(string header);
+            DateTime? Date(string header);
+            string? Time(string header);
+        }
+
+        sealed class ExcelRow : IReportRow
+        {
+            readonly IXLWorksheet _ws; readonly int _r; readonly Dictionary<string, int> _col;
+            public ExcelRow(IXLWorksheet ws, int r, Dictionary<string, int> col) { _ws = ws; _r = r; _col = col; }
+            public bool Has(string h) => _col.ContainsKey(h);
+            IXLCell? Cell(string h) => _col.TryGetValue(h, out var c) ? _ws.Cell(_r, c) : null;
+            public string? Text(string h) => Cell(h) is { } c ? ApplicationReports.Text(c) : null;
+            public DateTime? Date(string h) => Cell(h) is { } c ? ParseDate(c) : null;
+            public string? Time(string h) => Cell(h) is { } c ? TimeText(c) : null;
+        }
+
+        /// <summary>A row built from an API record, keyed by the same column names as the Excel report.</summary>
+        public sealed class DictRow : IReportRow
+        {
+            readonly Dictionary<string, string?> _d;
+            public DictRow(Dictionary<string, string?> d) => _d = new Dictionary<string, string?>(d, StringComparer.OrdinalIgnoreCase);
+            public bool Has(string h) => _d.ContainsKey(h);
+            public string? Text(string h)
+            {
+                if (!_d.TryGetValue(h, out var v) || v == null) return null;
+                v = v.Trim();
+                return v.Length == 0 || v == "-" ? null : v;
+            }
+            public DateTime? Date(string h) => ParseDateText(Text(h));
+            public string? Time(string h)
+            {
+                var t = Text(h);
+                if (t == null) return null;
+                var d = ParseDateText(t);
+                return d.HasValue ? d.Value.ToString("HH:mm:ss") : t;
+            }
+        }
+
+        public static Task<ImportResult> ImportAsync(AppDbContext db, IEnumerable<(string FileName, Stream Data)> files) =>
+            new Importer(db, SourceP360).ImportFilesAsync(files);
+
+        /// <summary>Same upsert as the Excel import, for rows fetched from the Presence 360 API.</summary>
+        public static async Task<ImportResult> ImportRowsAsync(AppDbContext db, IEnumerable<(string Type, IReportRow Row)> rows, string source, string label)
+        {
+            var imp = new Importer(db, source);
+            await imp.LoadAsync();
+            var n = 0;
+            foreach (var (type, row) in rows)
+            {
+                n++;
+                imp.Result.Created.TryAdd(type, 0); imp.Result.Updated.TryAdd(type, 0);
+                imp.AddRow(type, row, $"{label} #{n}");
+            }
+            return await imp.FinishAsync();
+        }
+
+        sealed class Importer
+        {
+            readonly AppDbContext db;
+            readonly string source;
+            public readonly ImportResult Result = new();
+            Dictionary<string, int> byCode = new();
+            Dictionary<string, int> byName = new();
+            List<LeaveType> leaveTypes = new();
+            List<Application> existing = new();
+            readonly HashSet<string> notFound = new();
+
+            public Importer(AppDbContext db, string source) { this.db = db; this.source = source; }
+
+            public async Task LoadAsync()
+            {
+                var emps = await db.Employees.AsNoTracking().Select(e => new { e.Id, e.EmpCode, e.Name, e.IsActive }).ToListAsync();
+                byCode = new Dictionary<string, int>();
+                foreach (var e in emps.OrderByDescending(e => e.IsActive)) byCode.TryAdd(CodeKey(e.EmpCode), e.Id);
+                byName = emps.GroupBy(e => NameKey(e.Name)).Where(g => g.Count() == 1).ToDictionary(g => g.Key, g => g.First().Id);
+                leaveTypes = await db.LeaveTypes.ToListAsync();
+                existing = await db.Applications.ToListAsync();
+            }
+
+            public async Task<ImportResult> FinishAsync()
+            {
+                Result.NotFound.AddRange(notFound.OrderBy(x => x));
+                await db.SaveChangesAsync();
+                return Result;
+            }
 
             int? Emp(string? code, string? name)
             {
@@ -154,153 +240,159 @@ namespace AmpmHrmsPro.Services
                 while (leaveTypes.Any(t => t.Alias == alias)) alias += "X";
                 lt = new LeaveType
                 {
-                    Name = System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(name.Trim().ToLowerInvariant()),
+                    Name = CultureInfo.InvariantCulture.TextInfo.ToTitleCase(name.Trim().ToLowerInvariant()),
                     Alias = alias.Length > 10 ? alias[..10] : alias, Frequency = "On Request",
                 };
                 db.LeaveTypes.Add(lt); leaveTypes.Add(lt);
-                result.LeaveTypesCreated.Add($"{lt.Name} ({lt.Alias})");
+                Result.LeaveTypesCreated.Add($"{lt.Name} ({lt.Alias})");
                 return lt;
             }
 
-            foreach (var (fileName, data) in files)
+            public async Task<ImportResult> ImportFilesAsync(IEnumerable<(string FileName, Stream Data)> files)
             {
-                using var wb = new XLWorkbook(data);
-                var ws = wb.Worksheets.First();
-                // header row = first row that has an "Employee Code" cell
-                int hdr = 0;
-                for (int r = 1; r <= 10 && hdr == 0; r++)
-                    if (ws.Row(r).CellsUsed().Any(c => c.GetString().Trim().Equals("Employee Code", StringComparison.OrdinalIgnoreCase))) hdr = r;
-                if (hdr == 0) { result.Warnings.Add($"{fileName}: no 'Employee Code' column — skipped."); continue; }
-
-                var col = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                foreach (var c in ws.Row(hdr).CellsUsed()) col.TryAdd(c.GetString().Trim(), c.Address.ColumnNumber);
-                IXLCell Cell(int r, string h) => col.TryGetValue(h, out var c) ? ws.Cell(r, c) : ws.Cell(r, 16384);
-                string? T(int r, string h) => col.ContainsKey(h) ? Text(Cell(r, h)) : null;
-
-                string type = col.ContainsKey("Leave Type") ? "Leave"
-                            : col.ContainsKey("Request From Date") ? "WFH"
-                            : col.ContainsKey("Punch In Time") && col.ContainsKey("Requested Punch In Date/Time") ? "Regularisation"
-                            : col.ContainsKey("Requested Punch In Date/Time") ? "OD"
-                            : "";
-                if (type == "") { result.Warnings.Add($"{fileName}: not a Leave / Regularization / WFH / On Duty report — skipped."); continue; }
-                result.Files.Add($"{Title(type)} — {fileName}");
-                result.Created.TryAdd(type, 0); result.Updated.TryAdd(type, 0);
-
-                var last = ws.LastRowUsed()?.RowNumber() ?? hdr;
-                for (int r = hdr + 1; r <= last; r++)
+                await LoadAsync();
+                foreach (var (fileName, data) in files)
                 {
-                    var code = T(r, "Employee Code");
-                    var name = T(r, "Employee Name");
-                    if (code == null && name == null) continue;
-                    var empId = Emp(code, name);
-                    if (empId == null) continue;
+                    using var wb = new XLWorkbook(data);
+                    var ws = wb.Worksheets.First();
+                    // header row = first row that has an "Employee Code" cell
+                    int hdr = 0;
+                    for (int r = 1; r <= 10 && hdr == 0; r++)
+                        if (ws.Row(r).CellsUsed().Any(c => c.GetString().Trim().Equals("Employee Code", StringComparison.OrdinalIgnoreCase))) hdr = r;
+                    if (hdr == 0) { Result.Warnings.Add($"{fileName}: no 'Employee Code' column — skipped."); continue; }
 
-                    DateTime? from, to; TimeSpan? reqIn = null, reqOut = null;
-                    if (type == "Leave")
+                    var col = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var c in ws.Row(hdr).CellsUsed()) col.TryAdd(c.GetString().Trim(), c.Address.ColumnNumber);
+
+                    string type = col.ContainsKey("Leave Type") ? "Leave"
+                                : col.ContainsKey("Request From Date") ? "WFH"
+                                : col.ContainsKey("Punch In Time") && col.ContainsKey("Requested Punch In Date/Time") ? "Regularisation"
+                                : col.ContainsKey("Requested Punch In Date/Time") ? "OD"
+                                : "";
+                    if (type == "") { Result.Warnings.Add($"{fileName}: not a Leave / Regularization / WFH / On Duty report — skipped."); continue; }
+                    Result.Files.Add($"{Title(type)} — {fileName}");
+                    Result.Created.TryAdd(type, 0); Result.Updated.TryAdd(type, 0);
+
+                    var last = ws.LastRowUsed()?.RowNumber() ?? hdr;
+                    for (int r = hdr + 1; r <= last; r++)
+                        AddRow(type, new ExcelRow(ws, r, col), $"{Title(type)} row {r}");
+                }
+                return await FinishAsync();
+            }
+
+            public void AddRow(string type, IReportRow row, string label)
+            {
+                var code = row.Text("Employee Code");
+                var name = row.Text("Employee Name");
+                if (code == null && name == null) return;
+                var empId = Emp(code, name);
+                if (empId == null) return;
+
+                DateTime? from, to; TimeSpan? reqIn = null, reqOut = null;
+                if (type == "Leave")
+                {
+                    var a = row.Date("From date");
+                    var b = row.Date("To Date");
+                    from = a?.Date; to = b?.Date;
+                    // Short leave carries times ("22-10-2026 (09:30)" → 09:30–11:30)
+                    if (a.HasValue && a.Value.TimeOfDay > TimeSpan.Zero) reqIn = a.Value.TimeOfDay;
+                    if (b.HasValue && b.Value.TimeOfDay > TimeSpan.Zero) reqOut = b.Value.TimeOfDay;
+                }
+                else if (type == "WFH") { from = row.Date("Request From Date"); to = row.Date("Request To Date"); }
+                else
+                {
+                    var a = row.Date("Requested Punch In Date/Time");
+                    var b = row.Date("Requested Punch Out Date/Time");
+                    from = a?.Date; to = (type == "OD" ? b?.Date : a?.Date) ?? from;
+                    if (type == "Regularisation")
                     {
-                        var a = ParseDate(Cell(r, "From date"));
-                        var b = ParseDate(Cell(r, "To Date"));
-                        from = a?.Date; to = b?.Date;
-                        // Short leave carries times ("22-10-2026 (09:30)" → 09:30–11:30)
                         if (a.HasValue && a.Value.TimeOfDay > TimeSpan.Zero) reqIn = a.Value.TimeOfDay;
                         if (b.HasValue && b.Value.TimeOfDay > TimeSpan.Zero) reqOut = b.Value.TimeOfDay;
                     }
-                    else if (type == "WFH") { from = ParseDate(Cell(r, "Request From Date")); to = ParseDate(Cell(r, "Request To Date")); }
-                    else
-                    {
-                        var a = ParseDate(Cell(r, "Requested Punch In Date/Time"));
-                        var b = ParseDate(Cell(r, "Requested Punch Out Date/Time"));
-                        from = a?.Date; to = (type == "OD" ? b?.Date : a?.Date) ?? from;
-                        if (type == "Regularisation")
-                        {
-                            if (a.HasValue && a.Value.TimeOfDay > TimeSpan.Zero) reqIn = a.Value.TimeOfDay;
-                            if (b.HasValue && b.Value.TimeOfDay > TimeSpan.Zero) reqOut = b.Value.TimeOfDay;
-                        }
-                    }
-                    if (from == null) { result.Warnings.Add($"{Title(type)} row {r}: {name} — date missing, skipped."); continue; }
-                    to ??= from;
-                    if (to < from) to = from;
-
-                    var submittedCol = type == "Leave" ? "Apply Date and Time" : "Submission Date";
-                    var submitted = ParseDate(Cell(r, submittedCol)) ?? DateTime.Now;
-                    var fromS = from.Value.ToString("yyyy-MM-dd");
-
-                    var app = existing.FirstOrDefault(x => x.EmployeeId == empId && x.Type == type && x.FromDate == fromS
-                                                           && Math.Abs((x.AppliedOn - submitted).TotalSeconds) < 2);
-                    bool isNew = app == null;
-                    if (isNew)
-                    {
-                        app = new Application { EmployeeId = empId.Value, Type = type, Source = SourceP360, CreatedAt = DateTime.Now };
-                        db.Applications.Add(app); existing.Add(app);
-                    }
-                    var oldStatus = app!.Status;
-                    app.FromDate = fromS;
-                    app.ToDate = to.Value.ToString("yyyy-MM-dd");
-                    app.AppliedOn = submitted;
-                    app.Status = MapStatus(T(r, "Status"));
-                    app.PendingAt = Trunc(T(r, "Pending At"), 100);
-                    app.ApprovalLevel = Trunc(T(r, "Approval Level"), 10);
-                    app.ApproverChain = Trunc(T(r, "All Levels Approver")?.Replace("\n", " ").Trim(), 500);
-                    app.AppliedBy = Trunc(T(r, "Applied By"), 120);
-                    app.Remarks = Trunc(T(r, "Approver Remarks"), 500);
-                    app.ApproverEmployeeId = Person(app.PendingAt) ?? Person(DecidedBy(app.ApproverChain)) ?? app.ApproverEmployeeId;
-                    if (app.Status != "Pending")
-                    {
-                        app.DecisionByEmployeeId = Person(DecidedBy(app.ApproverChain)) ?? app.DecisionByEmployeeId;
-                        app.DecisionAt ??= submitted;
-                    }
-
-                    switch (type)
-                    {
-                        case "Leave":
-                            var ltName = T(r, "Leave Type") ?? "Leave";
-                            var lt = LeaveTypeFor(ltName);
-                            app.LeaveType = lt;
-                            if (lt.Id > 0) app.LeaveTypeId = lt.Id;
-                            app.DurationLabel = Trunc(T(r, "leave Duration"), 30);
-                            app.DayPart = DayPartFor(app.DurationLabel);
-                            app.DurationDays = decimal.TryParse(T(r, "No Of Leave"), NumberStyles.Any, CultureInfo.InvariantCulture, out var n)
-                                ? n : (decimal)((to.Value - from.Value).TotalDays + 1);
-                            var co = ParseDate(Cell(r, "Comp Off Date"));
-                            app.CompOffDate = co?.ToString("yyyy-MM-dd");
-                            app.RequestedInTime = reqIn;
-                            app.RequestedOutTime = reqOut;
-                            app.Reason ??= ltName;
-                            break;
-                        case "WFH":
-                            app.FromLocation = Trunc(T(r, "From Location"), 300);
-                            app.Reason = Trunc(T(r, "Request Reason"), 500);
-                            app.DurationDays = (decimal)((to.Value - from.Value).TotalDays + 1);
-                            break;
-                        case "OD":
-                            app.FromLocation = Trunc(T(r, "From Location"), 300);
-                            app.ToLocation = Trunc(T(r, "To Location"), 300);
-                            app.DurationLabel = Trunc(T(r, "Duration"), 30);
-                            app.DayPart = DayPartFor(app.DurationLabel);
-                            app.CompensateAs = Trunc(T(r, "Compensate As"), 40);
-                            app.CustomerName = Trunc(T(r, "Customer Name"), 150);
-                            app.Reason = Trunc(T(r, "Request Reason"), 500);
-                            app.DurationDays = app.DayPart == "Single" ? (decimal)((to.Value - from.Value).TotalDays + 1) : 0.5m;
-                            break;
-                        case "Regularisation":
-                            app.OriginalInTime = Trunc(TimeText(Cell(r, "Punch In Time")), 10);
-                            app.OriginalOutTime = Trunc(TimeText(Cell(r, "Punch Out Time")), 10);
-                            app.RequestedInTime = reqIn;
-                            app.RequestedOutTime = reqOut;
-                            app.Attachment = Trunc(T(r, "Attachment"), 300);
-                            app.Reason = Trunc(T(r, "Request Reason"), 500);
-                            app.DurationDays = 1;
-                            break;
-                    }
-
-                    if (isNew) result.Created[type]++; else result.Updated[type]++;
-                    if (app.Status == "Approved" || oldStatus == "Approved")
-                        result.ToRecompute.Add((empId.Value, from.Value.Date, to.Value.Date));
                 }
+                if (from == null) { Result.Warnings.Add($"{label}: {name} — date missing, skipped."); return; }
+                to ??= from;
+                if (to < from) to = from;
+
+                var submittedCol = type == "Leave" ? "Apply Date and Time" : "Submission Date";
+                var submitted = row.Date(submittedCol) ?? DateTime.Now;
+                var fromS = from.Value.ToString("yyyy-MM-dd");
+
+                // Same request = same employee, type, start date and submission time.
+                // (Excel exports carry seconds, the API only minutes → match within a minute.)
+                var app = existing.FirstOrDefault(x => x.EmployeeId == empId && x.Type == type && x.FromDate == fromS
+                                                       && Math.Abs((x.AppliedOn - submitted).TotalSeconds) < 60);
+                bool isNew = app == null;
+                if (isNew)
+                {
+                    app = new Application { EmployeeId = empId.Value, Type = type, Source = source, CreatedAt = DateTime.Now };
+                    db.Applications.Add(app); existing.Add(app);
+                }
+                var oldStatus = app!.Status;
+                app.FromDate = fromS;
+                app.ToDate = to.Value.ToString("yyyy-MM-dd");
+                app.AppliedOn = submitted;
+                app.Status = MapStatus(row.Text("Status"));
+                // Only overwrite what this source actually carries (the API has
+                // fewer columns than the Excel export — keep the rest).
+                if (row.Has("Pending At")) app.PendingAt = Trunc(row.Text("Pending At"), 100);
+                if (row.Has("Approval Level")) app.ApprovalLevel = Trunc(row.Text("Approval Level"), 10);
+                if (row.Has("All Levels Approver")) app.ApproverChain = Trunc(row.Text("All Levels Approver")?.Replace("\n", " ").Trim(), 500);
+                if (row.Has("Applied By")) app.AppliedBy = Trunc(row.Text("Applied By"), 120);
+                if (row.Has("Approver Remarks")) app.Remarks = Trunc(row.Text("Approver Remarks"), 500);
+                app.ApproverEmployeeId = Person(app.PendingAt) ?? Person(DecidedBy(app.ApproverChain)) ?? app.ApproverEmployeeId;
+                if (app.Status != "Pending")
+                {
+                    app.DecisionByEmployeeId = Person(DecidedBy(app.ApproverChain)) ?? app.DecisionByEmployeeId;
+                    app.DecisionAt ??= submitted;
+                }
+
+                switch (type)
+                {
+                    case "Leave":
+                        var ltName = row.Text("Leave Type") ?? "Leave";
+                        var lt = LeaveTypeFor(ltName);
+                        app.LeaveType = lt;
+                        if (lt.Id > 0) app.LeaveTypeId = lt.Id;
+                        if (row.Has("leave Duration")) app.DurationLabel = Trunc(row.Text("leave Duration"), 30);
+                        app.DayPart = DayPartFor(app.DurationLabel);
+                        app.DurationDays = decimal.TryParse(row.Text("No Of Leave"), NumberStyles.Any, CultureInfo.InvariantCulture, out var n)
+                            ? n : (decimal)((to.Value - from.Value).TotalDays + 1);
+                        if (row.Has("Comp Off Date")) app.CompOffDate = row.Date("Comp Off Date")?.ToString("yyyy-MM-dd");
+                        app.RequestedInTime = reqIn;
+                        app.RequestedOutTime = reqOut;
+                        app.Reason ??= ltName;
+                        break;
+                    case "WFH":
+                        if (row.Has("From Location")) app.FromLocation = Trunc(row.Text("From Location"), 300);
+                        if (row.Has("Request Reason")) app.Reason = Trunc(row.Text("Request Reason"), 500);
+                        app.DurationDays = (decimal)((to.Value - from.Value).TotalDays + 1);
+                        break;
+                    case "OD":
+                        if (row.Has("From Location")) app.FromLocation = Trunc(row.Text("From Location"), 300);
+                        if (row.Has("To Location")) app.ToLocation = Trunc(row.Text("To Location"), 300);
+                        if (row.Has("Duration")) app.DurationLabel = Trunc(row.Text("Duration"), 30);
+                        app.DayPart = DayPartFor(app.DurationLabel);
+                        if (row.Has("Compensate As")) app.CompensateAs = Trunc(row.Text("Compensate As"), 40);
+                        if (row.Has("Customer Name")) app.CustomerName = Trunc(row.Text("Customer Name"), 150);
+                        if (row.Has("Request Reason")) app.Reason = Trunc(row.Text("Request Reason"), 500);
+                        app.DurationDays = app.DayPart == "Single" ? (decimal)((to.Value - from.Value).TotalDays + 1) : 0.5m;
+                        break;
+                    case "Regularisation":
+                        if (row.Has("Punch In Time")) app.OriginalInTime = Trunc(row.Time("Punch In Time"), 10);
+                        if (row.Has("Punch Out Time")) app.OriginalOutTime = Trunc(row.Time("Punch Out Time"), 10);
+                        app.RequestedInTime = reqIn;
+                        app.RequestedOutTime = reqOut;
+                        if (row.Has("Attachment")) app.Attachment = Trunc(row.Text("Attachment"), 300);
+                        if (row.Has("Request Reason")) app.Reason = Trunc(row.Text("Request Reason"), 500);
+                        app.DurationDays = 1;
+                        break;
+                }
+
+                if (isNew) Result.Created[type]++; else Result.Updated[type]++;
+                if (app.Status == "Approved" || oldStatus == "Approved")
+                    Result.ToRecompute.Add((empId.Value, from.Value.Date, to.Value.Date));
             }
-            result.NotFound.AddRange(notFound.OrderBy(x => x));
-            await db.SaveChangesAsync();
-            return result;
         }
 
         static string? Trunc(string? s, int n) => s == null ? null : s.Length > n ? s[..n] : s;

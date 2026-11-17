@@ -92,6 +92,88 @@ namespace AmpmHrmsPro.Controllers
         }
 
         // ═══════════════════════════════════════════
+        // PRESENCE 360 API — admin login + client id/secret from Presence 360;
+        // pulls attendance, leave, on-duty and regularization automatically.
+        // ═══════════════════════════════════════════
+        [RequirePermission(Perm.Settings)]
+        public async Task<IActionResult> Presence360()
+        {
+            var s = await _db.P360ApiSettingsList.FirstOrDefaultAsync();
+            if (s == null) { s = new P360ApiSettings(); _db.P360ApiSettingsList.Add(s); await _db.SaveChangesAsync(); }
+            ViewBag.Running = Presence360Running.Contains(_db.CurrentCompanyId);
+            return View(s);
+        }
+
+        [RequirePermission(Perm.Settings)]
+        [HttpPost, ValidateAntiForgeryToken]
+        public async Task<IActionResult> SavePresence360(P360ApiSettings model, string? clientSecret, string? password,
+            [FromServices] IPresence360ApiService api)
+        {
+            var s = await _db.P360ApiSettingsList.FirstOrDefaultAsync();
+            if (s == null) { s = new P360ApiSettings(); _db.P360ApiSettingsList.Add(s); }
+            s.IsEnabled = model.IsEnabled;
+            s.BaseUrl = string.IsNullOrWhiteSpace(model.BaseUrl) ? "https://web.thepresence360.com/api" : model.BaseUrl.Trim().TrimEnd('/');
+            bool loginChanged = s.ClientId != model.ClientId?.Trim() || s.Username != model.Username?.Trim()
+                                || !string.IsNullOrEmpty(clientSecret) || !string.IsNullOrEmpty(password);
+            s.ClientId = model.ClientId?.Trim();
+            s.Username = model.Username?.Trim();
+            if (!string.IsNullOrEmpty(clientSecret)) s.ClientSecretEnc = api.Protect(clientSecret.Trim());
+            if (!string.IsNullOrEmpty(password)) s.PasswordEnc = api.Protect(password);
+            s.Organization = string.IsNullOrWhiteSpace(model.Organization) ? null : model.Organization.Trim();
+            s.SyncAttendance = model.SyncAttendance;
+            s.SyncLeaves = model.SyncLeaves;
+            s.SyncRequests = model.SyncRequests;
+            s.SyncIntervalMinutes = Math.Clamp(model.SyncIntervalMinutes, 10, 1440);
+            s.DaysBack = Math.Clamp(model.DaysBack, 0, 31);
+            if (loginChanged) { s.TokenEnc = null; s.TokenExpiresAt = null; }
+            _db.Audit("SettingsChanged", "Presence 360 API settings updated", "P360ApiSettings", s.Id.ToString());
+            await _db.SaveChangesAsync();
+            TempData["Success"] = "Presence 360 API settings saved." + (loginChanged ? " Click “Test connection” to check the login." : "");
+            return RedirectToAction(nameof(Presence360));
+        }
+
+        [RequirePermission(Perm.Settings)]
+        [HttpPost, ValidateAntiForgeryToken]
+        public async Task<IActionResult> TestPresence360([FromServices] IPresence360ApiService api)
+        {
+            var (ok, msg) = await api.TestAsync(_db);
+            TempData[ok ? "Success" : "Error"] = msg;
+            return RedirectToAction(nameof(Presence360));
+        }
+
+        static readonly System.Collections.Concurrent.ConcurrentDictionary<int, bool> Presence360RunningSet = new();
+        static ICollection<int> Presence360Running => Presence360RunningSet.Keys;
+
+        [RequirePermission(Perm.Settings)]
+        [HttpPost, ValidateAntiForgeryToken]
+        public IActionResult SyncPresence360(DateTime? from, DateTime? to)
+        {
+            var t = (to ?? IndiaTime.Today).Date;
+            var f = (from ?? t.AddDays(-3)).Date;
+            if (f > t) (f, t) = (t, f);
+            if ((t - f).TotalDays > 62) { TempData["Error"] = "Please sync at most 62 days at a time."; return RedirectToAction(nameof(Presence360)); }
+            var companyId = _db.CurrentCompanyId;
+            if (!Presence360RunningSet.TryAdd(companyId, true))
+            { TempData["Error"] = "A Presence 360 sync is already running — refresh this page in a minute."; return RedirectToAction(nameof(Presence360)); }
+
+            // Background: a month of data takes longer than a web request should.
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    using var scope = _scopeFactory.CreateScopeFor(companyId);
+                    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                    db.AuditEnabled = false;
+                    await scope.ServiceProvider.GetRequiredService<IPresence360ApiService>().SyncAsync(db, f, t);
+                }
+                catch { /* status is written to the settings row */ }
+                finally { Presence360RunningSet.TryRemove(companyId, out _); }
+            });
+            TempData["Success"] = $"Sync started for {f:dd-MMM-yyyy} to {t:dd-MMM-yyyy}. Refresh this page in a minute to see the result.";
+            return RedirectToAction(nameof(Presence360));
+        }
+
+        // ═══════════════════════════════════════════
         // FACE MATCH API SETTINGS — same single-row, vendor-agnostic pattern
         // as Biometric API Settings above, but for the mobile app's Face
         // Attendance feature (see FaceMatchService.cs). Left disabled by

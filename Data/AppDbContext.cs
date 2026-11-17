@@ -52,6 +52,7 @@ namespace AmpmHrmsPro.Data
         // ── Mobile app ──
         public DbSet<FaceProfile>          FaceProfiles          { get; set; }
         public DbSet<FaceMatchApiSettings> FaceMatchApiSettingsList { get; set; }
+        public DbSet<P360ApiSettings>    P360ApiSettingsList      { get; set; }
         public DbSet<Notification>         Notifications         { get; set; }
         public DbSet<KioskDevice>          KioskDevices          { get; set; }
         public DbSet<EmailSettings>        EmailSettingsList     { get; set; }
