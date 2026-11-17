@@ -102,8 +102,36 @@ namespace AmpmHrmsPro.Services
                     Check(a.EmployeeId, d.ToString("yyyy-MM-dd"), a.DecisionAt ?? a.CreatedAt);
             }
 
-            if (need.Count == 0) return (0, 0, 0);
+            // Holiday Calendar changes (added / removed holiday, last ~13 months):
+            // a day not yet marked holiday on a holiday date, or still marked
+            // holiday on a date that no longer is one. Presence 360 days are
+            // left alone — their own status (H / POH) already decides.
             int rows = 0;
+            var holFromS = today.AddDays(-400).ToString("yyyy-MM-dd");
+            var holDates = (await db.Holidays.AsNoTracking()
+                    .Where(h => h.IsActive && string.Compare(h.Date, holFromS) >= 0 && string.Compare(h.Date, toS) <= 0)
+                    .Select(h => h.Date).ToListAsync(ct)).ToHashSet();
+            var holWrong = await db.AttendanceDailies.AsNoTracking()
+                .Where(d => string.Compare(d.Date, holFromS) >= 0 && string.Compare(d.Date, toS) <= 0
+                            && (holDates.Contains(d.Date) ? !d.WasHoliday : d.WasHoliday))
+                .Select(d => new { d.EmployeeId, d.Date }).ToListAsync(ct);
+            if (holWrong.Count > 0)
+            {
+                var hFrom = DateOnly.FromDateTime(today.AddDays(-400));
+                var p360Days = (await db.P360DailyRecords.AsNoTracking().Where(x => x.Date >= hFrom && x.Date <= dTo)
+                        .Select(x => new { x.EmpCode, x.Date }).ToListAsync(ct))
+                    .Where(x => keyToEmp.ContainsKey(CodeKey(x.EmpCode)))
+                    .Select(x => (keyToEmp[CodeKey(x.EmpCode)], x.Date.ToString("yyyy-MM-dd"))).ToHashSet();
+                foreach (var g in holWrong.Where(h => !p360Days.Contains((h.EmployeeId, h.Date))).GroupBy(h => h.Date))
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var day = DateTime.Parse(g.Key);
+                    rows += await AttendanceEngine.RecomputeBulkAsync(db, day, day, g.Select(x => x.EmployeeId).Distinct().ToList(), ct);
+                    foreach (var x in g) need.Remove((x.EmployeeId, x.Date));
+                }
+            }
+
+            if (need.Count == 0) return (rows > 0 ? 1 : 0, 0, rows);
             // Recompute employee by employee from their earliest out-of-date day
             // (bulk engine, so each employee is a handful of queries).
             foreach (var g in need.GroupBy(n => n.EmpId))
