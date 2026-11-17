@@ -2,6 +2,9 @@
 @{
     // Company colours → theme variables. Only plain #RRGGBB values are
     // accepted so nothing else can be injected into the page's CSS.
+    // The primary colour also tints the sidebar, login panel, page
+    // background and borders, so a company's brand carries through the
+    // whole app (e.g. AMPM: brown #723E28 + caramel #C1905F).
     static bool Hex(string? c) => c != null && System.Text.RegularExpressions.Regex.IsMatch(c, "^#[0-9a-fA-F]{6}$");
     var p = Hex(Model?.PrimaryColor) ? Model!.PrimaryColor : null;
     var a = Hex(Model?.AccentColor) ? Model!.AccentColor : null;
@@ -10,8 +13,32 @@
 {
     <style>
         :root {
-            @if (p != null) { <text>--primary: @p; --primary-dark: color-mix(in srgb, @p 80%, #000); --primary-light: color-mix(in srgb, @p 10%, #fff);</text> }
-            @if (a != null) { <text>--accent: @a; --accent-light: color-mix(in srgb, @a 12%, #fff);</text> }
+            @if (p != null) { <text>
+            --primary: @p;
+            --primary-dark: color-mix(in srgb, @p 80%, #000);
+            --primary-light: color-mix(in srgb, @p 10%, #fff);
+            --primary-glow: color-mix(in srgb, @p 35%, transparent);
+            --avatar-2: color-mix(in srgb, @p 55%, #fff);
+            --navy-950: color-mix(in srgb, @p 32%, #0b0705);
+            --navy-900: color-mix(in srgb, @p 48%, #0b0705);
+            --navy-800: color-mix(in srgb, @p 62%, #0b0705);
+            --navy-700: color-mix(in srgb, @p 72%, #0b0705);
+            --navy-600: color-mix(in srgb, @p 70%, #777);
+            --sidebar-text: color-mix(in srgb, @p 14%, #f4f1ee);
+            --sidebar-sub: color-mix(in srgb, @p 30%, #c9c3bd);
+            --sidebar-muted: color-mix(in srgb, @p 40%, #a59c94);
+            --sidebar-active: color-mix(in srgb, @p 45%, #fff);
+            --login-text: color-mix(in srgb, @p 20%, #ebe4de);
+            --bg: color-mix(in srgb, @p 5%, #f8f7f5);
+            --border: color-mix(in srgb, @p 11%, #ebe9e6);
+            --row-hover: color-mix(in srgb, @p 4%, #fff);
+            </text> }
+            @if (a != null) { <text>
+            --accent: @a;
+            --accent-light: color-mix(in srgb, @a 12%, #fff);
+            --accent-glow: color-mix(in srgb, @a 30%, transparent);
+            --sidebar-active: @a;
+            </text> }
         }
     </style>
 }

@@ -51,6 +51,17 @@ namespace AmpmHrmsPro.Controllers
                 var c = await _db.Companies.AsNoTracking().FirstOrDefaultAsync(x => x.Code == code);
                 if (c != null) ViewBag.Company = CompanyInfoService.From(c);
             }
+            else
+            {
+                // Only one company on this server → show its logo & colours and
+                // fill in its code, so the very first visit is already branded.
+                var only = await _db.Companies.AsNoTracking().Where(x => x.Status == "Active").Take(2).ToListAsync();
+                if (only.Count == 1)
+                {
+                    ViewBag.Company = CompanyInfoService.From(only[0]);
+                    ViewBag.CompanyCode = only[0].Code;
+                }
+            }
             return View();
         }
 
