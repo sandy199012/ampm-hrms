@@ -123,7 +123,7 @@ namespace AmpmHrmsPro.Controllers
             s.SyncAttendance = model.SyncAttendance;
             s.SyncLeaves = model.SyncLeaves;
             s.SyncRequests = model.SyncRequests;
-            s.SyncIntervalMinutes = Math.Clamp(model.SyncIntervalMinutes, 10, 1440);
+            s.SyncIntervalMinutes = Math.Clamp(model.SyncIntervalMinutes, 2, 1440);
             s.DaysBack = Math.Clamp(model.DaysBack, 0, 31);
             if (loginChanged) { s.TokenEnc = null; s.TokenExpiresAt = null; }
             _db.Audit("SettingsChanged", "Presence 360 API settings updated", "P360ApiSettings", s.Id.ToString());

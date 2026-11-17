@@ -493,18 +493,33 @@ namespace AmpmHrmsPro.Services
         }
     }
 
-    // Runs every 5 minutes; per company, syncs when its interval is due.
+    // ═══════════════════════════════════════════════════════════════════
+    // Near-real-time loop (wakes every minute):
+    //   • quick run every "Sync every" minutes → yesterday + today only
+    //   • full run once an hour            → the last "Re-check past days"
+    //   • keep-awake: the free Render server sleeps after 15 idle minutes and
+    //     stops background work. While Presence 360 sync is on, it pings its
+    //     own public URL every 10 minutes from 07:00 to 22:00 IST so the sync
+    //     keeps running through the working day (sleeps at night to save the
+    //     free plan's monthly hours; the first visit next morning wakes it and
+    //     the first run catches up).
+    // ═══════════════════════════════════════════════════════════════════
     public class Presence360SyncHostedService : BackgroundService
     {
         readonly IServiceProvider _services;
         readonly ILogger<Presence360SyncHostedService> _log;
+        readonly Dictionary<int, DateTime> _lastFull = new();
+        DateTime _lastPing = DateTime.MinValue;
         public Presence360SyncHostedService(IServiceProvider services, ILogger<Presence360SyncHostedService> log) { _services = services; _log = log; }
+
+        public const int KeepAwakeFromHour = 7, KeepAwakeToHour = 22;
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            try { await Task.Delay(TimeSpan.FromMinutes(2), stoppingToken); } catch (OperationCanceledException) { return; }
+            try { await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken); } catch (OperationCanceledException) { return; }
             while (!stoppingToken.IsCancellationRequested)
             {
+                bool anyEnabled = false;
                 try
                 {
                     await TenantJobs.ForEachActiveCompanyAsync(_services, async (sp, companyId) =>
@@ -513,20 +528,43 @@ namespace AmpmHrmsPro.Services
                         db.AuditEnabled = false;
                         var s = await db.P360ApiSettingsList.AsNoTracking().FirstOrDefaultAsync(stoppingToken);
                         if (s == null || !s.IsEnabled) return;
+                        anyEnabled = true;
                         // Due? (LastSyncAt is kept in the DB, so a restart doesn't reset the clock.)
-                        var interval = TimeSpan.FromMinutes(Math.Max(10, s.SyncIntervalMinutes));
-                        if (s.LastSyncAt.HasValue && DateTime.UtcNow - s.LastSyncAt.Value < interval - TimeSpan.FromSeconds(30)) return;
+                        var interval = TimeSpan.FromMinutes(Math.Max(2, s.SyncIntervalMinutes));
+                        if (s.LastSyncAt.HasValue && DateTime.UtcNow - s.LastSyncAt.Value < interval - TimeSpan.FromSeconds(20)) return;
+                        bool full = !_lastFull.TryGetValue(companyId, out var lf) || DateTime.UtcNow - lf >= TimeSpan.FromMinutes(60);
+                        var days = full ? Math.Clamp(s.DaysBack, 1, 31) : 1;
                         var today = IndiaTime.Today;
                         var api = sp.GetRequiredService<IPresence360ApiService>();
-                        await api.SyncAsync(db, today.AddDays(-Math.Clamp(s.DaysBack, 0, 31)), today, stoppingToken);
+                        var (ok, _) = await api.SyncAsync(db, today.AddDays(-days), today, stoppingToken);
+                        if (ok && full) _lastFull[companyId] = DateTime.UtcNow;
                     }, _log, stoppingToken);
                 }
                 catch (OperationCanceledException) { break; }
                 catch (Exception ex) { _log.LogError(ex, "Presence 360 API sync loop failed"); }
 
-                try { await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken); }
+                if (anyEnabled) await KeepAwakeAsync(stoppingToken);
+
+                try { await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken); }
                 catch (OperationCanceledException) { break; }
             }
+        }
+
+        async Task KeepAwakeAsync(CancellationToken ct)
+        {
+            var url = Environment.GetEnvironmentVariable("RENDER_EXTERNAL_URL");   // set by Render
+            if (string.IsNullOrWhiteSpace(url)) return;
+            var hour = IndiaTime.Now.Hour;
+            if (hour < KeepAwakeFromHour || hour >= KeepAwakeToHour) return;
+            if (DateTime.UtcNow - _lastPing < TimeSpan.FromMinutes(10)) return;
+            _lastPing = DateTime.UtcNow;
+            try
+            {
+                var http = _services.GetRequiredService<IHttpClientFactory>().CreateClient();
+                http.Timeout = TimeSpan.FromSeconds(20);
+                using var _ = await http.GetAsync(url.TrimEnd('/') + "/api/health", ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException) { _log.LogDebug(ex, "keep-awake ping failed"); }
         }
     }
 }
