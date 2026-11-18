@@ -249,17 +249,18 @@ namespace AmpmHrmsPro.Services
                 ? $"Happy Birthday, {birthdayPeople[0].Name}!"
                 : $"Happy Birthday, {names}!";
 
-            // BCC'd in batches — some SMTP providers cap recipients per
-            // message, and nobody needs to see the whole company's email
-            // addresses anyway.
+            // BCC'd in batches — Gmail (Apps Script) allows at most 50
+            // recipients per message, other providers cap it too, and nobody
+            // needs to see the whole company's email addresses anyway.
             int sent = 0, failed = 0;
-            foreach (var batch in Batch(allEmails, 80))
+            string? lastError = null;
+            foreach (var batch in Batch(allEmails, 45))
             {
-                var (ok, _) = await _sender.SendAsync(settings, Array.Empty<string>(), subject, html, batch);
-                if (ok) sent += batch.Count; else failed += batch.Count;
+                var (ok, err) = await _sender.SendAsync(settings, Array.Empty<string>(), subject, html, batch);
+                if (ok) sent += batch.Count; else { failed += batch.Count; lastError = err; }
             }
 
-            return $"Birthday emails ({forDate:yyyy-MM-dd}): {names} — sent to {sent} employee(s){(failed > 0 ? $", {failed} failed" : "")}.{unparseableNote}";
+            return $"Birthday emails ({forDate:yyyy-MM-dd}): {names} — sent to {sent} employee(s){(failed > 0 ? $", {failed} failed ({lastError})" : "")}.{unparseableNote}";
         }
 
         static string BuildBirthdayHtml(List<Employee> people)
