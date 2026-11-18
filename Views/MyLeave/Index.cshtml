@@ -9,6 +9,7 @@
     var el = Model.FirstOrDefault(b => b.LeaveTypeCode == "EL");
     var cl = Model.FirstOrDefault(b => b.LeaveTypeCode == "CL");
     var sl = Model.FirstOrDefault(b => b.LeaveTypeCode == "SL");
+    var others = ViewBag.OtherLeaves as List<AmpmHrmsPro.Services.LeaveBalanceItem> ?? new();
 }
 
 <style>
@@ -49,6 +50,31 @@
         </select>
     </form>
 </div>
+
+@if (others.Any())
+{
+    <div class="row g-3 mb-3">
+        @foreach (var o in others)
+        {
+            <div class="col-md-4">
+                <div class="card leave-card h-100 mb-0">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="fw-bold">@o.Name</div>
+                            <div class="fs-3 fw-bold @(o.Balance < 0 ? "text-danger" : "")" style="line-height:1">@o.Balance.ToString("0.##")</div>
+                        </div>
+                        <div class="small text-muted mt-2">
+                            @if (o.Period == "Occasion") { <span>Taken this year: @o.Consumed.ToString("0.##")</span> }
+                            else { <span>Credit @o.Earned.ToString("0.##") · Taken @o.Consumed.ToString("0.##")</span> }
+                            @if (o.Pending > 0) { <span> · Pending @o.Pending.ToString("0.##")</span> }
+                        </div>
+                        <div class="small text-muted">@o.Note</div>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
 
 @if (!Model.Any())
 {

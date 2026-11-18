@@ -29,6 +29,9 @@ namespace AmpmHrmsPro.Controllers
                 .Where(b => b.EmployeeId == employee.Id && b.Year == year)
                 .ToListAsync();
 
+            // Short Leave / Bereavement / Week Off Leave (this month's quota)
+            ViewBag.OtherLeaves = (await AmpmHrmsPro.Services.EmployeeLeaveSummary.BuildAsync(_db, employee.Id, year))
+                .Where(x => x.Period != "Year").ToList();
             ViewBag.Employee = employee;
             ViewBag.Year = year;
             ViewBag.Years = Enumerable.Range(DateTime.Now.Year - 2, 4).Reverse().ToList();

@@ -231,8 +231,14 @@ namespace AmpmHrmsPro.Services
             LeaveType LeaveTypeFor(string name)
             {
                 var key = NameKey(name).Replace("LEAVE", "");
-                var lt = leaveTypes.FirstOrDefault(t => NameKey(t.Name).Replace("LEAVE", "") == key)
-                      ?? leaveTypes.FirstOrDefault(t => NameKey(t.Alias) == key);
+                // "Bereavement Leave (Bl)" → alias BL; active types win over switched-off duplicates
+                var paren = Regex.Match(name, @"\(([^)]+)\)\s*$");
+                var parenKey = paren.Success ? NameKey(paren.Groups[1].Value) : null;
+                LeaveType? Find(IEnumerable<LeaveType> pool) =>
+                    pool.FirstOrDefault(t => NameKey(t.Name).Replace("LEAVE", "") == key)
+                    ?? pool.FirstOrDefault(t => NameKey(t.Alias) == key)
+                    ?? (parenKey == null ? null : pool.FirstOrDefault(t => NameKey(t.Alias) == parenKey));
+                var lt = Find(leaveTypes.Where(t => t.IsActive)) ?? Find(leaveTypes);
                 if (lt != null) return lt;
                 var words = Regex.Split(name.Trim(), @"\s+").Where(w => w.Length > 0).ToList();
                 var alias = string.Concat(words.Select(w => char.ToUpperInvariant(w[0])));

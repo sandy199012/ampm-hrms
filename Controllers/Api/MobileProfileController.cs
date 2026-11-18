@@ -72,18 +72,23 @@ namespace AmpmHrmsPro.Controllers.Api
 
             List<object> leaveBalances;
 
-            if (leaveBalanceRows.Any())
+            // EL / CL / SL yearly rows + this month's Short Leave, Bereavement
+            // and Week Off Leave (see Services/EmployeeLeaveSummary.cs)
+            var summary = await AmpmHrmsPro.Services.EmployeeLeaveSummary.BuildAsync(_db, CurrentEmpId);
+            if (summary.Any())
             {
-                // Use the authoritative stored balances
-                leaveBalances = leaveBalanceRows.Select(b => (object)new
+                leaveBalances = summary.Select(b => (object)new
                 {
-                    leaveType     = b.LeaveTypeCode,
-                    leaveTypeName = leaveTypeMaster.TryGetValue(b.LeaveTypeCode, out var n) ? n : b.LeaveTypeCode,
+                    leaveType     = b.Alias,
+                    leaveTypeName = b.Name,
                     year          = b.Year,
                     carryForward  = b.CarryForward,
-                    totalEarned   = b.TotalEarned,
-                    totalConsumed = b.TotalConsumed,
+                    totalEarned   = b.Earned,
+                    totalConsumed = b.Consumed,
+                    pending       = b.Pending,
                     balance       = b.Balance,
+                    period        = b.Period,
+                    note          = b.Note,
                 }).ToList();
             }
             else

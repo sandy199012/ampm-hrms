@@ -133,77 +133,27 @@ namespace AmpmHrmsPro.Controllers.Api
         [HttpGet("leave/balance")]
         public async Task<IActionResult> LeaveBalance(int? year)
         {
-            int y = year ?? DateTime.Today.Year;
-            var employee = await _db.Employees
-                .Include(e => e.LeavePolicy).ThenInclude(p => p!.Rules).ThenInclude(r => r.LeaveType)
-                .FirstOrDefaultAsync(e => e.Id == CurrentEmpId);
-            if (employee == null) return Ok(new { balances = Array.Empty<object>() });
-
-            // All active leave types filtered by employee gender — so Male employees
-            // don't see Maternity Leave, Female don't see Paternity Leave, etc.
-            string empGender = employee.Gender ?? "Other";
-            var allLeaveTypes = await _db.LeaveTypes
-                .Where(lt => lt.IsActive && !lt.IsCompOff
-                    && (lt.Gender == "All" || lt.Gender == empGender))
-                .OrderBy(lt => lt.Name)
-                .ToListAsync();
-
-            var apps = await _db.Applications
-                .Where(a => a.EmployeeId == CurrentEmpId && a.Type == "Leave"
-                    && (a.Status == "Approved" || a.Status == "Pending"))
-                .ToListAsync();
-
-            // Build a quick lookup: LeaveTypeId → policy rule (null when no policy assigned)
-            var rulesById = employee.LeavePolicy?.Rules
-                .Where(r => r.LeaveType != null)
-                .ToDictionary(r => r.LeaveTypeId) ?? new Dictionary<int, LeavePolicyRule>();
-
-            var results = new List<object>();
-            foreach (var lt in allLeaveTypes)
+            // Same balances as the home screen: EL / CL / SL for the year plus this
+            // month's Short Leave, Bereavement and Week Off Leave (Services/EmployeeLeaveSummary.cs)
+            var items = await AmpmHrmsPro.Services.EmployeeLeaveSummary.BuildAsync(_db, CurrentEmpId, year);
+            return Ok(new
             {
-                decimal accrued = 0;
-                decimal entitlement = 0;
-                string accrualMethod = "OnRequest";
-
-                if (rulesById.TryGetValue(lt.Id, out var rule))
+                balances = items.Select(b => new
                 {
-                    entitlement = rule.AnnualEntitlementDays;
-                    accrualMethod = rule.AccrualMethod;
-                    var cycleStart = new DateTime(y, rule.CycleStartMonth, 1);
-                    var cycleEnd = cycleStart.AddYears(1).AddDays(-1);
-                    var effStart = cycleStart;
-                    if (!string.IsNullOrWhiteSpace(employee.DOJ) && DateTime.TryParse(employee.DOJ, out var doj) && doj > effStart) effStart = doj;
-                    var asOf = DateTime.Today < cycleEnd ? DateTime.Today : cycleEnd;
-                    if (asOf >= effStart)
-                    {
-                        if (rule.AccrualMethod == "Monthly")
-                        {
-                            int monthsElapsed = Math.Max(0, Math.Min(12, (asOf.Year - effStart.Year) * 12 + (asOf.Month - effStart.Month) + 1));
-                            accrued = Math.Min(monthsElapsed * (rule.MonthlyAccrualDays ?? 0), rule.AnnualEntitlementDays);
-                        }
-                        else accrued = rule.AnnualEntitlementDays;
-                    }
-                }
-
-                // taken/pending across any cycle (simple: whole year of applications)
-                var ltApps = apps.Where(a => a.LeaveTypeId == lt.Id).ToList();
-                decimal taken = ltApps.Where(a => a.Status == "Approved").Sum(a => a.DurationDays);
-                decimal pending = ltApps.Where(a => a.Status == "Pending").Sum(a => a.DurationDays);
-
-                results.Add(new
-                {
-                    leaveType = lt.Name,
-                    alias = lt.Alias,
-                    entitlement,
-                    accrualMethod,
-                    accruedSoFar = Math.Round(accrued, 2),
-                    taken,
-                    pending,
-                    balance = Math.Round(accrued - taken, 2),
-                    inPolicy = rulesById.ContainsKey(lt.Id),
-                });
-            }
-            return Ok(new { balances = results });
+                    leaveType = b.Name,
+                    alias = b.Alias,
+                    entitlement = b.CarryForward + b.Earned,
+                    accrualMethod = b.Period,
+                    accruedSoFar = b.Earned,
+                    carryForward = b.CarryForward,
+                    taken = b.Consumed,
+                    pending = b.Pending,
+                    balance = b.Balance,
+                    period = b.Period,
+                    note = b.Note,
+                    inPolicy = true,
+                })
+            });
         }
 
         // ── Regularisation ──
