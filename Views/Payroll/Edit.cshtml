@@ -1,0 +1,96 @@
+@model AmpmHrmsPro.Models.Payslip
+@using System.Globalization
+@{
+    ViewData["Title"] = "Edit Payslip";
+    ViewData["Subtitle"] = "Payroll";
+    string monthName = new DateTime(Model.Year, Model.Month, 1).ToString("MMMM yyyy", CultureInfo.InvariantCulture);
+    bool locked = Model.PayrollRun?.Status == "Finalised";
+    var earn = Model.Lines.Where(l => l.Type == "Earning").OrderBy(l => l.DisplayOrder).ToList();
+    var ded = Model.Lines.Where(l => l.Type == "Deduction").OrderBy(l => l.DisplayOrder).ToList();
+}
+
+<div class="page-header">
+    <div>
+        <h1>@Model.EmployeeName — @monthName</h1>
+        <p>@Model.EmpCode · @Model.Department · @Model.Designation</p>
+    </div>
+    <div class="d-flex gap-2">
+        <a class="btn btn-light" asp-action="Slip" asp-route-id="@Model.Id" target="_blank"><i class="bi bi-file-earmark-text me-1"></i>View payslip</a>
+        <a class="btn btn-light" asp-action="Index" asp-route-year="@Model.Year" asp-route-month="@Model.Month"><i class="bi bi-arrow-left me-1"></i>Back</a>
+    </div>
+</div>
+
+@if (locked) { <div class="alert alert-info">This month is finalised. Reopen it on Run Payroll to make changes.</div> }
+
+<form method="post" asp-action="Edit" asp-route-id="@Model.Id" id="slipForm">
+    @Html.AntiForgeryToken()
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                <div class="col-6 col-md-2"><div class="text-muted small">Days in month</div><div class="fs-5 fw-bold">@Model.DaysInMonth.ToString("0.##")</div></div>
+                <div class="col-6 col-md-2"><div class="text-muted small">Loss of pay (attendance)</div><div class="fs-5 fw-bold @(Model.LopDays > 0 ? "text-danger" : "")">@Model.LopDays.ToString("0.##")</div></div>
+                <div class="col-6 col-md-2"><div class="text-muted small">Paid leave</div><div class="fs-5 fw-bold">@Model.LeaveDays.ToString("0.##")</div></div>
+                <div class="col-6 col-md-3">
+                    <label class="form-label">Paid days <span class="text-muted small">(blank = from attendance: @((Model.DaysInMonth - Model.LopDays).ToString("0.##")))</span></label>
+                    <input type="number" step="0.5" min="0" max="@Model.DaysInMonth" name="paidDaysOverride" class="form-control" value="@Model.PaidDaysOverride?.ToString("0.##", CultureInfo.InvariantCulture)" @(locked ? "disabled" : "") />
+                </div>
+                <div class="col-12 col-md-3"><div class="text-muted small">Net pay</div><div class="fs-4 fw-bold" style="color:var(--primary)">₹@Model.NetPay.ToString("N0")</div></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3">
+        @foreach (var (title, lines) in new[] { ("Earnings", earn), ("Deductions", ded) })
+        {
+            <div class="col-lg-6">
+                <div class="card h-100">
+                    <div class="card-header">@title</div>
+                    <div class="card-body p-0">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead><tr><th>Component</th>@if (title == "Earnings") { <th class="text-end">Rate</th> }<th style="width:150px">Amount ₹</th><th class="text-center" title="Typed by you — kept when recalculating">Fixed</th></tr></thead>
+                            <tbody>
+                            @foreach (var l in lines)
+                            {
+                                <tr>
+                                    <td>@l.Name</td>
+                                    @if (title == "Earnings") { <td class="text-end text-muted">@l.Rate.ToString("N0")</td> }
+                                    <td>
+                                        <input type="hidden" name="lineId" value="@l.Id" />
+                                        <input type="number" step="1" min="0" name="lineAmount" class="form-control form-control-sm amt" data-id="@l.Id" value="@l.Amount.ToString("0.##", CultureInfo.InvariantCulture)" @(locked ? "disabled" : "") />
+                                    </td>
+                                    <td class="text-center"><input type="checkbox" class="form-check-input man" name="manualIds" value="@l.Id" id="m@(l.Id)" checked="@l.IsManual" @(locked ? "disabled" : "") /></td>
+                                </tr>
+                            }
+                            </tbody>
+                            <tfoot><tr class="fw-bold"><td>Total</td>@if (title == "Earnings") { <td class="text-end">@Model.GrossRate.ToString("N0")</td> }<td>@(title == "Earnings" ? Model.GrossEarned.ToString("N0") : Model.TotalDeductions.ToString("N0"))</td><td></td></tr></tfoot>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+
+    <div class="card mt-3">
+        <div class="card-body">
+            <label class="form-label">Remarks on the payslip (optional)</label>
+            <input type="text" name="remarks" maxlength="300" class="form-control" value="@Model.Remarks" @(locked ? "disabled" : "") />
+            <div class="form-text">Change any amount (Advance, I.Tax, Arrear, Petrol …) — it gets ticked as <b>Fixed</b> and stays as you typed. Untick to let the system calculate it again. E.P.F. and E.S.I.C. are calculated automatically unless you fix them.</div>
+        </div>
+    </div>
+
+    @if (!locked)
+    {
+        <div class="d-flex gap-2 mt-3">
+            <button type="submit" class="btn btn-primary"><i class="bi bi-check2 me-1"></i>Save &amp; recalculate</button>
+            <button type="submit" name="reset" value="1" class="btn btn-light" onclick="return confirm('Remove all your changes on this payslip and recalculate from the salary structure and attendance?');">Reset to calculated</button>
+        </div>
+    }
+</form>
+
+@section Scripts {
+<script>
+    document.querySelectorAll('.amt').forEach(function (i) {
+        i.addEventListener('input', function () { var c = document.getElementById('m' + i.dataset.id); if (c) c.checked = true; });
+    });
+</script>
+}

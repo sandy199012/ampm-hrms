@@ -127,6 +127,10 @@
 
                 @if (Mod(Modules.Payroll) && Can(Perm.PayrollView))
                 {
+                <div class="nav-section-label">Payroll</div>
+                <a class="sidebar-link @(IsActiveAny("Payroll","Index","Edit") ? "active" : "")" asp-controller="Payroll" asp-action="Index">
+                    <i class="bi bi-receipt"></i> Run Payroll / Payslips
+                </a>
                 <div class="nav-section-label">Salary Structure</div>
                 <a class="sidebar-link @(IsActive("Salary","Components") ? "active" : "")" asp-controller="Salary" asp-action="Components">
                     <i class="bi bi-cash-coin"></i> Components
@@ -341,6 +345,9 @@
                 {
                 <a class="sidebar-link @(IsActive("MyTax","Salary") ? "active" : "")" asp-controller="MyTax" asp-action="Salary">
                     <i class="bi bi-wallet2"></i> My Salary
+                </a>
+                <a class="sidebar-link @(IsActive("MyPayslips","Index") ? "active" : "")" asp-controller="MyPayslips" asp-action="Index">
+                    <i class="bi bi-receipt"></i> My Payslips
                 </a>
                 <a class="sidebar-link @(IsActive("MyTax","Declaration") ? "active" : "")" asp-controller="MyTax" asp-action="Declaration">
                     <i class="bi bi-file-earmark-text"></i> My Tax Declaration

@@ -63,6 +63,9 @@ namespace AmpmHrmsPro.Data
         public DbSet<SalaryStructureTemplateItem>  SalaryStructureTemplateItems { get; set; }
         public DbSet<EmployeeSalaryStructure>      EmployeeSalaryStructures     { get; set; }
         public DbSet<EmployeeSalaryComponent>      EmployeeSalaryComponents     { get; set; }
+        public DbSet<PayrollRun>                   PayrollRuns                  { get; set; }
+        public DbSet<Payslip>                      Payslips                     { get; set; }
+        public DbSet<PayslipLine>                  PayslipLines                 { get; set; }
         public DbSet<TaxSlabSettings>              TaxSlabSettingsList          { get; set; }
         public DbSet<TaxSlab>                      TaxSlabs                     { get; set; }
         public DbSet<TaxSurchargeSlab>             TaxSurchargeSlabs            { get; set; }

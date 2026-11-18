@@ -117,29 +117,27 @@ namespace AmpmHrmsPro.Services
             return BuildBreakdown(structure);
         }
 
-        // Multi-pass resolution so percentage-based components never read
+        // Two-pass resolution so percentage-based components never read
         // an unresolved value:
-        //   Pass 1 — Fixed and PercentOfCTC (depend on nothing else)
+        //   Pass 1 — Fixed, PercentOfCTC and PercentOfGross (all depend only on
+        //            the structure's amount; "Gross" = Annual CTC ÷ 12, the
+        //            monthly gross salary shown on the payslip)
         //   Pass 2 — PercentOfBasic (needs Basic from pass 1; the component
-        //            marked IsBasic must itself be Fixed or PercentOfCTC —
-        //            SalaryController refuses to save IsBasic+PercentOfBasic
-        //            together, since that would be circular)
-        //   Pass 3 — PercentOfGross, where "Gross" means the gross earnings
-        //            resolved in passes 1-2 only — NOT including other
-        //            PercentOfGross components, which keeps the whole
-        //            resolution well-defined even with more than one such
-        //            component (each is a % of the same base, not of each
-        //            other).
+        //            marked IsBasic must itself not be PercentOfBasic —
+        //            SalaryController refuses to save that, it is circular)
         public static SalaryBreakdown BuildBreakdown(EmployeeSalaryStructure structure)
         {
             var bd = new SalaryBreakdown { AnnualCTC = structure.AnnualCTC };
             var comps = structure.Components.Where(c => c.SalaryComponent != null && c.SalaryComponent.IsActive).ToList();
             var resolved = new Dictionary<int, decimal>();
 
+            // "% of Gross" = % of the monthly gross salary entered on the structure
+            // (Annual CTC ÷ 12) — e.g. Basic 50%, Conveyance 10%, Special 15% of gross.
             foreach (var c in comps)
             {
                 if (c.CalculationType == "Fixed") resolved[c.Id] = c.Value;
-                else if (c.CalculationType == "PercentOfCTC") resolved[c.Id] = Math.Round((structure.AnnualCTC / 12m) * (c.Value / 100m), 2);
+                else if (c.CalculationType == "PercentOfCTC" || c.CalculationType == "PercentOfGross")
+                    resolved[c.Id] = Math.Round((structure.AnnualCTC / 12m) * (c.Value / 100m), 2);
             }
 
             var basicComp = comps.FirstOrDefault(c => c.SalaryComponent!.IsBasic);
@@ -149,11 +147,6 @@ namespace AmpmHrmsPro.Services
                 if (c.CalculationType == "PercentOfBasic")
                     resolved[c.Id] = Math.Round(basicMonthly * (c.Value / 100m), 2);
 
-            var grossSoFar = comps.Where(c => c.SalaryComponent!.ComponentType == "Earning" && resolved.ContainsKey(c.Id))
-                .Sum(c => resolved[c.Id]);
-            foreach (var c in comps)
-                if (c.CalculationType == "PercentOfGross")
-                    resolved[c.Id] = Math.Round(grossSoFar * (c.Value / 100m), 2);
 
             foreach (var c in comps)
             {

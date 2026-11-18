@@ -1,0 +1,165 @@
+@model List<AmpmHrmsPro.Models.Payslip>
+@using System.Globalization
+@{
+    Layout = null;
+    string coName = ViewData["CoName"] as string ?? "";
+    string coAddress = ViewData["CoAddress"] as string ?? "";
+    string? coLogo = ViewData["CoLogo"] as string;
+    var addrParts = coAddress.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    string addr1 = string.Join(", ", addrParts.Take(2));
+    string addr2 = string.Join(", ", addrParts.Skip(2));
+    string N0(decimal v) => v.ToString("0", CultureInfo.InvariantCulture);
+    string N2(decimal v) => v.ToString("0.00", CultureInfo.InvariantCulture);
+    string Doj(string? d) => DateTime.TryParse(d, CultureInfo.InvariantCulture, DateTimeStyles.None, out var x) ? x.ToString("dd/MM/yyyy") : (d ?? "");
+    string title = Model.Count == 1
+        ? $"Payslip {Model[0].EmpCode} {new DateTime(Model[0].Year, Model[0].Month, 1):MMM-yyyy}"
+        : Model.Count > 0 ? $"Payslips {new DateTime(Model[0].Year, Model[0].Month, 1):MMM-yyyy}" : "Payslip";
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@title</title>
+    <style>
+        :root { --ink: #111; --line: #222; }
+        * { box-sizing: border-box; }
+        body { margin: 0; background: #ECECEC; color: var(--ink); font-family: Arial, Helvetica, sans-serif; font-size: 13px; }
+        .toolbar { position: sticky; top: 0; z-index: 5; background: #4A2618; color: #fff; padding: 10px 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        .toolbar button, .toolbar a { background: #fff; color: #4A2618; border: 0; border-radius: 8px; padding: 7px 14px; font-weight: 700; cursor: pointer; text-decoration: none; font-size: 13px; }
+        .toolbar .hint { opacity: .8; font-size: 12px; }
+        .page { width: 210mm; min-height: 148mm; margin: 16px auto; background: #fff; padding: 12mm 12mm 10mm; box-shadow: 0 2px 12px rgba(0,0,0,.12); }
+        .head { display: flex; justify-content: space-between; align-items: flex-start; }
+        .head img { height: 64px; }
+        .co { text-align: right; line-height: 1.45; }
+        .co .name { font-weight: 700; font-size: 16px; letter-spacing: .2px; }
+        .co .addr { font-size: 14px; }
+        .month { text-align: center; margin: 16px 0 10px; font-size: 13px; }
+        .month b { font-size: 13px; }
+        .box { border: 1.4px solid var(--line); border-radius: 10px; overflow: hidden; }
+        table { border-collapse: collapse; width: 100%; }
+        td, th { padding: 3px 6px; vertical-align: top; }
+        .info td { padding: 5px 6px; }
+        .info .lbl { width: 122px; white-space: nowrap; }
+        .info .lbl2 { width: 96px; white-space: nowrap; }
+        .bl { border-left: 1.2px solid var(--line); }
+        .br { border-right: 1.2px solid var(--line); }
+        .bt { border-top: 1.2px solid var(--line); }
+        .bb { border-bottom: 1.2px solid var(--line); }
+        .r { text-align: right; }
+        .c { text-align: center; }
+        .money th { font-weight: 700; }
+        .money td { font-size: 13.5px; padding: 1px 6px; }
+        .money .tot td { font-size: 13px; padding: 6px; font-weight: 700; }
+        .net td { padding: 8px 6px; }
+        .words { padding: 14px 6px 18px; font-weight: 700; font-size: 13px; }
+        .note { padding: 4px 6px; font-style: italic; font-weight: 700; font-size: 12px; }
+        .remark { padding: 2px 6px 8px; font-size: 12px; color: #444; }
+        @@media print {
+            body { background: #fff; }
+            .toolbar { display: none; }
+            .page { margin: 0 auto; box-shadow: none; page-break-after: always; break-after: page; }
+            .page:last-child { page-break-after: auto; break-after: auto; }
+            @@page { size: A4; margin: 8mm; }
+        }
+        @@media (max-width: 820px) {
+            .page { width: auto; margin: 10px; padding: 14px; }
+            .head img { height: 44px; }
+            .co .name { font-size: 13px; } .co .addr { font-size: 11px; }
+            body { font-size: 11px; } .money td { font-size: 11px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="toolbar">
+        <button type="button" onclick="window.print()">Print / Save as PDF</button>
+        <a href="javascript:history.back()">Back</a>
+        <span class="hint">@(Model.Count) payslip(s) — in the print window choose "Save as PDF" to download.</span>
+    </div>
+
+    @foreach (var s in Model)
+    {
+        var earn = s.Lines.Where(l => l.Type == "Earning").OrderBy(l => l.DisplayOrder).ToList();
+        var ded = s.Lines.Where(l => l.Type == "Deduction").OrderBy(l => l.DisplayOrder).ToList();
+        int rows = Math.Max(earn.Count, ded.Count);
+        <div class="page">
+            <div class="head">
+                <div>@if (!string.IsNullOrEmpty(coLogo)) { <img src="@coLogo" alt="Logo" /> }</div>
+                <div class="co">
+                    <div class="name">@coName</div>
+                    @if (addr1.Length > 0) { <div class="addr">@addr1@(addr2.Length > 0 ? "," : "")</div> }
+                    @if (addr2.Length > 0) { <div class="addr">@addr2.ToUpperInvariant()</div> }
+                </div>
+            </div>
+            <div class="month">Salary Slip for the month of <b>@(new DateTime(s.Year, s.Month, 1).ToString("MMMM, yyyy", CultureInfo.InvariantCulture))</b></div>
+
+            <div class="box">
+                <table class="info">
+                    <tr>
+                        <td class="lbl">Employee Code</td><td class="br">@s.EmpCode</td>
+                        <td class="lbl2">P.F. Number</td><td class="bl">@s.PFNumber</td>
+                    </tr>
+                    <tr>
+                        <td class="lbl">Employee Name</td><td class="br"><b>@s.EmployeeName</b></td>
+                        <td class="lbl2">PAN No.</td><td class="bl">@s.PANNumber</td>
+                    </tr>
+                    <tr>
+                        <td class="lbl">F / H Name</td><td class="br">@s.FatherOrHusbandName</td>
+                        <td class="lbl2">Bank A/c No.</td><td class="bl">@s.BankAccount</td>
+                    </tr>
+                    <tr>
+                        <td class="lbl">Designation</td><td class="br">@s.Designation</td>
+                        <td class="lbl2">ESI Number</td><td class="bl">@s.ESICNumber</td>
+                    </tr>
+                    <tr>
+                        <td class="lbl">Department</td><td class="br">@s.Department</td>
+                        <td class="lbl2">D.O.J.</td><td class="bl">@Doj(s.DOJ)</td>
+                    </tr>
+                    <tr>
+                        <td class="lbl bt">Paid Days</td>
+                        <td class="br bt">@N2(s.PaidDays) &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Leave &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; @N2(s.LeaveDays)</td>
+                        <td class="lbl2">UAN#</td><td class="bl">@s.UANNumber</td>
+                    </tr>
+                </table>
+
+                <table class="money bt">
+                    <colgroup><col style="width:28%" /><col style="width:13%" /><col style="width:13%" /><col style="width:34%" /><col style="width:12%" /></colgroup>
+                    <tr class="bb">
+                        <th class="br"></th><th class="c br">Rate</th><th class="c br">Earnings</th><th class="c" colspan="2">Deductions</th>
+                    </tr>
+                    @for (int i = 0; i < rows; i++)
+                    {
+                        var e = i < earn.Count ? earn[i] : null;
+                        var d = i < ded.Count ? ded[i] : null;
+                        <tr>
+                            <td class="br" style="padding-top:@(i == 0 ? 6 : 1)px">@e?.Name</td>
+                            <td class="r br" style="padding-top:@(i == 0 ? 6 : 1)px">@(e != null ? N0(e.Rate) : "")</td>
+                            <td class="r br" style="padding-top:@(i == 0 ? 6 : 1)px">@(e != null ? N0(e.Amount) : "")</td>
+                            <td style="padding-left:24px;padding-top:@(i == 0 ? 6 : 1)px">@d?.Name</td>
+                            <td class="r" style="padding-top:@(i == 0 ? 6 : 1)px">@(d != null ? (d.Amount == 0 ? N2(0) : N0(d.Amount)) : "")</td>
+                        </tr>
+                    }
+                    <tr><td class="br" style="height:8px"></td><td class="br"></td><td class="br"></td><td></td><td></td></tr>
+                    <tr class="tot bt">
+                        <td class="br" style="font-weight:400">Total</td>
+                        <td class="r br">@N2(s.GrossRate)</td>
+                        <td class="r br">@N0(s.GrossEarned)</td>
+                        <td style="font-weight:400">Total</td>
+                        <td class="r">@N2(s.TotalDeductions)</td>
+                    </tr>
+                </table>
+
+                <table class="bt">
+                    <tr class="net">
+                        <td style="width:41%"><b><u>Net Payable for the Month</u></b> &nbsp;<b><u>@(new DateTime(s.Year, s.Month, 1).ToString("MMMM, yyyy", CultureInfo.InvariantCulture))</u></b></td>
+                        <td style="width:59%;padding-left:60px"><b>@N2(s.NetPay)</b></td>
+                    </tr>
+                    <tr><td colspan="2" class="words">(@AmpmHrmsPro.Services.PayrollEngine.InWords(s.NetPay) )</td></tr>
+                    @if (!string.IsNullOrWhiteSpace(s.Remarks)) { <tr><td colspan="2" class="remark">Remarks: @s.Remarks</td></tr> }
+                    <tr class="bt"><td colspan="2" class="note">Note : This is computer generated statement and does not require signature</td></tr>
+                </table>
+            </div>
+        </div>
+    }
+</body>
+</html>

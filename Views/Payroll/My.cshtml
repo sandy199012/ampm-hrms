@@ -1,0 +1,41 @@
+@model List<AmpmHrmsPro.Models.Payslip>
+@using System.Globalization
+@{
+    ViewData["Title"] = "My Payslips";
+    ViewData["Subtitle"] = "My Payroll";
+}
+
+<div class="page-header">
+    <div>
+        <h1>My Payslips</h1>
+        <p>Open a month to view, print or save it as PDF</p>
+    </div>
+</div>
+
+@if (!Model.Any())
+{
+    <div class="card"><div class="card-body text-muted">No payslips yet — they appear here once HR finalises the month's payroll.</div></div>
+}
+else
+{
+    <div class="card">
+        <div class="card-body p-0">
+            <table class="table table-hover align-middle mb-0">
+                <thead><tr><th>Month</th><th class="text-end">Paid days</th><th class="text-end">Gross</th><th class="text-end">Deductions</th><th class="text-end">Net pay</th><th></th></tr></thead>
+                <tbody>
+                @foreach (var p in Model)
+                {
+                    <tr>
+                        <td class="fw-semibold">@(new DateTime(p.Year, p.Month, 1).ToString("MMMM yyyy", CultureInfo.InvariantCulture))</td>
+                        <td class="text-end">@p.PaidDays.ToString("0.##")</td>
+                        <td class="text-end">₹@p.GrossEarned.ToString("N0")</td>
+                        <td class="text-end">₹@p.TotalDeductions.ToString("N0")</td>
+                        <td class="text-end fw-bold">₹@p.NetPay.ToString("N0")</td>
+                        <td class="text-end"><a class="btn btn-sm btn-primary" asp-controller="MyPayslips" asp-action="Slip" asp-route-id="@p.Id" target="_blank"><i class="bi bi-file-earmark-text me-1"></i>View</a></td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}

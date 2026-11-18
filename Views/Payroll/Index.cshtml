@@ -1,0 +1,139 @@
+@model List<AmpmHrmsPro.Models.Payslip>
+@using System.Globalization
+@{
+    ViewData["Title"] = "Run Payroll";
+    ViewData["Subtitle"] = "Payroll";
+    int year = ViewBag.Year, month = ViewBag.Month;
+    PayrollRun? run = ViewBag.Run;
+    var runs = (List<PayrollRun>)ViewBag.Runs;
+    bool finalised = run?.Status == "Finalised";
+    string monthName = new DateTime(year, month, 1).ToString("MMMM yyyy", CultureInfo.InvariantCulture);
+    int withStructure = ViewBag.WithStructure, activeEmps = ViewBag.ActiveEmployees;
+}
+
+<div class="page-header">
+    <div>
+        <h1>Run Payroll</h1>
+        <p>Generate payslips from salary structures and attendance, check them, then finalise</p>
+    </div>
+</div>
+
+@if (TempData["NoStructure"] is string ns)
+{
+    <div class="alert alert-warning small"><b>No salary structure:</b> @ns<br />Add one under Salary Structure → Employee Structure, then click Generate again.</div>
+}
+
+<div class="card mb-3">
+    <div class="card-body d-flex flex-wrap gap-2 align-items-end">
+        <form method="get" class="d-flex gap-2 align-items-end flex-wrap">
+            <div>
+                <label class="form-label">Month</label>
+                <select name="month" class="form-select">
+                    @for (int m = 1; m <= 12; m++) { <option value="@m" selected="@(m == month)">@CultureInfo.InvariantCulture.DateTimeFormat.GetMonthName(m)</option> }
+                </select>
+            </div>
+            <div>
+                <label class="form-label">Year</label>
+                <select name="year" class="form-select">
+                    @for (int y = IndiaTimeYear() + 1; y >= IndiaTimeYear() - 3; y--) { <option value="@y" selected="@(y == year)">@y</option> }
+                </select>
+            </div>
+            <button class="btn btn-light">Open</button>
+        </form>
+        <div class="ms-auto d-flex gap-2 flex-wrap">
+            @if (!finalised)
+            {
+                <form method="post" asp-action="Generate" onsubmit="this.querySelector('button').disabled=true;">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" name="year" value="@year" /><input type="hidden" name="month" value="@month" />
+                    <button class="btn btn-primary"><i class="bi bi-gear-fill me-1"></i>@(Model.Any() ? "Re-generate" : "Generate") @monthName</button>
+                </form>
+            }
+            @if (Model.Any())
+            {
+                <a class="btn btn-light" asp-action="PrintAll" asp-route-year="@year" asp-route-month="@month" target="_blank"><i class="bi bi-printer me-1"></i>Print all</a>
+                @if (!finalised)
+                {
+                    <form method="post" asp-action="Finalise" onsubmit="return confirm('Finalise @monthName? Payslips become visible to employees and can no longer be edited (you can reopen later).');">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="year" value="@year" /><input type="hidden" name="month" value="@month" />
+                        <button class="btn btn-success"><i class="bi bi-lock-fill me-1"></i>Finalise</button>
+                    </form>
+                }
+                else
+                {
+                    <form method="post" asp-action="Reopen" onsubmit="return confirm('Reopen @monthName as draft? Employees will stop seeing these payslips until you finalise again.');">
+                        @Html.AntiForgeryToken()
+                        <input type="hidden" name="year" value="@year" /><input type="hidden" name="month" value="@month" />
+                        <button class="btn btn-outline-secondary"><i class="bi bi-unlock me-1"></i>Reopen</button>
+                    </form>
+                }
+            }
+        </div>
+    </div>
+</div>
+
+@if (!Model.Any())
+{
+    <div class="card"><div class="card-body text-muted">
+        No payslips for @monthName yet. @withStructure of @activeEmps active employees have a salary structure — click <b>Generate</b> to build their payslips.
+    </div></div>
+}
+else
+{
+    <div class="row g-3 mb-3">
+        <div class="col-6 col-md-3"><div class="card"><div class="card-body"><div class="text-muted small">Status</div><div class="fs-5 fw-bold">@(finalised ? "Finalised" : "Draft")</div></div></div></div>
+        <div class="col-6 col-md-3"><div class="card"><div class="card-body"><div class="text-muted small">Payslips</div><div class="fs-5 fw-bold">@Model.Count</div></div></div></div>
+        <div class="col-6 col-md-3"><div class="card"><div class="card-body"><div class="text-muted small">Total gross</div><div class="fs-5 fw-bold">₹@Model.Sum(p => p.GrossEarned).ToString("N0")</div></div></div></div>
+        <div class="col-6 col-md-3"><div class="card"><div class="card-body"><div class="text-muted small">Total net pay</div><div class="fs-5 fw-bold">₹@Model.Sum(p => p.NetPay).ToString("N0")</div></div></div></div>
+    </div>
+
+    <div class="card">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead><tr>
+                        <th>Employee</th><th>Department</th>
+                        <th class="text-end">Days</th><th class="text-end">LOP</th><th class="text-end">Paid days</th>
+                        <th class="text-end">Gross (rate)</th><th class="text-end">Gross earned</th><th class="text-end">Deductions</th><th class="text-end">Net pay</th><th></th>
+                    </tr></thead>
+                    <tbody>
+                    @foreach (var p in Model)
+                    {
+                        <tr>
+                            <td><div class="fw-semibold">@p.EmployeeName</div><div class="small text-muted">@p.EmpCode</div></td>
+                            <td class="small">@p.Department</td>
+                            <td class="text-end">@p.DaysInMonth.ToString("0.##")</td>
+                            <td class="text-end @(p.LopDays > 0 ? "text-danger fw-semibold" : "")">@p.LopDays.ToString("0.##")</td>
+                            <td class="text-end">@p.PaidDays.ToString("0.##")@(p.PaidDaysOverride.HasValue ? "*" : "")</td>
+                            <td class="text-end">@p.GrossRate.ToString("N0")</td>
+                            <td class="text-end">@p.GrossEarned.ToString("N0")</td>
+                            <td class="text-end">@p.TotalDeductions.ToString("N0")</td>
+                            <td class="text-end fw-bold">@p.NetPay.ToString("N0")</td>
+                            <td class="text-end text-nowrap">
+                                <a class="btn btn-sm btn-light" asp-action="Slip" asp-route-id="@p.Id" target="_blank" title="View / print"><i class="bi bi-file-earmark-text"></i></a>
+                                @if (!finalised) { <a class="btn btn-sm btn-light" asp-action="Edit" asp-route-id="@p.Id" title="Edit"><i class="bi bi-pencil"></i></a> }
+                            </td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <p class="small text-muted mt-2">LOP = loss-of-pay days from attendance (Absent / Miss punch = 1, Half day = ½, Leave Without Pay = 1). * = paid days typed by HR.</p>
+}
+
+@if (runs.Any())
+{
+    <div class="mt-4 small text-muted">Earlier months:
+        @foreach (var r in runs)
+        {
+            <a class="ms-2" asp-action="Index" asp-route-year="@r.Year" asp-route-month="@r.Month">@(new DateTime(r.Year, r.Month, 1).ToString("MMM yyyy", CultureInfo.InvariantCulture)) (@r.Status)</a>
+        }
+    </div>
+}
+
+@functions {
+    int IndiaTimeYear() => AmpmHrmsPro.Services.IndiaTime.Today.Year;
+}
