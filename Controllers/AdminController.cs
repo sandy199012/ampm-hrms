@@ -176,6 +176,28 @@ namespace AmpmHrmsPro.Controllers
             if ((IsPrivileged(model.Role) || IsPrivileged(existing.Role)) && model.Role != existing.Role && !await CanGrantPrivilegedRolesAsync())
                 model.Role = existing.Role;   // role escalation needs "Manage users, roles & security"
 
+            // ── Employee code change ──
+            var newCode = (model.EmpCode ?? "").Trim();
+            string? codeChangeNote = null;
+            if (newCode.Length > 0 && newCode != existing.EmpCode)
+            {
+                if (newCode.Length > 20 || newCode.Any(char.IsWhiteSpace))
+                {
+                    TempData["Error"] = "Employee code can be at most 20 characters, without spaces.";
+                    return RedirectToAction("EditEmployee", new { id = model.Id });
+                }
+                var clash = await _db.Employees.Where(e => e.Id != existing.Id && e.EmpCode.ToUpper() == newCode.ToUpper())
+                    .Select(e => e.Name).FirstOrDefaultAsync();
+                if (clash != null)
+                {
+                    TempData["Error"] = $"Employee code '{newCode}' is already used by {clash}.";
+                    return RedirectToAction("EditEmployee", new { id = model.Id });
+                }
+                codeChangeNote = await RenameEmployeeCodeAsync(existing.EmpCode, newCode);
+                _db.Audit("EmployeeCodeChanged", $"{existing.Name}: employee code {existing.EmpCode} → {newCode}", "Employee", existing.Id.ToString());
+                existing.EmpCode = newCode;
+            }
+
             existing.Name               = model.Name;
             existing.Email               = model.Email;
             existing.Mobile              = model.Mobile;
@@ -200,8 +222,28 @@ namespace AmpmHrmsPro.Controllers
             CopyExtendedProfile(model, existing);
             _db.SaveChanges();
             HttpContext.RequestServices.GetRequiredService<IAccessService>().Invalidate(User.GetCompanyId());
-            TempData["Success"] = $"'{existing.Name}' updated.";
+            TempData["Success"] = $"'{existing.Name}' updated." + (codeChangeNote ?? "");
             return RedirectToAction("Employees");
+        }
+
+        // Moves every place that stores the code as text (Attendance Review roster,
+        // gap logs, Presence 360 report rows, master sheet) to the new code. Everything
+        // else (attendance, leave, payroll …) links by employee Id and follows automatically.
+        async Task<string> RenameEmployeeCodeAsync(string oldCode, string newCode)
+        {
+            static string Norm(string c) { c = c.Trim(); if (c.EndsWith(".0")) c = c[..^2]; var t = c.TrimStart('0'); return t.Length == 0 ? "0" : t; }
+            string oldN = Norm(oldCode), newN = Norm(newCode);
+            await _db.RosterEntries.Where(r => r.EmployeeCode == oldCode).ExecuteUpdateAsync(u => u.SetProperty(r => r.EmployeeCode, newCode));
+            await _db.AttendanceGapLogs.Where(r => r.EmployeeCode == oldCode).ExecuteUpdateAsync(u => u.SetProperty(r => r.EmployeeCode, newCode));
+            if (oldN != newN)
+            {
+                await _db.RosterEntries.Where(r => r.EmployeeCode == oldN).ExecuteUpdateAsync(u => u.SetProperty(r => r.EmployeeCode, newN));
+                await _db.AttendanceGapLogs.Where(r => r.EmployeeCode == oldN).ExecuteUpdateAsync(u => u.SetProperty(r => r.EmployeeCode, newN));
+                await _db.P360DailyRecords.Where(r => r.EmpCode == oldN).ExecuteUpdateAsync(u => u.SetProperty(r => r.EmpCode, newN));
+                await _db.ReviewEmployees.Where(r => r.EmpCode == oldN).ExecuteUpdateAsync(u => u.SetProperty(r => r.EmpCode, newN));
+                await _db.ReviewEmployees.Where(r => r.ManagerCode == oldN).ExecuteUpdateAsync(u => u.SetProperty(r => r.ManagerCode, newN));
+            }
+            return $" Employee code changed {oldCode} → {newCode}: the employee now logs in with {newCode}. Change it in Presence 360 too, or their attendance won't match.";
         }
 
         // ═══════════════════════════════════════════

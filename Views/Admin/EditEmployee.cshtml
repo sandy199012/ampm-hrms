@@ -26,7 +26,6 @@
 <form method="post" asp-action="EditEmployee">
     @Html.AntiForgeryToken()
     <input type="hidden" name="Id" value="@Model.Id" />
-    <input type="hidden" name="EmpCode" value="@Model.EmpCode" />
     <input type="hidden" name="PasswordHash" value="@Model.PasswordHash" />
     <input type="hidden" name="CreatedAt" value="@Model.CreatedAt.ToString("o")" />
 
@@ -47,7 +46,8 @@
                 <!-- IDENTITY -->
                 <div class="tab-pane fade show active" id="t-id">
                     <div class="row g-3">
-                        <div class="col-md-3"><label class="form-label">Employee Code</label><input type="text" class="form-control" value="@Model.EmpCode" disabled /></div>
+                        <div class="col-md-3"><label class="form-label">Employee Code *</label><input type="text" name="EmpCode" class="form-control" value="@Model.EmpCode" maxlength="20" pattern="\S+" title="No spaces" required data-original="@Model.EmpCode" id="empCodeInput" />
+                            <div class="form-text text-warning d-none" id="empCodeWarn"><i class="bi bi-exclamation-triangle me-1"></i>This is also the login ID. Change it in Presence 360 too, so attendance keeps matching.</div></div>
                         <div class="col-md-5"><label class="form-label">Full Name *</label><input type="text" name="Name" class="form-control" value="@Model.Name" required /></div>
                         <div class="col-md-4"><label class="form-label">Email *</label><input type="email" name="Email" class="form-control" value="@Model.Email" required /></div>
                         <div class="col-md-3"><label class="form-label">System Role *</label>
@@ -264,3 +264,11 @@
         </div>
     </div>
 </div>
+
+<script>
+    (function () {
+        var i = document.getElementById('empCodeInput'), w = document.getElementById('empCodeWarn');
+        if (!i || !w) return;
+        i.addEventListener('input', function () { w.classList.toggle('d-none', i.value.trim() === i.dataset.original); });
+    })();
+</script>
