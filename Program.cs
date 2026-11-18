@@ -194,6 +194,8 @@ builder.Services.AddHostedService<BiometricSyncHostedService>();
 // ── Presence 360 API: attendance + leave + on duty + regularization pull (Admin > Presence 360 API) ──
 builder.Services.AddScoped<IPresence360ApiService, Presence360ApiService>();
 builder.Services.AddHostedService<Presence360SyncHostedService>();
+// ── Monthly EL 1.5 / CL 0.833 credit on the 1st of every month (Services/LeaveAccrualHostedService.cs) ──
+builder.Services.AddHostedService<LeaveAccrualHostedService>();
 
 // ── Mobile app support — JWT issuing/validation for the React Native app's
 // login, and the vendor-agnostic face-match verification called from

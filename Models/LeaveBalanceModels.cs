@@ -79,4 +79,14 @@ namespace AmpmHrmsPro.Models
             ConsumedJul, ConsumedAug, ConsumedSep, ConsumedOct, ConsumedNov, ConsumedDec
         };
     }
+
+    /// <summary>One row per company per month once the monthly EL/CL credit has run (see LeaveAccrualHostedService).</summary>
+    public class LeaveAccrualRun
+    {
+        [Key] public int Id { get; set; }
+        public int Year { get; set; }
+        public int Month { get; set; }
+        public int RowsCredited { get; set; }
+        public DateTime RanAt { get; set; }
+    }
 }

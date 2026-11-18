@@ -81,6 +81,7 @@ namespace AmpmHrmsPro.Data
 
         // ── Leave Balance (EL / CL) ──
         public DbSet<LeaveBalance> LeaveBalances { get; set; }
+        public DbSet<LeaveAccrualRun> LeaveAccrualRuns { get; set; }
 
         // ── Attendance Review (Presence 360 gap analysis) ──
         public DbSet<RosterEntry>      RosterEntries      { get; set; }
