@@ -6,6 +6,8 @@
     var components = (List<SalaryComponent>)ViewBag.Components;
     decimal currentCtc = ViewBag.CurrentAnnualCTC;
     int? prefillTemplateId = ViewBag.PrefillSourceTemplateId;
+    decimal.TryParse(Context.Request.Query["gross"], System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var keptGross);
+    string grossValue = keptGross > 0 ? Math.Round(keptGross, 0).ToString() : currentCtc > 0 ? Math.Round(currentCtc / 12m, 0).ToString() : "";
 }
 
 <div class="page-header">
@@ -19,7 +21,7 @@
 <div class="card mb-3">
     <div class="card-body">
         <label class="form-label">Load from Template (optional — prefills the components below, still editable)</label>
-        <select class="form-select" style="max-width:420px;" onchange="if(this.value) window.location = '@Url.Action("AssignStructure")?employeeId=@employee.Id&copyFromTemplateId=' + this.value;">
+        <select class="form-select" style="max-width:420px;" onchange="if(this.value) window.location = '@Url.Action("AssignStructure")?employeeId=@employee.Id&copyFromTemplateId=' + this.value + '&gross=' + encodeURIComponent(document.getElementById('fGross').value || '');">
             <option value="">— Start blank / keep current —</option>
             @foreach (var t in templates)
             {
@@ -38,8 +40,8 @@
             <div class="row g-3">
                 <div class="col-md-4"><label class="form-label">Effective From *</label><input type="date" name="effectiveFrom" class="form-control" required value="@DateTime.Now.ToString("yyyy-MM-dd")" />
                     <div class="form-text">An earlier date is fine (e.g. 01-01-2026) — versions starting on or after it are replaced.</div></div>
-                <div class="col-md-4"><label class="form-label">Monthly Gross Salary (₹) *</label><input type="number" step="1" id="fGross" class="form-control" required value="@(currentCtc > 0 ? Math.Round(currentCtc / 12m, 0).ToString() : "")" />
-                    <div class="form-text">Total of all earnings on the payslip (e.g. 56800). PF / ESIC are deducted at payroll.</div></div>
+                <div class="col-md-4"><label class="form-label">Monthly Gross Salary (₹) *</label><input type="number" step="1" id="fGross" class="form-control fw-bold" required value="@grossValue" />
+                    <div class="form-text">Payslip ka <b>Total Earnings</b> (e.g. 56800) — employer PF include mat karo. PF / ESIC payroll mein khud katenge.</div></div>
                 <div class="col-md-4"><label class="form-label">Annual (₹)</label><input type="number" step="0.01" name="annualCTC" id="fCtc" class="form-control" readonly value="@(currentCtc > 0 ? currentCtc : "")" /></div>
             </div>
         </div>
