@@ -284,8 +284,12 @@ if (!app.Environment.IsDevelopment())
 app.Use(async (ctx, next) =>
 {
     var p = ctx.Request.Path.Value ?? "";
-    if (p.Equals("/app", StringComparison.OrdinalIgnoreCase)) { ctx.Response.Redirect("/app/"); return; }
-    if (p.Equals("/app/", StringComparison.OrdinalIgnoreCase)) ctx.Request.Path = "/app/index.html";
+    // /app → iPhone web app, /download → app download page (Android APK + iPhone link)
+    foreach (var dir in new[] { "/app", "/download" })
+    {
+        if (p.Equals(dir, StringComparison.OrdinalIgnoreCase)) { ctx.Response.Redirect(dir + "/"); return; }
+        if (p.Equals(dir + "/", StringComparison.OrdinalIgnoreCase)) ctx.Request.Path = dir + "/index.html";
+    }
     await next();
 });
 var staticTypes = new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider();
@@ -293,6 +297,7 @@ staticTypes.Mappings[".frag"] = "application/octet-stream";      // Flutter shad
 staticTypes.Mappings[".symbols"] = "application/octet-stream";
 staticTypes.Mappings[".mjs"] = "text/javascript";
 staticTypes.Mappings[".webmanifest"] = "application/manifest+json";
+staticTypes.Mappings[".apk"] = "application/vnd.android.package-archive";   // Android app download
 app.UseStaticFiles(new StaticFileOptions
 {
     ContentTypeProvider = staticTypes,
@@ -300,7 +305,7 @@ app.UseStaticFiles(new StaticFileOptions
     {
         // The web app keeps the same file names between releases — always
         // re-check with the server so a new version shows up straight away.
-        if (c.Context.Request.Path.StartsWithSegments("/app"))
+        if (c.Context.Request.Path.StartsWithSegments("/app") || c.Context.Request.Path.StartsWithSegments("/download"))
             c.Context.Response.Headers.CacheControl = "no-cache";
     }
 });
