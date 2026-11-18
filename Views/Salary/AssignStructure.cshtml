@@ -40,9 +40,11 @@
             <div class="row g-3">
                 <div class="col-md-4"><label class="form-label">Effective From *</label><input type="date" name="effectiveFrom" class="form-control" required value="@DateTime.Now.ToString("yyyy-MM-dd")" />
                     <div class="form-text">An earlier date is fine (e.g. 01-01-2026) — versions starting on or after it are replaced.</div></div>
+                <div class="col-md-4"><label class="form-label">Monthly CTC (₹) <span class="text-soft">— incl. employer PF</span></label><input type="number" step="1" id="fMonthlyCtc" class="form-control" />
+                    <div class="form-text">e.g. 58600 → Gross 56800 + employer PF 1800. Type CTC <b>or</b> Gross.</div></div>
                 <div class="col-md-4"><label class="form-label">Monthly Gross Salary (₹) *</label><input type="number" step="1" id="fGross" class="form-control fw-bold" required value="@grossValue" />
-                    <div class="form-text">Payslip ka <b>Total Earnings</b> (e.g. 56800) — employer PF include mat karo. PF / ESIC payroll mein khud katenge.</div></div>
-                <div class="col-md-4"><label class="form-label">Annual (₹)</label><input type="number" step="0.01" name="annualCTC" id="fCtc" class="form-control" readonly value="@(currentCtc > 0 ? currentCtc : "")" /></div>
+                    <div class="form-text">= payslip <b>Total Earnings</b> (e.g. 56800). Employee PF / ESIC are deducted at payroll.</div>
+                    <input type="hidden" name="annualCTC" id="fCtc" value="@(currentCtc > 0 ? currentCtc : "")" /></div>
             </div>
         </div>
     </div>
@@ -107,14 +109,35 @@ function recalcTotal() {
     });
     document.getElementById('liveTotal').innerText = Math.round(total).toLocaleString('en-IN');
 }
-document.getElementById('fGross').addEventListener('input', recalcTotal);
+// CTC ⇄ Gross: CTC = Gross + employer PF (12% of Basic, wage capped at ₹15,000)
+function basicPct() {
+    const row = Array.from(document.querySelectorAll('.item-row')).find(r => { const c = COMPONENTS.find(x => x.id === parseInt(r.querySelector('.item-comp').value)); return c && c.isBasic; });
+    if (!row) return 50;
+    const calc = row.querySelector('.item-calc').value, v = parseFloat(row.querySelector('.item-value').value) || 0;
+    return (calc === 'PercentOfGross' || calc === 'PercentOfCTC') ? v : 50;
+}
+function employerPf(gross) { return Math.round(Math.min(gross * basicPct() / 100, 15000) * 0.12); }
+function grossFromCtc(ctc) {
+    const g1 = ctc - 1800;
+    if (g1 * basicPct() / 100 >= 15000) return Math.round(g1);
+    return Math.round(ctc / (1 + 0.12 * basicPct() / 100));
+}
+function syncCtcFromGross() { const g = parseFloat(document.getElementById('fGross').value) || 0; document.getElementById('fMonthlyCtc').value = g ? g + employerPf(g) : ''; }
+document.getElementById('fGross').addEventListener('input', function () { syncCtcFromGross(); recalcTotal(); });
+document.getElementById('fMonthlyCtc').addEventListener('input', function () {
+    const c = parseFloat(this.value) || 0;
+    document.getElementById('fGross').value = c ? grossFromCtc(c) : '';
+    recalcTotal();
+});
+document.getElementById('itemsList').addEventListener('input', syncCtcFromGross);
 
 if (PREFILL && PREFILL.length) {
     PREFILL.forEach(i => addItemRow(i.componentId, i.calcType, i.value));
 } else {
     const basic = COMPONENTS.find(c => c.isBasic);
-    addItemRow(basic ? basic.id : undefined, 'PercentOfCTC', 40);
+    addItemRow(basic ? basic.id : undefined, 'PercentOfGross', 50);
 }
+syncCtcFromGross();
 
 document.getElementById('structureForm').addEventListener('submit', function (e) {
     recalcTotal();
