@@ -120,6 +120,7 @@ namespace AmpmHrmsPro.Services
             var rows = await db.AttendanceDailies
                 .Where(a => a.Date == dateStr)
                 .Include(a => a.Employee).ThenInclude(e => e!.Shift)
+                .Include(a => a.Employee).ThenInclude(e => e!.Designation)
                 .Where(a => a.Employee != null && a.Employee.IsActive)
                 .ToListAsync();
 
@@ -172,7 +173,15 @@ namespace AmpmHrmsPro.Services
                 if (!late.Any() && !early.Any() && !missPunch.Any()) { deptsSkippedNothingToReport++; continue; }
 
                 var html = BuildDailyAlertHtml(dept.Name, forDate, late, early, missPunch);
-                var (ok, _) = await _sender.SendAsync(settings, new[] { dept.Head!.Email }, $"Daily Attendance Alert — {dept.Name} — {forDate:dd-MMM-yyyy}", html);
+                var xlsx = AttendanceAlertWorkbook.BuildDaily(dept.Name, dept.Head!.Name, forDate,
+                    deptRows.Select(AttendanceAlertWorkbook.Compute).ToList());
+                var (ok, _) = await _sender.SendAsync(settings, new MailRequest
+                {
+                    To = { dept.Head!.Email! },
+                    Subject = $"Daily Attendance Alert — {dept.Name} — {forDate:dd-MMM-yyyy}",
+                    HtmlBody = html,
+                    Attachments = { new MailAttachment($"Daily Attendance Alert - {SafeName(dept.Name)} - {forDate:dd-MMM-yyyy}.xlsx", AttendanceAlertWorkbook.ContentType, xlsx) },
+                });
                 if (ok) emailsSent++;
             }
 
@@ -195,6 +204,7 @@ namespace AmpmHrmsPro.Services
             sb.Append(Section("Miss Punch", missPunch.Count, "#7C3AED",
                 missPunch.Select(r => $"{Esc(r.Employee!.Name)} ({Esc(r.Employee.EmpCode)}) — {Esc(r.EffectiveStatus)}")));
 
+            sb.Append("<p style='margin-top:18px;font-size:13px'>&#128206; <b>Full details are in the attached Excel</b> — every employee, shift vs actual time, late / early going / miss punch, with filters.</p>");
             sb.Append("<p style='color:#999;font-size:12px;margin-top:24px'>Automated message from {{BRAND}}. Please do not reply to this email.</p>");
             sb.Append("</div>");
             return sb.ToString();
@@ -283,7 +293,8 @@ namespace AmpmHrmsPro.Services
 
             var rows = await db.AttendanceDailies
                 .Where(a => string.Compare(a.Date, fromStr) >= 0 && string.Compare(a.Date, toStr) <= 0)
-                .Include(a => a.Employee)
+                .Include(a => a.Employee).ThenInclude(e => e!.Shift)
+                .Include(a => a.Employee).ThenInclude(e => e!.Designation)
                 .Where(a => a.Employee != null && a.Employee.IsActive)
                 .ToListAsync();
 
@@ -323,7 +334,15 @@ namespace AmpmHrmsPro.Services
                     .ToList();
 
                 var html = BuildWeeklyHtml(dept.Name, weekStart, weekEnd, byEmployee);
-                var (ok, _) = await _sender.SendAsync(settings, new[] { dept.Head!.Email }, $"Weekly Attendance Report — {dept.Name} — {weekStart:dd MMM} to {weekEnd:dd MMM yyyy}", html);
+                var xlsx = AttendanceAlertWorkbook.BuildWeekly(dept.Name, dept.Head!.Name, weekStart, weekEnd, deptRows,
+                    deptRows.Select(AttendanceAlertWorkbook.Compute).ToList());
+                var (ok, _) = await _sender.SendAsync(settings, new MailRequest
+                {
+                    To = { dept.Head!.Email! },
+                    Subject = $"Weekly Attendance Report — {dept.Name} — {weekStart:dd MMM} to {weekEnd:dd MMM yyyy}",
+                    HtmlBody = html,
+                    Attachments = { new MailAttachment($"Weekly Attendance Report - {SafeName(dept.Name)} - {weekStart:dd-MMM} to {weekEnd:dd-MMM-yyyy}.xlsx", AttendanceAlertWorkbook.ContentType, xlsx) },
+                });
                 if (ok) emailsSent++;
             }
 
@@ -360,6 +379,7 @@ namespace AmpmHrmsPro.Services
                 sb.Append("</tr>");
             }
             sb.Append("</table>");
+            sb.Append("<p style='margin-top:18px;font-size:13px'>&#128206; <b>Full details are in the attached Excel</b> — every employee, shift vs actual time, late / early going / miss punch, with filters.</p>");
             sb.Append("<p style='color:#999;font-size:12px;margin-top:24px'>Automated message from {{BRAND}}. Please do not reply to this email.</p>");
             sb.Append("</div>");
             return sb.ToString();
@@ -380,6 +400,8 @@ namespace AmpmHrmsPro.Services
         static string FmtTime(TimeSpan? t) => t.HasValue ? DateTime.Today.Add(t.Value).ToString("hh:mm tt") : "—";
 
         static string Esc(string? s) => WebUtility.HtmlEncode(s ?? "");
+
+        static string SafeName(string s) => string.Concat(s.Select(ch => Path.GetInvalidFileNameChars().Contains(ch) || ch == '&' ? '-' : ch)).Trim();
 
         static IEnumerable<List<string>> Batch(List<string> source, int size)
         {
