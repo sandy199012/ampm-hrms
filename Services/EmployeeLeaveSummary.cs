@@ -24,7 +24,7 @@ namespace AmpmHrmsPro.Services
     // EMPLOYEE LEAVE SUMMARY — every leave balance an employee should see:
     //   • EL / CL / SL   — yearly rows in LeaveBalances (uploaded + monthly credit)
     //   • Short Leave    — Staff: 2 per month, unused ones lapse at month end
-    //   • Bereavement    — Staff: per occasion (days from the leave type master)
+    //   • Bereavement    — Staff: 5 days a year (days from the leave type master)
     //   • Week Off Leave — Retail staff & retail workers (no fixed Sunday off):
     //                      credit = number of Sundays in the month (from the
     //                      joining date if they joined this month); unused
@@ -124,18 +124,19 @@ namespace AmpmHrmsPro.Services
                 });
             }
 
-            // ── Bereavement Leave — Staff, per occasion ──
+            // ── Bereavement Leave — Staff, 5 days a year (days from the leave type master) ──
             var bl = activeByAlias.GetValueOrDefault("BL") ?? types.FirstOrDefault(t => t.IsActive && IsBereavement(t));
             if (IsStaff(e) && bl != null && GenderOk(bl))
             {
                 var ids = IdsFor(IsBereavement);
-                decimal perOccasion = bl.DefaultAnnualDays > 0 ? bl.DefaultAnnualDays : 3m;
+                decimal perYear = bl.DefaultAnnualDays > 0 ? bl.DefaultAnnualDays : 5m;
+                decimal taken = Sum(ids, "Approved", y.ToString());
                 result.Add(new LeaveBalanceItem
                 {
                     Alias = "BL", Name = bl.Name, Year = y,
-                    Earned = perOccasion, Consumed = Sum(ids, "Approved", y.ToString()), Pending = Sum(ids, "Pending", y.ToString()),
-                    Balance = perOccasion, Period = "Occasion",
-                    Note = $"{perOccasion:0.#} days per occasion",
+                    Earned = perYear, Consumed = taken, Pending = Sum(ids, "Pending", y.ToString()),
+                    Balance = perYear - taken, Period = "Year",
+                    Note = $"{perYear:0.#} days per year",
                 });
             }
 
