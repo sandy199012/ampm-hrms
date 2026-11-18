@@ -73,6 +73,39 @@
     </div>
 </div>
 
+@if (!finalised)
+{
+    <div class="card mb-3">
+        <div class="card-body">
+            <form method="post" asp-action="Generate" class="d-flex gap-2 align-items-end flex-wrap" onsubmit="this.querySelector('button').disabled=true;">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="year" value="@year" /><input type="hidden" name="month" value="@month" />
+                <div style="min-width:280px;flex:1;max-width:460px">
+                    <label class="form-label">Test with one employee</label>
+                    <select name="employeeId" class="form-select" required>
+                        <option value="">— Choose employee —</option>
+                        @foreach (var e in (IEnumerable<dynamic>)ViewBag.EmployeeList)
+                        {
+                            <option value="@e.Id">@e.Name (@e.EmpCode)@(e.Has ? "" : " — no salary structure")</option>
+                        }
+                    </select>
+                </div>
+                <button class="btn btn-outline-primary"><i class="bi bi-person-check me-1"></i>Generate for this employee</button>
+                <div class="form-text w-100 mb-0">Builds only this employee's @monthName payslip so you can check it. Others are not touched.</div>
+            </form>
+        </div>
+    </div>
+}
+
+@if (TempData["OpenSlip"] is int openSlip)
+{
+    <div class="alert alert-success d-flex align-items-center gap-2">
+        <i class="bi bi-file-earmark-text"></i> Test payslip ready.
+        <a class="btn btn-sm btn-success ms-auto" asp-action="Slip" asp-route-id="@openSlip" target="_blank">Open payslip</a>
+        <a class="btn btn-sm btn-light" asp-action="Edit" asp-route-id="@openSlip">Edit</a>
+    </div>
+}
+
 @if (!Model.Any())
 {
     <div class="card"><div class="card-body text-muted">

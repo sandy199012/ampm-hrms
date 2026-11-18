@@ -269,14 +269,24 @@ namespace AmpmHrmsPro.Controllers
             if (items.Any(it => basicComponentIds.Contains(it.ComponentId) && it.CalcType == "PercentOfBasic"))
             { TempData["Error"] = "The Basic component can't be calculated as a % of Basic — that's circular. Use Fixed or % of CTC for it."; return RedirectToAction("AssignStructure", new { employeeId }); }
 
-            var current = _db.EmployeeSalaryStructures.FirstOrDefault(s => s.EmployeeId == employeeId && s.EffectiveTo == null);
-            if (current != null && string.Compare(effectiveFrom, current.EffectiveFrom) <= 0)
-            { TempData["Error"] = $"Effective From must be after the current structure's effective date ({current.EffectiveFrom})."; return RedirectToAction("AssignStructure", new { employeeId }); }
+            // Back-dated entry (e.g. a correction "from 1 Jan"): the new structure replaces every
+            // version that starts on/after that date, and the version running on that date ends the day before.
+            var newFrom = DateTime.Parse(effectiveFrom).ToString("yyyy-MM-dd");
+            var dayBefore = DateTime.Parse(effectiveFrom).AddDays(-1).ToString("yyyy-MM-dd");
+            var all = _db.EmployeeSalaryStructures.Include(s => s.Components).Where(s => s.EmployeeId == employeeId).ToList();
+            int replaced = 0;
+            foreach (var old in all.Where(s => string.Compare(s.EffectiveFrom, newFrom) >= 0).ToList())
+            {
+                _db.EmployeeSalaryComponents.RemoveRange(old.Components);
+                _db.EmployeeSalaryStructures.Remove(old);
+                all.Remove(old); replaced++;
+            }
+            var current = all.FirstOrDefault(s => string.Compare(s.EffectiveFrom, newFrom) < 0 && (s.EffectiveTo == null || string.Compare(s.EffectiveTo, newFrom) >= 0));
 
             var structure = new EmployeeSalaryStructure
             {
                 EmployeeId = employeeId,
-                EffectiveFrom = DateTime.Parse(effectiveFrom).ToString("yyyy-MM-dd"),
+                EffectiveFrom = newFrom,
                 AnnualCTC = annualCTC,
                 SourceTemplateId = sourceTemplateId,
                 CreatedByEmployeeId = CurrentEmpId
@@ -302,11 +312,11 @@ namespace AmpmHrmsPro.Controllers
                 comp.MonthlyAmount = line?.Monthly ?? 0;
             }
 
-            if (current != null)
-                current.EffectiveTo = DateTime.Parse(effectiveFrom).AddDays(-1).ToString("yyyy-MM-dd");
+            if (current != null) current.EffectiveTo = dayBefore;
 
             _db.SaveChanges();
-            TempData["Success"] = $"Salary structure assigned to {emp.Name}, effective {structure.EffectiveFrom}.";
+            TempData["Success"] = $"Salary structure assigned to {emp.Name}, effective {structure.EffectiveFrom}."
+                + (replaced > 0 ? $" {replaced} later version(s) were replaced by this one." : "");
             return RedirectToAction("EmployeeStructure", new { employeeId });
         }
     }

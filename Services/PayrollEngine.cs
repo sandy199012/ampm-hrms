@@ -45,14 +45,15 @@ namespace AmpmHrmsPro.Services
         }
 
         /// <summary>(Re)builds every payslip of a draft run. Returns (created/updated, skipped-without-structure).</summary>
-        public static async Task<(int Done, List<string> NoStructure)> GenerateAsync(AppDbContext db, PayrollRun run)
+        public static async Task<(int Done, List<string> NoStructure)> GenerateAsync(AppDbContext db, PayrollRun run, int? onlyEmployeeId = null)
         {
             if (run.Status == "Finalised") throw new InvalidOperationException("This month is finalised — reopen it first.");
             var monthStart = new DateTime(run.Year, run.Month, 1);
             var monthEnd = monthStart.AddMonths(1).AddDays(-1);
             string ms = monthStart.ToString("yyyy-MM-dd"), me = monthEnd.ToString("yyyy-MM-dd");
 
-            var emps = (await db.Employees.Include(e => e.Department).Include(e => e.Designation).ToListAsync())
+            var emps = (await db.Employees.Include(e => e.Department).Include(e => e.Designation)
+                    .Where(e => onlyEmployeeId == null || e.Id == onlyEmployeeId).ToListAsync())
                 .Where(e => (string.IsNullOrEmpty(e.DOJ) || string.Compare(e.DOJ, me) <= 0)
                          && (e.IsActive || (LeftOn(e) is string left && string.Compare(left, ms) >= 0)))
                 .ToList();
@@ -64,7 +65,8 @@ namespace AmpmHrmsPro.Services
                 .ToDictionary(g => g.Key, g => g.OrderByDescending(s => s.EffectiveFrom).First());
 
             var components = await db.SalaryComponents.Where(c => c.IsActive).OrderBy(c => c.DisplayOrder).ThenBy(c => c.Id).ToListAsync();
-            var existing = await db.Payslips.Include(p => p.Lines).Where(p => p.PayrollRunId == run.Id).ToListAsync();
+            var existing = await db.Payslips.Include(p => p.Lines)
+                .Where(p => p.PayrollRunId == run.Id && (onlyEmployeeId == null || p.EmployeeId == onlyEmployeeId)).ToListAsync();
             var dailies = await db.AttendanceDailies.AsNoTracking()
                 .Where(a => string.Compare(a.Date, ms) >= 0 && string.Compare(a.Date, me) <= 0)
                 .Select(a => new { a.EmployeeId, a.Date, a.EffectiveStatus }).ToListAsync();
@@ -73,7 +75,7 @@ namespace AmpmHrmsPro.Services
             int done = 0; var none = new List<string>();
             foreach (var e in emps)
             {
-                if (!structByEmp.TryGetValue(e.Id, out var st)) { if (e.IsActive) none.Add($"{e.Name} ({e.EmpCode})"); continue; }
+                if (!structByEmp.TryGetValue(e.Id, out var st)) { if (e.IsActive || onlyEmployeeId != null) none.Add($"{e.Name} ({e.EmpCode})"); continue; }
                 var slip = existing.FirstOrDefault(p => p.EmployeeId == e.Id);
                 if (slip == null)
                 {

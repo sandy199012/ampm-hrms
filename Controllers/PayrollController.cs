@@ -38,17 +38,35 @@ namespace AmpmHrmsPro.Controllers
             ViewBag.Runs = await _db.PayrollRuns.OrderByDescending(r => r.Year).ThenByDescending(r => r.Month).Take(24).ToListAsync();
             ViewBag.WithStructure = await _db.EmployeeSalaryStructures.Where(s => s.EffectiveTo == null).Select(s => s.EmployeeId).Distinct().CountAsync();
             ViewBag.ActiveEmployees = await _db.Employees.CountAsync(e => e.IsActive);
+            var withStruct = await _db.EmployeeSalaryStructures.Select(s => s.EmployeeId).Distinct().ToListAsync();
+            ViewBag.EmployeeList = await _db.Employees.Where(e => e.IsActive || withStruct.Contains(e.Id))
+                .OrderBy(e => e.Name).Select(e => new { e.Id, e.Name, e.EmpCode, Has = withStruct.Contains(e.Id) }).ToListAsync();
             return View(slips);
         }
 
         [HttpPost, ValidateAntiForgeryToken]
-        public async Task<IActionResult> Generate(int year, int month)
+        public async Task<IActionResult> Generate(int year, int month, int? employeeId)
         {
             if (month < 1 || month > 12 || year < 2000) return BadRequest();
             var run = await PayrollEngine.GetOrCreateRunAsync(_db, year, month);
             if (run.Status == "Finalised")
             {
                 TempData["Error"] = "This month is already finalised. Reopen it first to make changes.";
+                return RedirectToAction("Index", new { year, month });
+            }
+            if (employeeId is int one)
+            {
+                var (d1, n1) = await PayrollEngine.GenerateAsync(_db, run, one);
+                if (d1 == 0)
+                {
+                    TempData["Error"] = n1.Count > 0
+                        ? $"{n1[0]} has no salary structure covering {MonthName(year, month)} — add one under Salary Structure → Employee Structure."
+                        : $"This employee didn't work in {MonthName(year, month)} (joined later or left earlier).";
+                    return RedirectToAction("Index", new { year, month });
+                }
+                var slipId = await _db.Payslips.Where(p => p.PayrollRunId == run.Id && p.EmployeeId == one).Select(p => p.Id).FirstAsync();
+                TempData["Success"] = $"Test payslip generated for {MonthName(year, month)} — check it below, then Generate for everyone when it looks right.";
+                TempData["OpenSlip"] = slipId;
                 return RedirectToAction("Index", new { year, month });
             }
             var (done, none) = await PayrollEngine.GenerateAsync(_db, run);
