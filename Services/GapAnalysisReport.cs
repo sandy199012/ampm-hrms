@@ -123,6 +123,16 @@ namespace AmpmHrmsPro.Services
                 monthCodes = (await _db.P360DailyRecords.AsNoTracking()
                         .Where(r => r.Date >= from && r.Date <= upto).Select(r => r.EmpCode).Distinct().ToListAsync(ct))
                     .ToHashSet();
+            if (monthCodes.Count == 0)
+            {
+                // No roster and no Presence 360 upload this month (attendance now comes
+                // from the Presence 360 API) → everyone with HRMS attendance this month.
+                string fS = from.ToString("yyyy-MM-dd"), tS = upto.ToString("yyyy-MM-dd");
+                monthCodes = (await _db.AttendanceDailies.AsNoTracking()
+                        .Where(a => string.Compare(a.Date, fS) >= 0 && string.Compare(a.Date, tS) <= 0 && a.Employee!.IsActive)
+                        .Select(a => a.Employee!.EmpCode).Distinct().ToListAsync(ct))
+                    .Select(NormCode).Where(c => c.Length > 0).ToHashSet();
+            }
 
             if (string.IsNullOrWhiteSpace(hodName))
                 return monthCodes.ToList();
@@ -235,8 +245,9 @@ namespace AmpmHrmsPro.Services
                 .Where(a => string.Compare(a.Date, fromS) >= 0 && string.Compare(a.Date, toS) <= 0)
                 .Select(a => new { a.EmployeeId, a.Date, a.InTime, a.OutTime, a.EffectiveStatus }).ToListAsync(ct);
             var emps = await _db.Employees.AsNoTracking()
-                .Select(e => new { e.Id, e.EmpCode, e.Name, e.ReportingManagerId }).ToListAsync(ct);
+                .Select(e => new { e.Id, e.EmpCode, e.Name, e.ReportingManagerId, e.ShiftId, e.IsActive }).ToListAsync(ct);
             var codeById = emps.ToDictionary(e => e.Id, e => NormCode(e.EmpCode));
+            bool noPlan = roster.Count == 0;
             foreach (var a in api)
             {
                 if (!codeById.TryGetValue(a.EmployeeId, out var c)) continue;
@@ -246,7 +257,7 @@ namespace AmpmHrmsPro.Services
             }
 
             // No roster for this month → build the plan from Presence 360 itself.
-            if (roster.Count == 0)
+            if (noPlan)
             {
                 foreach (var r in p360)
                 {
@@ -256,6 +267,28 @@ namespace AmpmHrmsPro.Services
                                     : st == "H" || st.StartsWith("POH") ? "Holiday" : null;
                     roster[(r.EmpCode, r.Date)] = new Plan(Regex.Replace(r.EmployeeName ?? "", @"\s+", " ").Trim(), dayType,
                         Mins(r.ShiftIn), Mins(r.ShiftOut), "OFFICE", 10, null);
+                }
+            }
+
+            // …and for days only the HRMS attendance has (Presence 360 API sync, no
+            // CSV upload): plan = the employee's shift, Week Off / Holiday from the status.
+            if (noPlan)
+            {
+                var shifts = await _db.Shifts.AsNoTracking().ToDictionaryAsync(x => x.Id, ct);
+                var empById = emps.ToDictionary(e => e.Id);
+                foreach (var a in api)
+                {
+                    if (!empById.TryGetValue(a.EmployeeId, out var emp) || !emp.IsActive) continue;
+                    var c = codeById[a.EmployeeId];
+                    if (c.Length == 0 || (scope != null && !scope.Contains(c))) continue;
+                    if (!DateOnly.TryParseExact(a.Date, "yyyy-MM-dd", out var d) || roster.ContainsKey((c, d))) continue;
+                    var st = (a.EffectiveStatus ?? "").ToUpperInvariant();
+                    string? dayType = st.StartsWith("WO") || st.StartsWith("POW") ? "Week Off"
+                                    : st == "H" || st.StartsWith("POH") ? "Holiday" : null;
+                    Shift? sh = emp.ShiftId.HasValue && shifts.TryGetValue(emp.ShiftId.Value, out var s0) ? s0 : null;
+                    roster[(c, d)] = new Plan(Regex.Replace(emp.Name ?? "", @"\s+", " ").Trim(), dayType,
+                        sh == null ? null : Mins(sh.StartTime), sh == null ? null : Mins(sh.EndTime), "OFFICE",
+                        sh != null && sh.GraceMinutes > 0 ? sh.GraceMinutes : 10, null);
                 }
             }
 
