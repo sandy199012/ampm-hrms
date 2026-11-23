@@ -364,29 +364,43 @@ namespace AmpmHrmsPro.Services
                             else if (outDt > inDt && seen.Add((empId, outDt)))
                                 punches.Add(new AttendancePunch { EmployeeId = empId, PunchDateTime = outDt, Direction = "Out", Source = PunchSource, SyncedAt = DateTime.Now });
                         }
-                        Mark(empId, day.Value, day.Value);
                     }
 
-                    // Replace this window's API punches; never duplicate a punch another source already has.
+                    // Sync this window's API punches by difference: only punches that are new or
+                    // gone are written, and only those employee-days are recalculated — the
+                    // sync runs every few minutes, so re-writing everything each time was the
+                    // biggest source of database traffic. Never duplicate a punch another source has.
                     var winEnd = to.AddDays(1);
                     var ids = punches.Select(p => p.EmployeeId).Distinct().ToList();
-                    var removed = await db.AttendancePunches
+                    var current = await db.AttendancePunches.AsNoTracking()
                         .Where(p => p.Source == PunchSource && p.PunchDateTime >= from && p.PunchDateTime < winEnd)
-                        .Select(p => new { p.EmployeeId, Day = p.PunchDateTime.Date }).Distinct().ToListAsync(ct);
-                    foreach (var r in removed) Mark(r.EmployeeId, r.Day, r.Day);   // days that may lose punches get recomputed too
-                    await db.AttendancePunches
-                        .Where(p => p.Source == PunchSource && p.PunchDateTime >= from && p.PunchDateTime < winEnd)
-                        .ExecuteDeleteAsync(ct);
+                        .Select(p => new { p.Id, p.EmployeeId, p.PunchDateTime }).ToListAsync(ct);
                     var other = (await db.AttendancePunches.AsNoTracking()
-                            .Where(p => ids.Contains(p.EmployeeId) && p.PunchDateTime >= from && p.PunchDateTime < winEnd)
+                            .Where(p => ids.Contains(p.EmployeeId) && p.Source != PunchSource && p.PunchDateTime >= from && p.PunchDateTime < winEnd)
                             .Select(p => new { p.EmployeeId, p.PunchDateTime }).ToListAsync(ct))
                         .Select(p => (p.EmployeeId, p.PunchDateTime)).ToHashSet();
-                    var fresh = punches.Where(p => !other.Contains((p.EmployeeId, p.PunchDateTime))).ToList();
-                    db.AttendancePunches.AddRange(fresh);
-                    await db.SaveChangesAsync(ct);
+                    var wanted = punches.Where(p => !other.Contains((p.EmployeeId, p.PunchDateTime))).ToList();
+                    var wantedKeys = wanted.Select(p => (p.EmployeeId, p.PunchDateTime)).ToHashSet();
+                    var currentKeys = current.Select(p => (p.EmployeeId, p.PunchDateTime)).ToHashSet();
+
+                    var gone = current.Where(p => !wantedKeys.Contains((p.EmployeeId, p.PunchDateTime))).ToList();
+                    var fresh = wanted.Where(p => !currentKeys.Contains((p.EmployeeId, p.PunchDateTime))).ToList();
+                    foreach (var g in gone) Mark(g.EmployeeId, g.PunchDateTime.Date, g.PunchDateTime.Date);
+                    foreach (var f in fresh) Mark(f.EmployeeId, f.PunchDateTime.Date, f.PunchDateTime.Date);
+                    if (gone.Count > 0)
+                    {
+                        var goneIds = gone.Select(g => g.Id).ToList();
+                        foreach (var chunk in goneIds.Chunk(500))
+                            await db.AttendancePunches.Where(p => chunk.Contains(p.Id)).ExecuteDeleteAsync(ct);
+                    }
+                    if (fresh.Count > 0)
+                    {
+                        db.AttendancePunches.AddRange(fresh);
+                        await db.SaveChangesAsync(ct);
+                    }
                     db.ChangeTracker.Clear();
 
-                    var part = $"Attendance: {items.Count} record(s), {fresh.Count} punch(es) for {ids.Count} employee(s)";
+                    var part = $"Attendance: {items.Count} record(s), {fresh.Count} new / {gone.Count} removed punch(es) for {ids.Count} employee(s)";
                     if (noIn > 0) part += $", {noIn} day(s) without punch-in";
                     if (overnight > 0) part += $", {overnight} next-day out(s) skipped";
                     if (unmatched > 0) part += $", {unmatched} record(s) with codes not in HRMS ({string.Join(", ", unmatchedCodes)}{(unmatched > unmatchedCodes.Count ? ", …" : "")})";
@@ -454,7 +468,7 @@ namespace AmpmHrmsPro.Services
                 }
                 if (rows.Count > 0)
                 {
-                    var res = await ApplicationReports.ImportRowsAsync(db, rows, AppSource, "Presence 360 API");
+                    var res = await ApplicationReports.ImportRowsAsync(db, rows, AppSource, "Presence 360 API", from.AddDays(-120));
                     foreach (var (empId, a, b) in res.ToRecompute) Mark(empId, a, b);
                     var created = res.Created.Values.Sum(); var updated = res.Updated.Values.Sum();
                     parts.Add($"requests {created} new / {updated} updated" + (res.NotFound.Count > 0 ? $", {res.NotFound.Count} employee(s) not in HRMS" : ""));
@@ -465,10 +479,10 @@ namespace AmpmHrmsPro.Services
 
                 // 3. Recompute the touched employee-days ──────────────────
                 int recomputed = 0;
-                foreach (var (empId, (a, b)) in recompute)
+                foreach (var g in recompute.GroupBy(kv => kv.Value))
                 {
                     ct.ThrowIfCancellationRequested();
-                    recomputed += await AttendanceEngine.RecomputeBulkAsync(db, a, b, new[] { empId }, ct);
+                    recomputed += await AttendanceEngine.RecomputeBulkAsync(db, g.Key.From, g.Key.To, g.Select(kv => kv.Key).ToList(), ct);
                 }
                 db.ChangeTracker.Clear();
                 s = await SettingsAsync(db, ct);

@@ -19,6 +19,7 @@ namespace AmpmHrmsPro.Services
         private readonly IServiceProvider _services;
         private readonly ILogger<AttendanceSyncHostedService> _log;
         public AttendanceSyncHostedService(IServiceProvider services, ILogger<AttendanceSyncHostedService> log) { _services = services; _log = log; }
+        static readonly System.Collections.Concurrent.ConcurrentDictionary<int, DateTime> _lastDeep = new();
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
@@ -31,7 +32,13 @@ namespace AmpmHrmsPro.Services
                     {
                         var db = sp.GetRequiredService<AppDbContext>();
                         db.AuditEnabled = false;
-                        var (emps, days, fixedRows) = await HealAsync(db, 62, stoppingToken);
+                        // Every 15 min: the last 3 days (today's punches, late approvals).
+                        // Twice a day: the full 62 days + holiday-calendar check. Reading
+                        // two months of attendance every 15 minutes used a lot of database
+                        // traffic for nothing — older days rarely change.
+                        bool deep = !_lastDeep.TryGetValue(companyId, out var last) || DateTime.UtcNow - last > TimeSpan.FromHours(12);
+                        var (emps, days, fixedRows) = await HealAsync(db, deep ? 62 : 3, stoppingToken, checkHolidays: deep);
+                        if (deep) _lastDeep[companyId] = DateTime.UtcNow;
                         if (fixedRows > 0)
                             _log.LogInformation("Attendance auto-sync (company {Company}): {Days} employee-day(s) out of date for {Emps} employee(s) — {Rows} rows recomputed.",
                                 companyId, days, emps, fixedRows);
@@ -48,7 +55,7 @@ namespace AmpmHrmsPro.Services
         static string CodeKey(string? c) { var t = (c ?? "").Trim().TrimStart('0'); return t.Length == 0 ? "0" : t.ToUpperInvariant(); }
 
         /// <summary>Finds out-of-date employee-days in the last <paramref name="days"/> days and recomputes them.</summary>
-        public static async Task<(int Employees, int Days, int RowsRecomputed)> HealAsync(AppDbContext db, int days, CancellationToken ct = default)
+        public static async Task<(int Employees, int Days, int RowsRecomputed)> HealAsync(AppDbContext db, int days, CancellationToken ct = default, bool checkHolidays = true)
         {
             var today = IndiaTime.Today;
             var from = today.AddDays(-(days - 1));
@@ -107,6 +114,7 @@ namespace AmpmHrmsPro.Services
             // holiday on a date that no longer is one. Presence 360 days are
             // left alone — their own status (H / POH) already decides.
             int rows = 0;
+            if (checkHolidays) {
             var holFromS = today.AddDays(-400).ToString("yyyy-MM-dd");
             var holDates = (await db.Holidays.AsNoTracking()
                     .Where(h => h.IsActive && string.Compare(h.Date, holFromS) >= 0 && string.Compare(h.Date, toS) <= 0)
@@ -118,7 +126,8 @@ namespace AmpmHrmsPro.Services
             if (holWrong.Count > 0)
             {
                 var hFrom = DateOnly.FromDateTime(today.AddDays(-400));
-                var p360Days = (await db.P360DailyRecords.AsNoTracking().Where(x => x.Date >= hFrom && x.Date <= dTo)
+                var wrongDates = holWrong.Select(h => DateOnly.Parse(h.Date)).Distinct().ToList();
+                var p360Days = (await db.P360DailyRecords.AsNoTracking().Where(x => x.Date >= hFrom && x.Date <= dTo && wrongDates.Contains(x.Date))
                         .Select(x => new { x.EmpCode, x.Date }).ToListAsync(ct))
                     .Where(x => keyToEmp.ContainsKey(CodeKey(x.EmpCode)))
                     .Select(x => (keyToEmp[CodeKey(x.EmpCode)], x.Date.ToString("yyyy-MM-dd"))).ToHashSet();
@@ -129,6 +138,7 @@ namespace AmpmHrmsPro.Services
                     rows += await AttendanceEngine.RecomputeBulkAsync(db, day, day, g.Select(x => x.EmployeeId).Distinct().ToList(), ct);
                     foreach (var x in g) need.Remove((x.EmployeeId, x.Date));
                 }
+            }
             }
 
             if (need.Count == 0) return (rows > 0 ? 1 : 0, 0, rows);

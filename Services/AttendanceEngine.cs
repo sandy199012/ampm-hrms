@@ -234,7 +234,8 @@ namespace AmpmHrmsPro.Services
             var keyToEmp = new Dictionary<string, int>();
             foreach (var e in employees) keyToEmp.TryAdd(CodeKey(e.EmpCode), e.Id);
             var p360 = new Dictionary<(int, DateOnly), P360DailyRecord>();
-            foreach (var x in (await db.P360DailyRecords.AsNoTracking().Where(x => x.Date >= dFrom && x.Date <= dTo).ToListAsync(ct)).OrderBy(x => x.UpdatedAt))
+            var p360Codes = keyToEmp.Keys.Concat(employees.Select(e => e.EmpCode)).Distinct().ToList();
+            foreach (var x in (await db.P360DailyRecords.AsNoTracking().Where(x => x.Date >= dFrom && x.Date <= dTo && p360Codes.Contains(x.EmpCode)).ToListAsync(ct)).OrderBy(x => x.UpdatedAt))
                 if (keyToEmp.TryGetValue(CodeKey(x.EmpCode), out var eid)) p360[(eid, x.Date)] = x;
 
             var existing = (await db.AttendanceDailies.Where(d => ids.Contains(d.EmployeeId)

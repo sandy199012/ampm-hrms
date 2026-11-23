@@ -175,10 +175,10 @@ namespace AmpmHrmsPro.Services
             new Importer(db, SourceP360).ImportFilesAsync(files);
 
         /// <summary>Same upsert as the Excel import, for rows fetched from the Presence 360 API.</summary>
-        public static async Task<ImportResult> ImportRowsAsync(AppDbContext db, IEnumerable<(string Type, IReportRow Row)> rows, string source, string label)
+        public static async Task<ImportResult> ImportRowsAsync(AppDbContext db, IEnumerable<(string Type, IReportRow Row)> rows, string source, string label, DateTime? since = null)
         {
             var imp = new Importer(db, source);
-            await imp.LoadAsync();
+            await imp.LoadAsync(since);
             var n = 0;
             foreach (var (type, row) in rows)
             {
@@ -202,14 +202,19 @@ namespace AmpmHrmsPro.Services
 
             public Importer(AppDbContext db, string source) { this.db = db; this.source = source; }
 
-            public async Task LoadAsync()
+            /// <param name="since">Only requests starting on/after this date can be matched (the API sync passes
+            /// its window minus a margin, so it doesn't read the whole Applications table every few minutes).</param>
+            public async Task LoadAsync(DateTime? since = null)
             {
                 var emps = await db.Employees.AsNoTracking().Select(e => new { e.Id, e.EmpCode, e.Name, e.IsActive }).ToListAsync();
                 byCode = new Dictionary<string, int>();
                 foreach (var e in emps.OrderByDescending(e => e.IsActive)) byCode.TryAdd(CodeKey(e.EmpCode), e.Id);
                 byName = emps.GroupBy(e => NameKey(e.Name)).Where(g => g.Count() == 1).ToDictionary(g => g.Key, g => g.First().Id);
                 leaveTypes = await db.LeaveTypes.ToListAsync();
-                existing = await db.Applications.ToListAsync();
+                var sinceS = since?.ToString("yyyy-MM-dd");
+                existing = sinceS == null
+                    ? await db.Applications.ToListAsync()
+                    : await db.Applications.Where(a => string.Compare(a.FromDate, sinceS) >= 0).ToListAsync();
             }
 
             public async Task<ImportResult> FinishAsync()
@@ -396,7 +401,12 @@ namespace AmpmHrmsPro.Services
                 }
 
                 if (isNew) Result.Created[type]++; else Result.Updated[type]++;
-                if (app.Status == "Approved" || oldStatus == "Approved")
+                // Recalculate attendance only when this request is new or something on it changed
+                // (the API sends the same requests again on every sync).
+                var entry = db.Entry(app);
+                entry.DetectChanges();
+                bool changed = isNew || entry.State != EntityState.Unchanged;
+                if (changed && (app.Status == "Approved" || oldStatus == "Approved"))
                     Result.ToRecompute.Add((empId.Value, from.Value.Date, to.Value.Date));
             }
         }
