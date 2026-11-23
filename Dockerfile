@@ -16,6 +16,14 @@ WORKDIR /app
 
 RUN mkdir -p /data
 
+# PostgreSQL 17 client (pg_dump) for Administration > Database Backup
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
+ && install -d /usr/share/postgresql-common/pgdg \
+ && curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+ && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+ && apt-get update && apt-get install -y --no-install-recommends postgresql-client-17 \
+ && apt-get purge -y gnupg && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
+
 COPY --from=build /app/publish .
 
 ENV ASPNETCORE_URLS=http://+:8080

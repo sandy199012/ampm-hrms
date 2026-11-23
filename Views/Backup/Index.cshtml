@@ -1,0 +1,66 @@
+@{
+    ViewData["Title"] = "Database Backup";
+    ViewData["Subtitle"] = "Administration";
+    bool pg = ViewBag.IsPostgres == true;
+    int companies = ViewBag.Companies ?? 0;
+}
+
+<div class="page-header">
+    <div>
+        <h1>Database Backup</h1>
+        <p>Download a full copy of the HRMS database — keep it safe, or restore it into another Supabase / PostgreSQL project</p>
+    </div>
+</div>
+
+@if (!pg)
+{
+    <div class="alert alert-warning">Backup is available only on the cloud (PostgreSQL / Supabase) database.</div>
+}
+else
+{
+    <div class="row g-3">
+        <div class="col-lg-7">
+            <div class="card mb-3">
+                <div class="card-header">Download full backup</div>
+                <div class="card-body">
+                    <p class="mb-2">Every HRMS table with all data — employees, attendance, punches, leave, applications, payroll, settings.</p>
+                    <p class="small text-muted mb-3">Database size: <b>@ViewBag.DbSize</b> · PostgreSQL @ViewBag.ServerVersion · takes about 1–2 minutes, keep this page open.</p>
+                    @if (companies > 1)
+                    {
+                        <div class="alert alert-warning small mb-0">This database holds more than one company, so a full backup is not allowed here.</div>
+                    }
+                    else
+                    {
+                        <div class="d-flex flex-wrap gap-2">
+                            <form method="post" asp-action="Download" onsubmit="var b=this.querySelector('button');b.disabled=true;b.innerHTML='Preparing… (1–2 min)';setTimeout(function(){b.disabled=false;b.innerHTML=b.dataset.t;},120000);">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="format" value="sql" />
+                                <button class="btn btn-primary" data-t="Download .sql.gz (recommended)"><i class="bi bi-database-down me-1"></i>Download .sql.gz (recommended)</button>
+                            </form>
+                            <form method="post" asp-action="Download" onsubmit="var b=this.querySelector('button');b.disabled=true;b.innerHTML='Preparing… (1–2 min)';setTimeout(function(){b.disabled=false;b.innerHTML=b.dataset.t;},120000);">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="format" value="custom" />
+                                <button class="btn btn-light" data-t="Download .dump (pg_restore)"><i class="bi bi-file-earmark-binary me-1"></i>Download .dump (pg_restore)</button>
+                            </form>
+                        </div>
+                        <div class="form-text mt-2"><i class="bi bi-shield-lock me-1"></i>The file contains all personal and salary data — store it somewhere private. Every download is written to the audit log.</div>
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-5">
+            <div class="card">
+                <div class="card-header">Restore into a new Supabase project</div>
+                <div class="card-body small">
+                    <ol class="mb-2 ps-3">
+                        <li>Create the new Supabase project and copy its <b>Session pooler</b> connection string (Connect → Session pooler).</li>
+                        <li>Unzip the <code>.sql.gz</code> file (7-Zip / WinRAR) → you get a <code>.sql</code> file.</li>
+                        <li>Run: <code>psql "&lt;new connection string&gt;" -f ampm-hrms-backup-….sql</code><br />or for the .dump file: <code>pg_restore --no-owner -d "&lt;new connection string&gt;" ampm-hrms-backup-….dump</code></li>
+                        <li>On Render, change the <code>DATABASE_URL</code> environment variable to the new connection string and redeploy.</li>
+                    </ol>
+                    <div class="text-muted">psql / pg_restore come with the free PostgreSQL client tools (version 17).</div>
+                </div>
+            </div>
+        </div>
+    </div>
+}

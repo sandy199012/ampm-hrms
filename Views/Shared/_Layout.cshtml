@@ -298,6 +298,9 @@
                 <a class="sidebar-link @(IsActiveAny("Users","Index","Edit") ? "active" : "")" asp-controller="Users" asp-action="Index">
                     <i class="bi bi-person-lock"></i> Users &amp; Access
                 </a>
+                <a class="sidebar-link @(IsActive("Backup","Index") ? "active" : "")" asp-controller="Backup" asp-action="Index">
+                    <i class="bi bi-database-down"></i> Database Backup
+                </a>
                 <a class="sidebar-link @(IsActiveAny("Users","Roles","Role") ? "active" : "")" asp-controller="Users" asp-action="Roles">
                     <i class="bi bi-people-fill"></i> Roles &amp; Permissions
                 </a>
