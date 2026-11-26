@@ -35,6 +35,38 @@
 }
 
 @{
+    var dlTo = AmpmHrmsPro.Services.IndiaTime.Today.AddDays(-1);
+    var dlFrom = new DateTime(dlTo.Year, dlTo.Month, 1);
+    var hodNames = ViewBag.HodNames as List<string> ?? new List<string>();
+}
+<div class="card mb-3">
+    <div class="card-header"><i class="bi bi-file-earmark-spreadsheet me-1" style="color:var(--primary);"></i> Download Gap Analysis report</div>
+    <div class="card-body">
+        <form method="get" asp-action="Download" class="row g-2 align-items-end">
+            <div class="col-6 col-md-3">
+                <label class="form-label">From</label>
+                <input type="date" name="from" class="form-control" value="@dlFrom.ToString("yyyy-MM-dd")" required />
+            </div>
+            <div class="col-6 col-md-3">
+                <label class="form-label">To</label>
+                <input type="date" name="to" class="form-control" value="@dlTo.ToString("yyyy-MM-dd")" max="@AmpmHrmsPro.Services.IndiaTime.Today.ToString("yyyy-MM-dd")" required />
+            </div>
+            <div class="col-12 col-md-4">
+                <label class="form-label">For</label>
+                <select name="hod" class="form-select">
+                    <option value="">All employees</option>
+                    @foreach (var h in hodNames) { <option value="@h">@h — team</option> }
+                </select>
+            </div>
+            <div class="col-12 col-md-2">
+                <button class="btn btn-primary w-100"><i class="bi bi-download me-1"></i>Download</button>
+            </div>
+        </form>
+        <div class="form-text">Same Excel as the daily HoD email (Summary · Daily Detail · Gaps Only) for any dates you pick — up to 62 days.</div>
+    </div>
+</div>
+
+@{
     var ds = ViewBag.DataStatus as AmpmHrmsPro.Services.ReviewDataStatus;
     var nextMonth = AmpmHrmsPro.Services.IndiaTime.Today.AddMonths(1).ToString("yyyy-MM");
 }

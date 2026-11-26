@@ -59,8 +59,8 @@ namespace AmpmHrmsPro.Services
     public interface IGapAnalysisReport
     {
         /// <summary>Employee codes in a HoD's team (every level below them); null HoD = everyone.</summary>
-        Task<List<string>> ResolveScopeAsync(string? hodName, DateOnly upto, CancellationToken ct = default);
-        Task<List<MtdRow>> BuildRowsAsync(IReadOnlyCollection<string>? codes, DateOnly upto, CancellationToken ct = default);
+        Task<List<string>> ResolveScopeAsync(string? hodName, DateOnly upto, CancellationToken ct = default, DateOnly? rangeFrom = null);
+        Task<List<MtdRow>> BuildRowsAsync(IReadOnlyCollection<string>? codes, DateOnly upto, CancellationToken ct = default, DateOnly? rangeFrom = null);
         byte[] BuildWorkbook(List<MtdRow> rows, DateOnly upto);
         Task<bool> HasDataForAsync(DateOnly date, CancellationToken ct = default);
         Task<string?> MasterNameForAsync(string hodName, CancellationToken ct = default);
@@ -113,9 +113,9 @@ namespace AmpmHrmsPro.Services
             return m?.Name;
         }
 
-        public async Task<List<string>> ResolveScopeAsync(string? hodName, DateOnly upto, CancellationToken ct = default)
+        public async Task<List<string>> ResolveScopeAsync(string? hodName, DateOnly upto, CancellationToken ct = default, DateOnly? rangeFrom = null)
         {
-            var from = MonthStart(upto);
+            var from = rangeFrom ?? MonthStart(upto);
             var monthCodes = (await _db.RosterEntries.AsNoTracking()
                     .Where(r => r.Date >= from && r.Date <= upto).Select(r => r.EmployeeCode).Distinct().ToListAsync(ct))
                 .Select(NormCode).Where(c => c.Length > 0).ToHashSet();
@@ -210,9 +210,9 @@ namespace AmpmHrmsPro.Services
             return await _db.AttendanceDailies.AnyAsync(a => a.Date == ds && (a.InTime != null || a.OutTime != null), ct);
         }
 
-        public async Task<List<MtdRow>> BuildRowsAsync(IReadOnlyCollection<string>? codes, DateOnly upto, CancellationToken ct = default)
+        public async Task<List<MtdRow>> BuildRowsAsync(IReadOnlyCollection<string>? codes, DateOnly upto, CancellationToken ct = default, DateOnly? rangeFrom = null)
         {
-            var from = MonthStart(upto);
+            var from = rangeFrom ?? MonthStart(upto);
             HashSet<string>? scope = codes == null ? null : codes.Select(NormCode).ToHashSet();
 
             // Roster for the month

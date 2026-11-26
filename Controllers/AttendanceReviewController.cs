@@ -36,6 +36,9 @@ namespace AmpmHrmsPro.Controllers
             ViewData["Subtitle"] = "Upload daily Presence 360 report and review attendance gaps";
             var imports = await _svc.GetImportsAsync();
             ViewBag.DataStatus = await _report.GetStatusAsync();
+            ViewBag.HodNames = (await _svc.GetRecipientRowsAsync()).Select(r => r.HodName)
+                .Where(n => !string.IsNullOrWhiteSpace(n) && !n.StartsWith("__") && !string.Equals(n, "Unassigned", StringComparison.OrdinalIgnoreCase))
+                .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(n => n).ToList();
             return View(imports);
         }
 
@@ -224,6 +227,32 @@ namespace AmpmHrmsPro.Controllers
                 TempData["Error"] = $"Master Sheet upload failed: {ex.Message}";
             }
             return RedirectToAction(nameof(Index));
+        }
+
+        // GET /AttendanceReview/Download?from=2026-11-01&to=2026-11-25[&hod=Manish Rana]
+        // Gap Analysis workbook for any date range (max 62 days) — everyone, or one HoD's team.
+        // Works with Presence 360 API attendance too (no CSV upload needed).
+        public async Task<IActionResult> Download(string? from, string? to, string? hod = null)
+        {
+            var today = DateOnly.FromDateTime(IndiaTime.Today);
+            var dTo = DateOnly.TryParse(to, CultureInfo.InvariantCulture, out var t) ? t : today.AddDays(-1);
+            var dFrom = DateOnly.TryParse(from, CultureInfo.InvariantCulture, out var f) ? f : new DateOnly(dTo.Year, dTo.Month, 1);
+            if (dTo > today) dTo = today;
+            if (dFrom > dTo) { TempData["Error"] = "From date must be on or before To date."; return RedirectToAction(nameof(Index)); }
+            if (dTo.DayNumber - dFrom.DayNumber > 61) { TempData["Error"] = "Please choose at most 62 days at a time."; return RedirectToAction(nameof(Index)); }
+
+            var who = string.IsNullOrWhiteSpace(hod) ? null : hod.Trim();
+            var scope = await _report.ResolveScopeAsync(who, dTo, default, dFrom);
+            var rows  = await _report.BuildRowsAsync(scope, dTo, default, dFrom);
+            if (rows.Count == 0)
+            {
+                TempData["Error"] = $"No attendance found for {(who ?? "anyone")} between {dFrom:dd-MMM-yyyy} and {dTo:dd-MMM-yyyy}.";
+                return RedirectToAction(nameof(Index));
+            }
+            var bytes = _report.BuildWorkbook(rows, dTo);
+            string range = $"{dFrom.ToString("dd-MMM", CultureInfo.InvariantCulture)}_to_{dTo.ToString("dd-MMM-yyyy", CultureInfo.InvariantCulture)}";
+            string label = who == null ? "ALL_Employees" : ((await _report.MasterNameForAsync(who)) ?? who).Trim().Replace(' ', '_');
+            return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"Gap_Analysis_{label}_{range}.xlsx");
         }
 
         // GET /AttendanceReview/DownloadExcel/5[?hod=Manish Rana]
